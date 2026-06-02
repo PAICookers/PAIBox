@@ -5,6 +5,7 @@ from ..exceptions import PAIBoxError, PAIBoxWarning
 __all__ = [
     "GraphCleanupWarning",
     "GraphValidationError",
+    "OutputApproxWarning",
     "PAIIRError",
     "PAIIRWarning",
     "UnsupportedFusionError",
@@ -86,6 +87,12 @@ class UnsupportedOpWarning(PAIIRWarning):
             f"Encountered {len(unsupported_ops)} unsupported operator(s), "
             f"which will be bypassed (data flow will skip these nodes):\n{ops_list}"
         )
+
+
+class OutputApproxWarning(PAIIRWarning):
+    """Warning emitted when an output-boundary op changes exported semantics."""
+
+    pass
 
 
 class GraphValidationError(PAIIRError):

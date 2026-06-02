@@ -1,5 +1,6 @@
 import pytest
 import torch
+from paicorelib import DataSign, DataWidth
 from torch import nn
 
 from paibox.paiir.exceptions import GraphValidationError
@@ -234,6 +235,30 @@ class TestPAIIRGraph:
         assert f"{comp.name} (Linear) (8,)" in captured
         assert f"{act.name} (IFNodeV25) (8,)" in captured
         assert f"{out.name} (OutputNode) (8,)" in captured
+
+    def test_summary_shows_output_format_when_assigned(self, capsys):
+        graph = PAIIRGraph("summary_output_format")
+        inp = InputNode(shape=torch.Size((1, 4)))
+        comp = StandaloneCompOp(nn.Linear(4, 8))
+        comp.output_layouts = (TensorLayout(torch.Size((1, 8)), (0, 1)),)
+        comp.core_params.set_output_format((DataSign.UNSIGNED, DataWidth.WIDTH_4BIT))
+        act = StandaloneActOp(IFNodeV25())
+        act.output_layouts = (TensorLayout(torch.Size((1, 8)), (0, 1)),)
+        act.core_params.set_output_format((DataSign.UNSIGNED, DataWidth.WIDTH_1BIT))
+        out = OutputNode(shape=torch.Size((1, 8)))
+
+        for node in (inp, comp, act, out):
+            graph.add_node(node)
+
+        graph.add_edge(inp.name, comp.name)
+        graph.add_edge(comp.name, act.name)
+        graph.add_edge(act.name, out.name)
+
+        graph.summary()
+        captured = capsys.readouterr().out
+
+        assert f"{comp.name} (Linear) (8,) u4" in captured
+        assert f"{act.name} (IFNodeV25) (8,) u1" in captured
 
     def test_boundary_layout_is_explicit_and_not_synthesized(self):
         graph = PAIIRGraph("boundary_layout")

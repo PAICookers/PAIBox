@@ -1,5 +1,6 @@
 from typing import TypeVar
 
+import pytest
 import torch
 from spikingjelly.activation_based import neuron as sj
 from torch import Tensor, nn
@@ -7,22 +8,48 @@ from torch import Tensor, nn
 from paibox.paiir.ir.graph import PAIIRGraph
 from paibox.paiir.ir.ir_base import PAIIRNode
 from paibox.paiir.ir.lut_activation import LutCustom
-from paibox.paiir.ir.op_node import OfflineCoreOp
-from paibox.paiir.lowering.converter import torch_to_paiir
+from paibox.paiir.ir.op_node import LayoutStage, OfflineCoreOp, ShapeStage, TransformOp
+from paibox.paiir.lowering.converter import (
+    _DEFAULT_MODULE_MAP,
+    _USER_MODULE_MAP,
+    torch_to_paiir,
+)
 from paibox.paiir.pipeline.data_format import DataFormat
 from paibox.paiir.pipeline.layout_chain_canonicalization import (
     canonicalize_layout_chains,
 )
 from paibox.paiir.pipeline.layout_cross_node_elision import (
-    elide_layout_invisible_reshapes,
+    commute_pre_activation_transforms,
 )
 from paibox.paiir.pipeline.passes import (
+    flatten_general_add_chains,
     fuse_to_offline_cores,
     propagate_data_format,
+    propagate_signal_semantics,
     specialize_general_adds,
 )
 
 _T = TypeVar("_T", bound=PAIIRNode)
+
+
+@pytest.fixture(autouse=True)
+def restore_default_module_map():
+    """Restore the global neuron/module registry after each test.
+
+    Built-in lowering rules live in ``_DEFAULT_MODULE_MAP`` while
+    ``register_neuron(...)`` and ``register_module(...)`` write
+    test/user overrides into ``_USER_MODULE_MAP``. Tests that register custom
+    lowering hooks should not leak those overrides into later tests.
+    """
+    original_default = dict(_DEFAULT_MODULE_MAP)
+    original_user = dict(_USER_MODULE_MAP)
+    try:
+        yield
+    finally:
+        _DEFAULT_MODULE_MAP.clear()
+        _DEFAULT_MODULE_MAP.update(original_default)
+        _USER_MODULE_MAP.clear()
+        _USER_MODULE_MAP.update(original_user)
 
 
 class SNNTwoLayer(nn.Module):
@@ -355,6 +382,25 @@ def find_first(graph: PAIIRGraph, node_type: type[_T]) -> _T:
     return next(n for n in graph.nodes.values() if isinstance(n, node_type))
 
 
+def make_transform(
+    input_shape: tuple[int, ...],
+    output_shape: tuple[int, ...],
+    input_dims: tuple[int, ...],
+) -> TransformOp:
+    """Build one simple transform-compatible test node."""
+    return TransformOp(
+        (
+            LayoutStage(input_dims),
+            ShapeStage(lambda _input_shape, bound=torch.Size(output_shape): bound),
+        )
+    )
+
+
+def find_transform_nodes(graph: PAIIRGraph) -> list[TransformOp]:
+    """Return all transform-like routing nodes in the graph."""
+    return [n for n in graph.nodes.values() if isinstance(n, TransformOp)]
+
+
 def offline_nodes(graph: PAIIRGraph) -> list[OfflineCoreOp]:
     """Return all OfflineCoreOp nodes."""
     return find_nodes(graph, OfflineCoreOp)
@@ -364,8 +410,9 @@ def convert_and_fuse(model: nn.Module, *sample_inputs: Tensor) -> PAIIRGraph:
     """Trace a PyTorch model to PAIIR and fuse."""
     unfused = torch_to_paiir(model, *sample_inputs)
     unfused = canonicalize_layout_chains(unfused)
+    unfused = commute_pre_activation_transforms(unfused)
+    unfused = flatten_general_add_chains(unfused)
     unfused = specialize_general_adds(unfused)
-    unfused = elide_layout_invisible_reshapes(unfused)
     return fuse_to_offline_cores(unfused)
 
 
@@ -374,7 +421,8 @@ def convert_fuse_propagate(
     *sample_inputs: Tensor,
     input_formats: dict[str, DataFormat] | None = None,
 ) -> PAIIRGraph:
-    """Full pipeline: trace -> fuse -> propagate data format."""
+    """Full pipeline: trace -> fuse -> propagate semantics and data format."""
     fused = convert_and_fuse(model, *sample_inputs)
+    propagate_signal_semantics(fused, input_formats=input_formats)
     propagate_data_format(fused, input_formats=input_formats)
     return fused

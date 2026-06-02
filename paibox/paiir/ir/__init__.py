@@ -11,10 +11,15 @@ and backend deployment:
 """
 
 from .calc_params import LutData, NeuronParams, OfflineCoreParams, OnlineCoreParams
-from .core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
+from .core_neuron import (
+    ANNNodeV25,
+    CoreNeuronV25,
+    IFNodeV25,
+    LIFNodeV25,
+)
 from .graph import Edge, PAIIRGraph
-from .ir_base import InputNode, OutputNode, PAIIRNode, TensorLayout
-from .signal_domain import SignalDomain
+from .ir_base import FormatFlow, InputNode, OutputNode, PAIIRNode, TensorLayout
+from .signal_domain import SignalDomain, SignalSemantics
 from .add_ops import (
     AddOperandKind,
     AddOperandSpec,
@@ -35,15 +40,18 @@ from .op_node import (
     AccumulateOp,
     CPUOp,
     ConcatOp,
+    LayoutStage,
     OfflineCoreOp,
     OnlineCoreOp,
     OpNode,
-    ReshapeOp,
+    PadOp,
     RoutingOp,
     SequentialOp,
+    ShapeStage,
     SplitOp,
     StandaloneActOp,
     StandaloneCompOp,
+    TransformOp,
 )
 
 __all__ = [
@@ -55,9 +63,11 @@ __all__ = [
     "ConcatOp",
     "CoreNeuronV25",
     "Edge",
+    "FormatFlow",
     "IFNodeV25",
     "InputNode",
     "LIFNodeV25",
+    "LayoutStage",
     "LutActivation",
     "LutAdaptiveActivation",
     "LutCustom",
@@ -77,13 +87,16 @@ __all__ = [
     "OutputNode",
     "PAIIRGraph",
     "PAIIRNode",
+    "PadOp",
     "PotentialAddOp",
-    "ReshapeOp",
     "RoutingOp",
     "SequentialOp",
+    "ShapeStage",
     "SignalDomain",
+    "SignalSemantics",
     "SplitOp",
     "StandaloneActOp",
     "StandaloneCompOp",
     "TensorLayout",
+    "TransformOp",
 ]

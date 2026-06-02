@@ -8,7 +8,6 @@ from paicorelib import (
     CoordXY,
     DataWidth,
     FrameArrayType,
-    NeuronType,
     OfflineCoreRegV2,
     OfflineFrameGenV2,
     find_coordxy_shortest_path,
@@ -29,9 +28,7 @@ from .weight import Weight
 
 
 class CorePlacement:
-    def __init__(
-        self,
-    ) -> None:
+    def __init__(self) -> None:
         self._coord: CoordXY | None = None
         self.neus: list[NeuronPlacement] = (
             []
@@ -40,6 +37,7 @@ class CorePlacement:
             []
         )  # weight of each single neu, can reuse for different single neu
         self.neu_weight_map: dict[int, int] = {}  # map from neu index to weight index
+        self.auto_core_config: Auto_Core_Config = Auto_Core_Config()
 
     def max_input_num(self) -> int:
         max_input_num = 0
@@ -67,7 +65,7 @@ class CorePlacement:
     @abstractmethod
     def to_frame(
         self,
-    ) -> tuple[FrameArrayType, FrameArrayType | None, FrameArrayType]:
+    ) -> tuple[FrameArrayType, FrameArrayType | None, FrameArrayType | None]:
         pass
 
     @abstractmethod
@@ -104,7 +102,6 @@ class OfflineCorePlacementV2(CorePlacement):
         self.frontend_core_config: Frontend_Core_Config = frontend_core_config
         self.backend_core_config: Backend_Core_Config = backend_core_config
         self.default_core_config: Default_Core_Config = Default_Core_Config()
-        self.auto_core_config: Auto_Core_Config = Auto_Core_Config()
         self.neus: list[OfflineNeuronPlacement] = []
 
     @property
@@ -156,7 +153,6 @@ class OfflineCorePlacementV2(CorePlacement):
             )
         for i, neu in enumerate(self.neus):
             weight_idx = self.neu_weight_map[i]
-            selected_weight = self.weights[weight_idx]
             neu.neu_attrs_part1.weight_address_start = weight_start_address[weight_idx]
             neu.neu_attrs_part1.weight_address_end = (
                 weight_start_address[weight_idx + 1] - 1
@@ -165,10 +161,9 @@ class OfflineCorePlacementV2(CorePlacement):
     def set_auto_core_config(self) -> None:
         neuron_number = 0
         for neu in self.neus:
-            neu_count = 1 if neu.neuron_type == NeuronType.HALF else 2
-            neuron_number += neu_count
+            neuron_number += neu.n_sram_required
         self.auto_core_config.neuron_number = neuron_number
-        pkt_offset, _ = find_coordxy_shortest_path(self.coord, TEST_DEST_CORE)
+        pkt_offset, _ = find_coordxy_shortest_path(TEST_DEST_CORE, self.coord)
         self.auto_core_config.test_core_xy = pkt_offset.z
         self.auto_core_config.test_core_x = pkt_offset.x
         self.auto_core_config.test_core_y = pkt_offset.y
@@ -179,10 +174,7 @@ class OfflineCorePlacementV2(CorePlacement):
         pkt_offset, _ = find_coordxy_shortest_path(self.coord)
 
         # frame_type_1: core config
-        frame_type1 = OfflineFrameGenV2.gen_config_frame1(
-            pkt_offset=pkt_offset,
-            core_reg_=self.core_config,
-        )
+        frame_type1 = OfflineFrameGenV2.gen_config_frame1(pkt_offset, self.core_config)
 
         frame_type2: FrameArrayType | None = None
         # frame_type_2: lut config
@@ -194,9 +186,7 @@ class OfflineCorePlacementV2(CorePlacement):
             activations = activation_tensor.numpy()
 
             frame_type2 = OfflineFrameGenV2.gen_config_frame2(
-                pkt_offset=pkt_offset,
-                potentials=potentials,
-                activations=activations,
+                pkt_offset, potentials, activations
             )
 
         package_arrays: list[FrameArrayType] = []
@@ -209,9 +199,7 @@ class OfflineCorePlacementV2(CorePlacement):
         packages = np.concatenate(package_arrays, axis=0).astype(FRAME_DTYPE)
 
         start_frame = OfflineFrameGenV2.gen_config_frame3_pkg_header(
-            pkt_offset=pkt_offset,
-            start_addr=0,
-            n_package=len(packages),
+            pkt_offset, 0, len(packages)
         )
 
         frame_type3 = np.concatenate([start_frame, packages], axis=0).astype(
@@ -222,4 +210,11 @@ class OfflineCorePlacementV2(CorePlacement):
 
 
 class EmptyOfflineCorePlacementV2(OfflineCorePlacementV2):
-    pass
+    def to_frame(
+        self,
+    ) -> tuple[FrameArrayType, FrameArrayType | None, FrameArrayType | None]:
+        pkt_offset, _ = find_coordxy_shortest_path(self.coord)
+
+        # frame_type_1: core config
+        frame_type1 = OfflineFrameGenV2.gen_config_frame1(pkt_offset, self.core_config)
+        return frame_type1, None, None

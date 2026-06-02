@@ -4,7 +4,9 @@ from typing import Literal
 
 import pytest
 import torch
+import torch.nn.functional as F
 from spikingjelly.activation_based import functional as sF
+from spikingjelly.activation_based import layer
 from spikingjelly.activation_based import neuron as sj
 from torch import Tensor, nn
 
@@ -14,7 +16,7 @@ from paibox.paiir.ir.op_node import (
     AccumulateOp,
     ConcatOp,
     OfflineCoreOp,
-    ReshapeOp,
+    PadOp,
     SequentialOp,
     SplitOp,
     StandaloneCompOp,
@@ -36,6 +38,7 @@ from tests.paiir.conftest import (
     SNNWithMaxPool,
     SPPFBlock,
     find_nodes,
+    find_transform_nodes,
 )
 
 
@@ -57,9 +60,7 @@ def _make_snn_input(
 
 def _make_ann_input(batch_size: int = 1, channels: int = 3, size: int = 8) -> Tensor:
     """Create ANN input: 8-bit quantized values in int8 format."""
-    return torch.randint(
-        -128, 128, (batch_size, channels, size, size), dtype=torch.int8
-    )
+    return torch.ones((batch_size, channels, size, size), dtype=torch.int8)
 
 
 class SingleLayerSNN(nn.Module):
@@ -86,8 +87,17 @@ class SingleLayerANN(nn.Module):
         return self.relu(self.conv(x))
 
 
+class VotingLayerSimulation(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.vote = layer.VotingLayer(2, step_mode="s")
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.vote(x)
+
+
 def _compile_snn(
-    tick_duration: int = 0,
+    timesteps: int = 1,
     auto_reset: bool = True,
     bias: bool = False,
     bipolar: bool = False,
@@ -95,8 +105,8 @@ def _compile_snn(
     """Compile a single-layer SNN with deterministic weights.
 
     Args:
-        tick_duration: Activity duration for the core. 0 for always active.
-        auto_reset: Whether to auto-reset neuron state.
+        timesteps: Public inference sequence length passed to compile_to_paiir.
+        auto_reset: Whether compiled cores should auto-reset every timesteps.
         bias: Whether to include bias in the conv layer.
         bipolar: If True, use bipolar input spikes {-1, 0, 1}.
     """
@@ -109,7 +119,7 @@ def _compile_snn(
 
     x_compile = torch.randn(1, 3, 8, 8)
     graph = compile_to_paiir(
-        model, x_compile, tick_duration=tick_duration, auto_reset=auto_reset
+        model, x_compile, timesteps=timesteps, auto_reset=auto_reset
     )
     return graph, _make_snn_input(bipolar=bipolar)
 
@@ -168,34 +178,44 @@ class TestTickActivityWindow:
 class TestTickInitial:
     """Tests for tick_initial semantics (state reset behavior)."""
 
-    def test_ann_tick_initial_is_one(self) -> None:
-        """ANN cores have tick_initial=1 (stateless per step)."""
+    def test_ann_tick_initial_defaults_to_timesteps(self) -> None:
+        """Default public timing keeps ANN cores active and resets every step."""
         graph, _, _ = _compile_ann()
         for node in find_nodes(graph, OfflineCoreOp):
+            assert node.core_params.tick_duration == 0
             assert node.core_params.tick_initial == 1
 
-    def test_ann_stateless_consistency(self) -> None:
-        """ANN produces identical outputs for identical inputs across steps."""
+    def test_ann_default_runs_continuously(self) -> None:
+        """Default ANN cores stay active because public auto_reset uses duration 0."""
         graph, x, _ = _compile_ann()
+        offline_ops = find_nodes(graph, OfflineCoreOp)
+        assert offline_ops
+
         out1 = graph.step(x)
         out2 = graph.step(x)
-        torch.testing.assert_close(out1, out2)
 
-    def test_snn_tick_initial_equals_duration_when_auto_reset(self) -> None:
-        """SNN with auto_reset=True has tick_initial=tick_duration."""
-        graph, _ = _compile_snn(tick_duration=4, auto_reset=True)
+        assert torch.is_tensor(out1)
+        assert torch.is_tensor(out2)
+        for op in offline_ops:
+            assert graph._active_counts[op.name] == 2
+
+    def test_snn_tick_initial_equals_timesteps_when_auto_reset(self) -> None:
+        """auto_reset=True maps timesteps to tick_initial and duration to 0."""
+        graph, _ = _compile_snn(timesteps=4, auto_reset=True)
         seq_ops = find_nodes(graph, SequentialOp)
+        assert seq_ops[0].core_params.tick_duration == 0
         assert seq_ops[0].core_params.tick_initial == 4
 
-    def test_snn_tick_initial_zero_when_no_auto_reset(self) -> None:
-        """SNN with auto_reset=False has tick_initial=0."""
-        graph, _ = _compile_snn(tick_duration=0, auto_reset=False)
+    def test_snn_tick_duration_equals_timesteps_when_no_auto_reset(self) -> None:
+        """auto_reset=False maps timesteps to finite tick_duration."""
+        graph, _ = _compile_snn(timesteps=4, auto_reset=False)
         seq_ops = find_nodes(graph, SequentialOp)
+        assert seq_ops[0].core_params.tick_duration == 4
         assert seq_ops[0].core_params.tick_initial == 0
 
     def test_snn_auto_reset_behavior(self) -> None:
         """SNN neuron state resets after tick_initial active steps."""
-        graph, x = _compile_snn(tick_duration=4, auto_reset=True, bipolar=True)
+        graph, x = _compile_snn(timesteps=4, auto_reset=True, bipolar=True)
         seq_ops = find_nodes(graph, SequentialOp)
         op = seq_ops[0]
 
@@ -209,11 +229,11 @@ class TestTickInitial:
         assert v.abs().sum() > 0
 
         graph.step(x)
-        assert graph._active_counts[op.name] == 4
+        assert graph._active_counts[op.name] == 5
 
     def test_snn_state_accumulates_without_auto_reset(self) -> None:
         """SNN membrane potential accumulates when auto_reset=False."""
-        graph, x = _compile_snn(tick_duration=0, auto_reset=False, bipolar=True)
+        graph, x = _compile_snn(timesteps=8, auto_reset=False, bipolar=True)
         seq_ops = find_nodes(graph, SequentialOp)
         op = seq_ops[0]
 
@@ -230,7 +250,7 @@ class TestSNNSimulation:
 
     def test_voltage_accumulates(self) -> None:
         """Neuron membrane potential changes across steps."""
-        graph, x = _compile_snn(tick_duration=0, auto_reset=False, bipolar=True)
+        graph, x = _compile_snn(timesteps=8, auto_reset=False, bipolar=True)
         seq_ops = find_nodes(graph, SequentialOp)
         op = seq_ops[0]
 
@@ -246,7 +266,7 @@ class TestSNNSimulation:
 
     def test_reset_clears_all_state(self) -> None:
         """graph.reset() clears sim_step, active_counts, and neuron state."""
-        graph, x = _compile_snn(tick_duration=0, auto_reset=False)
+        graph, x = _compile_snn(timesteps=8, auto_reset=False)
         seq_ops = find_nodes(graph, SequentialOp)
         op = seq_ops[0]
         init_v = op.act.init_v
@@ -709,7 +729,7 @@ class TestMultiLayerSNN:
         """SNNFlattenTransition: Conv -> flatten -> Linear.
 
         Tests spatial-to-dense transition in SNN context now that flatten is
-        materialized as a routing ``ReshapeOp`` for graph simulation.
+        materialized as a routing ``TransformOp`` for graph simulation.
         """
         model = SNNFlattenTransition()
         _set_quantized_weights(model)
@@ -721,8 +741,8 @@ class TestMultiLayerSNN:
         assert torch.is_tensor(sj_out)
 
         graph = compile_to_paiir(model, x_compile)
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(graph)
+        assert len(transform_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1371,8 +1391,8 @@ class TestStandaloneOpSimulation:
             pytorch_out = model(x_int8.float())
 
         graph = compile_to_paiir(model, x_compile)
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(graph)
+        assert len(transform_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1411,8 +1431,8 @@ class TestStandaloneOpSimulation:
 
         with pytest.warns(GraphCleanupWarning, match="disconnected"):
             graph = compile_to_paiir(model, x_compile)
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(graph)
+        assert len(transform_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1450,8 +1470,8 @@ class TestStandaloneOpSimulation:
             pytorch_out = model(x_int8.float())
 
         graph = compile_to_paiir(model, x_compile)
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(graph)
+        assert len(transform_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1489,8 +1509,8 @@ class TestStandaloneOpSimulation:
             pytorch_out = model(x_int8.float())
 
         graph = compile_to_paiir(model, x_compile)
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(graph)
+        assert len(transform_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1528,8 +1548,8 @@ class TestStandaloneOpSimulation:
             pytorch_out = model(x_int8.float())
 
         graph = compile_to_paiir(model, x_compile)
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(graph)
+        assert len(transform_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1567,8 +1587,8 @@ class TestStandaloneOpSimulation:
             pytorch_out = model(x_int8.float())
 
         graph = compile_to_paiir(model, x_compile)
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(graph)
+        assert len(transform_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1606,8 +1626,37 @@ class TestStandaloneOpSimulation:
             pytorch_out = model(x_int8.float())
 
         graph = compile_to_paiir(model, x_compile)
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(graph)
+        assert len(transform_nodes) == 1
+
+        graph.reset()
+        max_tick_start = max(
+            n.core_params.tick_start
+            for n in graph.nodes.values()
+            if isinstance(n, OfflineCoreOp) and n.core_params.tick_start is not None
+        )
+        for _ in range(max_tick_start):
+            paiir_out = graph.step(x_int8)
+
+        assert torch.is_tensor(paiir_out)
+        assert torch.equal(paiir_out, pytorch_out)
+
+    def test_VotingLayer_matches_pytorch_for_2d_batch_one_input(self) -> None:
+        model = VotingLayerSimulation().eval()
+        x_compile = torch.randn(1, 8)
+        x_int8 = torch.randint(-128, 128, (1, 8), dtype=torch.int8)
+
+        with torch.no_grad():
+            pytorch_out = model(x_int8.float())
+
+        graph = compile_to_paiir(model, x_compile)
+        pool_nodes = [
+            node
+            for node in graph.nodes.values()
+            if isinstance(node, StandaloneCompOp)
+            and isinstance(node.comp, nn.AvgPool1d)
+        ]
+        assert len(pool_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1622,7 +1671,7 @@ class TestStandaloneOpSimulation:
         assert torch.equal(paiir_out, pytorch_out)
 
     def test_transpose_then_flatten_before_linear(self) -> None:
-        """Bypassed transpose metadata is materialized at the downstream reshape op."""
+        """Bypassed transpose metadata is materialized at the downstream transform."""
 
         class TransposeFlattenLinear(nn.Module):
             def __init__(self) -> None:
@@ -1643,8 +1692,8 @@ class TestStandaloneOpSimulation:
             pytorch_out = model(x_int8.float())
 
         graph = compile_to_paiir(model, x_compile)
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(graph)
+        assert len(transform_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1659,7 +1708,7 @@ class TestStandaloneOpSimulation:
         assert torch.equal(paiir_out, pytorch_out)
 
     def test_permute_then_reshape_before_linear(self) -> None:
-        """Bypassed permute metadata is materialized at the downstream reshape op."""
+        """Bypassed permute metadata is materialized at the downstream transform."""
 
         class PermuteReshapeLinear(nn.Module):
             def __init__(self) -> None:
@@ -1682,8 +1731,8 @@ class TestStandaloneOpSimulation:
             pytorch_out = model(x_int8.float())
 
         graph = compile_to_paiir(model, x_compile)
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(graph)
+        assert len(transform_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1701,7 +1750,7 @@ class TestStandaloneOpSimulation:
         """Chained `flatten -> reshape(size arithmetic) -> flatten -> Linear` simulates.
 
         The pre-fusion layout canonicalization pass now collapses the reshape
-        chain to a single effective `ReshapeOp`.
+        chain to a single effective routing `TransformOp`.
         """
 
         class FlattenReshapeLinear(nn.Module):
@@ -1726,8 +1775,8 @@ class TestStandaloneOpSimulation:
             pytorch_out = model(x_int8.float())
 
         graph = compile_to_paiir(model, x_compile)
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(graph)
+        assert len(transform_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1792,3 +1841,60 @@ class TestStandaloneOpSimulation:
         assert torch.is_tensor(paiir_out)
         assert paiir_out.dtype == dtype
         assert torch.equal(paiir_out, pytorch_out)
+
+
+class TestPadSimulation:
+    def test_unfolded_pad_op_matches_torch_pad(self) -> None:
+        class Model(nn.Module):
+            def forward(self, x):
+                return F.pad(x, (1, 2, 0, 1), mode="constant", value=0)
+
+        model = Model().eval()
+        x = torch.randn(1, 3, 4, 5)
+
+        with torch.no_grad():
+            pytorch_out = model(x)
+
+        graph = compile_to_paiir(model, x)
+        pad_nodes = find_nodes(graph, PadOp)
+        assert len(pad_nodes) == 1
+
+        graph.reset()
+        paiir_out = graph.step(x)
+
+        assert torch.is_tensor(paiir_out)
+        torch.testing.assert_close(paiir_out, pytorch_out)
+
+    def test_folded_pad_conv_path_matches_torch_reference(self) -> None:
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = nn.Conv2d(3, 2, 3, padding=0, bias=True)
+
+            def forward(self, x):
+                return self.conv(F.pad(x, (1, 1, 2, 2), mode="constant", value=0))
+
+        model = Model().eval()
+        with torch.no_grad():
+            model.conv.weight.copy_(
+                torch.arange(model.conv.weight.numel(), dtype=torch.float32).reshape_as(
+                    model.conv.weight
+                )
+                / 100
+            )
+            assert model.conv.bias is not None
+            model.conv.bias.copy_(torch.tensor([0.25, -0.5]))
+
+        x_compile = torch.randn(1, 3, 4, 5)
+        x = torch.randn(1, 3, 4, 5)
+        with torch.no_grad():
+            pytorch_out = model(x)
+
+        graph = compile_to_paiir(model, x_compile)
+        assert find_nodes(graph, PadOp) == []
+
+        graph.reset()
+        paiir_out = graph.step(x)
+
+        assert torch.is_tensor(paiir_out)
+        torch.testing.assert_close(paiir_out, pytorch_out)

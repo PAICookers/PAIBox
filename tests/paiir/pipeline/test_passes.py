@@ -6,16 +6,21 @@ in `PAIBox/paibox/paiir/pipeline/passes.py`:
 - add specialization / fusion
 - tick assignment
 - validation / deployability checks
-- signal-domain propagation
+- signal-semantics propagation
 """
 
 import pytest
 import torch
 from paicorelib import DataSign, DataWidth, OutputType, PoolingMode, SNNMode
-from spikingjelly.activation_based import neuron as sj
+from spikingjelly.activation_based import neuron
 from torch import nn
 
-from paibox.paiir.ir.add_ops import AddOperandKind, GeneralAddOp, PotentialAddOp
+from paibox.paiir.ir.add_ops import (
+    AddOperandKind,
+    AddOperandSpec,
+    GeneralAddOp,
+    PotentialAddOp,
+)
 from paibox.paiir.ir.calc_params import OfflineCoreParams
 from paibox.paiir.ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
 from paibox.paiir.ir.graph import Edge, PAIIRGraph
@@ -26,12 +31,14 @@ from paibox.paiir.ir.op_node import (
     ConcatOp,
     CPUOp,
     OfflineCoreOp,
-    ReshapeOp,
+    PadOp,
     SequentialOp,
+    ShapeStage,
     SplitOp,
     StandaloneActOp,
     StandaloneCompOp,
     TensorLayout,
+    TransformOp,
 )
 from paibox.paiir.ir.signal_domain import SignalDomain
 from paibox.paiir.lowering.converter import torch_to_paiir
@@ -40,9 +47,10 @@ from paibox.paiir.pipeline.passes import (
     GraphCleanupWarning,
     GraphValidationError,
     assign_tick_params,
+    flatten_general_add_chains,
     fuse_to_offline_cores,
     propagate_data_format,
-    propagate_signal_domain,
+    propagate_signal_semantics,
     specialize_general_adds,
     validate_compiled_graph,
     validate_deployable_graph,
@@ -63,6 +71,7 @@ from tests.paiir.conftest import (
     find_first,
     find_node_names,
     find_nodes,
+    find_transform_nodes,
     make_img_1ch_4x4,
     make_img_3ch_8x8,
     make_img_16ch_8x8,
@@ -163,18 +172,18 @@ class TestSNNConversion:
         assert len(seq_nodes) == 2
 
         conv_ops = [n for n in seq_nodes if isinstance(n.comp, nn.Conv2d)]
-        groups = sorted([n.comp.groups for n in conv_ops])
+        groups = sorted([n.comp.groups for n in conv_ops])  # type: ignore
         assert groups == [1, 16]
 
     def test_flatten_transition(self):
-        """Conv-IF -> flatten -> Linear-IF: flatten is preserved as ReshapeOp."""
+        """Conv-IF -> flatten -> Linear-IF: flatten is preserved as one transform node."""
         model = SNNFlattenTransition()
         fused = convert_and_fuse(model, make_img_1ch_4x4())
 
         seq_nodes = find_nodes(fused, SequentialOp)
         assert len(seq_nodes) == 2
-        reshape_nodes = find_nodes(fused, ReshapeOp)
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(fused)
+        assert len(transform_nodes) == 1
 
         comp_types = sorted(type(n.comp).__name__ for n in seq_nodes)
         assert comp_types == ["Conv2d", "Linear"]
@@ -207,7 +216,7 @@ class TestANNConversion:
 
         for node in fused.nodes.values():
             if hasattr(node, "comp"):
-                assert not isinstance(node.comp, (nn.BatchNorm1d, nn.BatchNorm2d))
+                assert not isinstance(node.comp, (nn.BatchNorm1d, nn.BatchNorm2d))  # type: ignore
 
     def test_subtract_branch(self):
         """Two linear branches with subtraction -> tanh."""
@@ -218,6 +227,377 @@ class TestANNConversion:
         assert len(accum_nodes) == 1
         assert accum_nodes[0].signs == (1, -1)
         assert isinstance(accum_nodes[0].act.lut, LutTanh)
+
+
+class TestGeneralAddChainFlattening:
+    """Test add-chain canonicalization before add specialization."""
+
+    class LinearAddChain(nn.Module):
+        def __init__(self, num_terms: int):
+            super().__init__()
+            self.linears = nn.ModuleList(nn.Linear(8, 4) for _ in range(num_terms))
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            terms = [linear(x) for linear in self.linears]
+            result = terms[0]
+            for term in terms[1:]:
+                result = result + term
+            return self.relu(result)
+
+    class SubtractLeftChain(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 4)
+            self.linear_c = nn.Linear(8, 4)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            return self.relu(self.linear_a(x) - self.linear_b(x) + self.linear_c(x))
+
+    class SubtractRightChain(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 4)
+            self.linear_c = nn.Linear(8, 4)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            return self.relu(self.linear_a(x) + (self.linear_b(x) - self.linear_c(x)))
+
+    class ThreeConvLIFAdd(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.conv_a = nn.Conv2d(3, 4, 3, padding=1)
+            self.conv_b = nn.Conv2d(3, 4, 3, padding=1)
+            self.conv_c = nn.Conv2d(3, 4, 3, padding=1)
+            self.lif = neuron.LIFNode(tau=2.0)
+
+        def forward(self, x):
+            return self.lif(self.conv_a(x) + self.conv_b(x) + self.conv_c(x))
+
+    class MultiInputThreeLinearAdd(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 4)
+            self.linear_c = nn.Linear(8, 4)
+            self.relu = nn.ReLU()
+
+        def forward(self, x, y, z):
+            return self.relu(self.linear_a(x) + self.linear_b(y) + self.linear_c(z))
+
+    class OrderPreservingTransformChain(nn.Module):
+        def __init__(self, transform_kind: str):
+            super().__init__()
+            self.transform_kind = transform_kind
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 4)
+            self.linear_c = nn.Linear(8, 4)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            a = self.linear_a(x)
+            if self.transform_kind == "view":
+                a = a.view_as(a)
+            elif self.transform_kind == "reshape":
+                a = a.reshape(a.shape)
+            elif self.transform_kind == "flatten":
+                a = a.flatten(1, 1)
+            else:
+                raise AssertionError(f"unknown transform_kind={self.transform_kind}")
+            return self.relu(a + self.linear_b(x) + self.linear_c(x))
+
+    class LayoutTransformOperandChain(nn.Module):
+        def __init__(self, transform_kind: str):
+            super().__init__()
+            self.transform_kind = transform_kind
+            self.conv_a = nn.Conv2d(3, 4, 1)
+            self.conv_b = nn.Conv2d(3, 4, 1)
+            self.conv_c = nn.Conv2d(3, 4, 1)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            b = self.conv_b(x)
+            if self.transform_kind == "transpose":
+                b = b.transpose(2, 3)
+            elif self.transform_kind == "permute":
+                b = b.permute(0, 1, 3, 2)
+            else:
+                raise AssertionError(f"unknown transform_kind={self.transform_kind}")
+            return self.relu(self.conv_a(x) + b + self.conv_c(x))
+
+    class ShapeChangingFlattenOperandChain(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.conv_a = nn.Conv2d(1, 1, 1)
+            self.linear_b = nn.Linear(4, 4)
+            self.linear_c = nn.Linear(4, 4)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            flattened_x = x.flatten(1)
+            return self.relu(
+                self.conv_a(x).flatten(1)
+                + self.linear_b(flattened_x)
+                + self.linear_c(flattened_x)
+            )
+
+    class MultiConsumerMiddleAdd(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 4)
+            self.linear_c = nn.Linear(8, 4)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            mid = self.linear_a(x) + self.linear_b(x)
+            return self.relu(mid + self.linear_c(x)), mid
+
+    class MultiConsumerTransformOperand(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 4)
+            self.linear_c = nn.Linear(8, 4)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            a = self.linear_a(x)
+            transformed = a.view_as(a)
+            return (
+                self.relu(transformed + self.linear_b(x) + self.linear_c(x)),
+                transformed,
+            )
+
+    class ConstOperandChain(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 4)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            return self.relu(self.linear_a(x) + (self.linear_b(x) + 1))
+
+    class BroadcastOperandChain(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 1)
+            self.linear_c = nn.Linear(8, 4)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            return self.relu(self.linear_a(x) + (self.linear_b(x) + self.linear_c(x)))
+
+    class RepeatedProducerChain(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 4)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            a = self.linear_a(x)
+            return self.relu(a + self.linear_b(x) + a)
+
+    class NonUnitCoeffChain(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 4)
+            self.linear_c = nn.Linear(8, 4)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            return self.relu(
+                self.linear_a(x)
+                + torch.add(self.linear_b(x), self.linear_c(x), alpha=2)
+            )
+
+    class NoActivationAddChain(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 4)
+            self.linear_c = nn.Linear(8, 4)
+
+        def forward(self, x):
+            return self.linear_a(x) + self.linear_b(x) + self.linear_c(x)
+
+    class NoActivationSubtractChain(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 4)
+            self.linear_c = nn.Linear(8, 4)
+
+        def forward(self, x):
+            return self.linear_a(x) - self.linear_b(x) + self.linear_c(x)
+
+    def _single_accumulate(self, compiled):
+        accum_nodes = find_nodes(compiled, AccumulateOp)
+        assert len(accum_nodes) == 1
+        assert find_nodes(compiled, PotentialAddOp) == []
+        return accum_nodes[0]
+
+    def _single_potential_add(self, compiled):
+        add_nodes = find_nodes(compiled, PotentialAddOp)
+        assert len(add_nodes) == 1
+        assert find_nodes(compiled, GeneralAddOp) == []
+        assert find_nodes(compiled, AccumulateOp) == []
+        return add_nodes[0]
+
+    def _assert_binary_add_chain_not_flattened(self, model, *sample_inputs):
+        flattened, add_nodes = self._flattened_add_nodes(model, *sample_inputs)
+
+        assert len(add_nodes) == 2
+        assert [node.coeffs for node in add_nodes] == [(1, 1), (1, 1)]
+        return flattened
+
+    def _flattened_add_nodes(self, model, *sample_inputs):
+        graph = torch_to_paiir(model, *sample_inputs)
+        flattened = flatten_general_add_chains(graph)
+        return flattened, find_nodes(flattened, GeneralAddOp)
+
+    def _assert_not_accumulated(self, model, *sample_inputs):
+        compiled = compile_to_paiir(model, *sample_inputs)
+        assert find_nodes(compiled, AccumulateOp) == []
+        assert len(find_nodes(compiled, PotentialAddOp)) == 2
+        return compiled
+
+    @pytest.mark.parametrize(
+        ("num_terms", "expected_signs"),
+        [(3, (1, 1, 1)), (4, (1, 1, 1, 1))],
+        ids=["three_terms", "four_terms"],
+    )
+    def test_linear_chain_compiles_to_single_accumulate(
+        self, num_terms, expected_signs
+    ):
+        compiled = compile_to_paiir(self.LinearAddChain(num_terms), make_vec_8d())
+
+        accum = self._single_accumulate(compiled)
+        assert len(accum.comps) == num_terms
+        assert accum.signs == expected_signs
+        assert isinstance(accum.act, ANNNodeV25)
+
+    def test_conv_lif_chain_compiles_to_single_accumulate(self):
+        compiled = compile_to_paiir(self.ThreeConvLIFAdd(), make_img_3ch_8x8())
+
+        accum = self._single_accumulate(compiled)
+        assert len(accum.comps) == 3
+        assert accum.signs == (1, 1, 1)
+        assert isinstance(accum.act, LIFNodeV25)
+        assert {type(comp) for comp in accum.comps} == {nn.Conv2d}
+
+    def test_multi_input_chain_compiles_to_single_accumulate(self):
+        compiled = compile_to_paiir(
+            self.MultiInputThreeLinearAdd(), make_vec_8d(), make_vec_8d(), make_vec_8d()
+        )
+
+        accum = self._single_accumulate(compiled)
+        assert len(accum.comps) == 3
+        assert accum.signs == (1, 1, 1)
+        assert len(compiled.input_nodes()) == 3
+
+    @pytest.mark.parametrize(
+        ("model", "expected_signs"),
+        [(SubtractLeftChain, (1, -1, 1)), (SubtractRightChain, (1, 1, -1))],
+        ids=["a_minus_b_plus_c", "a_plus_b_minus_c"],
+    )
+    def test_chain_signs_are_preserved(self, model, expected_signs):
+        compiled = compile_to_paiir(model(), make_vec_8d())
+
+        accum = self._single_accumulate(compiled)
+        assert accum.signs == expected_signs
+
+    @pytest.mark.parametrize(
+        ("model", "expected_signs"),
+        [(NoActivationAddChain, (1, 1, 1)), (NoActivationSubtractChain, (1, -1, 1))],
+        ids=["add", "subtract"],
+    )
+    def test_no_activation_chain_compiles_to_potential_accumulate(
+        self, model, expected_signs
+    ):
+        compiled = compile_to_paiir(model(), make_vec_8d())
+
+        accum = self._single_accumulate(compiled)
+        assert accum.act is None
+        assert accum.signs == expected_signs
+        assert len(accum.comps) == 3
+        assert find_nodes(compiled, StandaloneCompOp) == []
+        assert accum.signal_semantics.output_domain is SignalDomain.POTENTIAL
+        assert accum.core_params.output_sign is DataSign.SIGNED
+        assert accum.core_params.output_width is DataWidth.WIDTH_32BIT
+
+    @pytest.mark.parametrize("transform_kind", ["view", "reshape", "flatten"])
+    def test_shape_preserving_order_preserving_operand_transform_flattens(
+        self, transform_kind
+    ):
+        flattened, add_nodes = self._flattened_add_nodes(
+            self.OrderPreservingTransformChain(transform_kind), make_vec_8d()
+        )
+
+        assert len(add_nodes) == 1
+        assert add_nodes[0].coeffs == (1, 1, 1)
+        assert find_nodes(flattened, TransformOp) == []
+
+    @pytest.mark.parametrize("transform_kind", ["transpose", "permute"])
+    def test_layout_transform_operand_does_not_flatten_or_accumulate(
+        self, transform_kind
+    ):
+        x = torch.randn(1, 3, 4, 4)
+        model = self.LayoutTransformOperandChain(transform_kind)
+
+        flattened = self._assert_binary_add_chain_not_flattened(model, x)
+        assert find_nodes(flattened, TransformOp)
+
+        self._assert_not_accumulated(model, x)
+
+    def test_shape_changing_order_preserving_transform_does_not_flatten(self):
+        x = torch.randn(1, 1, 2, 2)
+        model = self.ShapeChangingFlattenOperandChain()
+
+        flattened = self._assert_binary_add_chain_not_flattened(model, x)
+        transform_nodes = find_nodes(flattened, TransformOp)
+        assert transform_nodes
+        assert any(
+            node.input_layouts[0].shape != node.output_layouts[0].shape
+            for node in transform_nodes
+        )
+
+        self._assert_not_accumulated(model, x)
+
+    @pytest.mark.parametrize(
+        "model",
+        [MultiConsumerMiddleAdd, MultiConsumerTransformOperand],
+        ids=["middle_add", "transform_operand"],
+    )
+    def test_multi_consumer_chain_member_does_not_flatten(self, model):
+        flattened = self._assert_binary_add_chain_not_flattened(model(), make_vec_8d())
+        assert all(
+            node.coeffs == (1, 1) for node in find_nodes(flattened, GeneralAddOp)
+        )
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            ConstOperandChain,
+            BroadcastOperandChain,
+            RepeatedProducerChain,
+            NonUnitCoeffChain,
+        ],
+        ids=["const", "broadcast", "repeated_producer", "non_unit_coeff"],
+    )
+    def test_unsupported_operand_form_does_not_flatten(self, model):
+        _, add_nodes = self._flattened_add_nodes(model(), make_vec_8d())
+
+        assert len(add_nodes) == 2
+        assert all(len(node.operands) == 2 for node in add_nodes)
 
 
 class TestComplexPatterns:
@@ -318,6 +698,7 @@ class TestComplexPatterns:
         assert len(preds) == 2
 
         fused = fuse_to_offline_cores(specialize_general_adds(unfused))
+        propagate_signal_semantics(fused)
         propagate_data_format(fused)
         assign_tick_params(fused)
 
@@ -383,6 +764,11 @@ class TestAssignTickParams:
         """Fixture: fused SNNTwoLayer graph."""
         return convert_and_fuse(SNNTwoLayer(), make_img_3ch_8x8())
 
+    @pytest.fixture
+    def fused_ann(self):
+        """Fixture: fused ANNClassifier graph."""
+        return convert_and_fuse(ANNClassifier(), make_img_3ch_8x8())
+
     def test_tick_start_from_depth(self, fused_snn):
         """tick_start is assigned based on DAG depth."""
         assign_tick_params(fused_snn)
@@ -394,87 +780,56 @@ class TestAssignTickParams:
             assert node.core_params.tick_start is not None
             assert node.core_params.tick_start >= 1
 
-        tick_starts = sorted([n.core_params.tick_start for n in seq_nodes])
+        tick_starts = sorted([n.core_params.tick_start for n in seq_nodes])  # type: ignore
         assert tick_starts[0] < tick_starts[1]
 
-    def test_tick_start_explicit_override(self, fused_snn):
-        """User-set tick_start is preserved by the pass."""
-        first_op = find_first(fused_snn, SequentialOp)
-        first_op.core_params.tick_start = 42
-
+    def test_default_timesteps_auto_reset_mapping(self, fused_snn):
+        """Default user timing maps to always-active cores with one-step reset."""
         assign_tick_params(fused_snn)
-        assert first_op.core_params.tick_start == 42
-
-    @pytest.mark.parametrize(
-        "tick_duration, expected",
-        [(0, 0), (100, 100)],
-        ids=["default_always_working", "global_override"],
-    )
-    def test_tick_duration(self, fused_snn, tick_duration, expected):
-        """tick_duration: default (0) or graph-level override applied to all nodes."""
-        assign_tick_params(fused_snn, tick_duration=tick_duration)
 
         for node in fused_snn.nodes.values():
-            if isinstance(node, SequentialOp):
-                assert node.core_params.tick_duration == expected
-
-    def test_tick_duration_per_node_override_via_core_params(self, fused_snn):
-        """Per-node tick_duration set on core_params takes priority."""
-        first_op = find_first(fused_snn, SequentialOp)
-        first_op.core_params.tick_duration = 50
-
-        assign_tick_params(fused_snn, tick_duration=100)
-        assert first_op.core_params.tick_duration == 50
+            if isinstance(node, OfflineCoreOp):
+                assert node.core_params.tick_duration == 0
+                assert node.core_params.tick_initial == 1
 
     @pytest.mark.parametrize(
-        "tick_duration, auto_reset, expected_initial",
-        [(100, True, 100), (0, True, 0), (100, False, 0)],
-        ids=["reset_with_duration", "reset_always_working", "no_reset"],
+        "graph_fixture", ["fused_snn", "fused_ann"], ids=["snn_mode", "ann_mode"]
     )
-    def test_auto_reset(self, fused_snn, tick_duration, auto_reset, expected_initial):
-        """auto_reset controls tick_initial derivation from tick_duration."""
-        assign_tick_params(
-            fused_snn, tick_duration=tick_duration, auto_reset=auto_reset
-        )
+    @pytest.mark.parametrize(
+        "timesteps, auto_reset, expected_duration, expected_initial",
+        [
+            (1, True, 0, 1),
+            (1, False, 1, 0),
+            (7, True, 0, 7),
+            (7, False, 7, 0),
+        ],
+        ids=[
+            "default_step_auto_reset",
+            "default_step_manual_reset",
+            "multi_step_auto_reset",
+            "multi_step_manual_reset",
+        ],
+    )
+    def test_timesteps_auto_reset_mapping_is_mode_independent(
+        self,
+        request,
+        graph_fixture,
+        timesteps,
+        auto_reset,
+        expected_duration,
+        expected_initial,
+    ):
+        """timesteps/auto_reset maps identically for ANN and SNN mode cores."""
+        graph = request.getfixturevalue(graph_fixture)
+        assign_tick_params(graph, timesteps=timesteps, auto_reset=auto_reset)
 
-        for node in fused_snn.nodes.values():
-            if isinstance(node, SequentialOp):
-                assert node.core_params.tick_initial == expected_initial
-
-    def test_tick_override_tick_start(self, fused_snn):
-        """overrides dict can set tick_start for a specific node."""
-        seq_names = find_node_names(fused_snn, SequentialOp)
-        assert len(seq_names) == 2
-
-        assign_tick_params(fused_snn, overrides={seq_names[0]: {"tick_start": 10}})
-
-        seq_nodes = find_nodes(fused_snn, SequentialOp)
-        by_name = {n.name: n for n in seq_nodes}
-        assert by_name[seq_names[0]].core_params.tick_start == 10
-        assert by_name[seq_names[1]].core_params.tick_start is not None
-        assert by_name[seq_names[1]].core_params.tick_start != 10
-
-    def test_tick_override_duration_and_auto_reset(self, fused_snn):
-        """overrides dict can set tick_duration and auto_reset per-node."""
-        seq_names = find_node_names(fused_snn, SequentialOp)
-
-        assign_tick_params(
-            fused_snn,
-            tick_duration=100,
-            auto_reset=True,
-            overrides={seq_names[0]: {"tick_duration": 200, "auto_reset": False}},
-        )
-
-        seq_nodes = find_nodes(fused_snn, SequentialOp)
-        by_name = {n.name: n for n in seq_nodes}
-
-        cp0 = by_name[seq_names[0]].core_params
-        assert cp0.tick_duration == 200
-        assert cp0.tick_initial == 0
-
-        cp1 = by_name[seq_names[1]].core_params
-        assert cp1.tick_duration == 100
-        assert cp1.tick_initial == 100
+        offline_ops = [
+            node for node in graph.nodes.values() if isinstance(node, OfflineCoreOp)
+        ]
+        assert offline_ops
+        for node in offline_ops:
+            assert node.core_params.tick_duration == expected_duration
+            assert node.core_params.tick_initial == expected_initial
 
     def test_residual_tick_start(self):
         """Residual (AccumulateOp) gets correct tick_start."""
@@ -485,35 +840,116 @@ class TestAssignTickParams:
         assert len(accum_ops) == 1
         assert accum_ops[0].core_params.tick_start == 1
 
+    def _build_routing_then_act_graph(self, routing_node, output_shape):
+        graph = PAIIRGraph("routing_tick_depth")
+        inp = InputNode(shape=torch.Size((1, 4)))
+        act = StandaloneActOp(IFNodeV25())
+        out = OutputNode(shape=torch.Size(output_shape))
+
+        _set_single_layouts(routing_node, (1, 4), output_shape, (0, 1), (0, 1))
+        _set_single_layouts(act, output_shape, output_shape, (0, 1), (0, 1))
+
+        graph.add_node(inp)
+        graph.add_node(routing_node)
+        graph.add_node(act)
+        graph.add_node(out)
+        graph.add_edge(inp.name, routing_node.name)
+        graph.add_edge(routing_node.name, act.name)
+        graph.add_edge(act.name, out.name)
+        return graph, act
+
+    def test_transform_does_not_increase_tick_depth(self):
+        transform = TransformOp((ShapeStage(lambda _: torch.Size((1, 4))),))
+        graph, act = self._build_routing_then_act_graph(transform, (1, 4))
+
+        assign_tick_params(graph)
+
+        assert act.core_params.tick_start == 1
+
+    def test_chained_transforms_do_not_increase_tick_depth(self):
+        graph = PAIIRGraph("chained_transform_tick_depth")
+        inp = InputNode(shape=torch.Size((1, 4)))
+        transform_a = TransformOp((ShapeStage(lambda _: torch.Size((1, 4))),))
+        transform_b = TransformOp((ShapeStage(lambda _: torch.Size((1, 4))),))
+        act = StandaloneActOp(IFNodeV25())
+        out = OutputNode(shape=torch.Size((1, 4)))
+
+        _set_single_layouts(transform_a, (1, 4), (1, 4), (0, 1), (0, 1))
+        _set_single_layouts(transform_b, (1, 4), (1, 4), (0, 1), (0, 1))
+        _set_single_layouts(act, (1, 4), (1, 4), (0, 1), (0, 1))
+
+        graph.add_node(inp)
+        graph.add_node(transform_a)
+        graph.add_node(transform_b)
+        graph.add_node(act)
+        graph.add_node(out)
+        graph.add_edge(inp.name, transform_a.name)
+        graph.add_edge(transform_a.name, transform_b.name)
+        graph.add_edge(transform_b.name, act.name)
+        graph.add_edge(act.name, out.name)
+
+        assign_tick_params(graph)
+
+        assert act.core_params.tick_start == 1
+
+    def test_pad_does_not_increase_tick_depth(self):
+        graph, act = self._build_routing_then_act_graph(PadOp((1, 1)), (1, 6))
+
+        assign_tick_params(graph)
+
+        assert act.core_params.tick_start == 1
+
+    def test_concat_does_not_increase_tick_depth(self):
+        graph = PAIIRGraph("concat_tick_depth")
+        inp_a = InputNode(shape=torch.Size((1, 2)))
+        inp_b = InputNode(shape=torch.Size((1, 2)))
+        concat = ConcatOp(dim=1)
+        act = StandaloneActOp(IFNodeV25())
+        out = OutputNode(shape=torch.Size((1, 4)))
+
+        _set_multi_input_single_output_layouts(
+            concat,
+            [(1, 2), (1, 2)],
+            (1, 4),
+            [(0, 1), (0, 1)],
+            (0, 1),
+        )
+        _set_single_layouts(act, (1, 4), (1, 4), (0, 1), (0, 1))
+
+        graph.add_node(inp_a)
+        graph.add_node(inp_b)
+        graph.add_node(concat)
+        graph.add_node(act)
+        graph.add_node(out)
+        graph.add_edge(inp_a.name, concat.name, dst_port=0)
+        graph.add_edge(inp_b.name, concat.name, dst_port=1)
+        graph.add_edge(concat.name, act.name)
+        graph.add_edge(act.name, out.name)
+
+        assign_tick_params(graph)
+
+        assert act.core_params.tick_start == 1
+
     @pytest.mark.parametrize(
-        "kwargs, error_match",
-        [
-            ({"tick_duration": -1}, "tick_duration.*must be non-negative"),
-            ({"tick_start": -5}, "tick_start.*non-negative"),
-        ],
-        ids=["negative_graph_duration", "negative_override_start"],
+        "timesteps", [0, -1], ids=["zero_timesteps", "negative_timesteps"]
     )
-    def test_negative_param_raises(self, fused_snn, kwargs, error_match):
-        """Negative tick parameters raise ValueError immediately."""
-        if "tick_duration" in kwargs:
-            with pytest.raises(ValueError, match=error_match):
-                assign_tick_params(fused_snn, tick_duration=kwargs["tick_duration"])
-        else:
-            seq_name = find_node_names(fused_snn, SequentialOp)[0]
-            with pytest.raises(ValueError, match=error_match):
-                assign_tick_params(fused_snn, overrides={seq_name: kwargs})
+    def test_invalid_timesteps_value_raises(self, fused_snn, timesteps):
+        """Non-positive public timesteps raise before writing core timing."""
+        with pytest.raises(ValueError, match="timesteps.*positive"):
+            assign_tick_params(fused_snn, timesteps=timesteps)
 
-    def test_override_negative_tick_duration_raises(self, fused_snn):
-        """Negative tick_duration in overrides raises immediately."""
-        seq_name = find_node_names(fused_snn, SequentialOp)[0]
-        with pytest.raises(ValueError, match="tick_duration.*non-negative"):
-            assign_tick_params(fused_snn, overrides={seq_name: {"tick_duration": -10}})
+    @pytest.mark.parametrize(
+        "timesteps", [None, True, 1.5], ids=["none", "bool", "float"]
+    )
+    def test_invalid_timesteps_type_raises(self, fused_snn, timesteps):
+        """timesteps must be a real positive integer, not None/bool/float."""
+        with pytest.raises(TypeError, match="timesteps.*positive integer"):
+            assign_tick_params(fused_snn, timesteps=timesteps)
 
-    def test_override_unknown_node_raises(self):
-        """Override key for non-existent node raises KeyError."""
-        fused = convert_and_fuse(SNNTwoLayer(), make_img_3ch_8x8())
-        with pytest.raises(KeyError, match="does not match any node"):
-            assign_tick_params(fused, overrides={"nonexistent_node": {"tick_start": 1}})
+    def test_invalid_auto_reset_type_raises(self, fused_snn):
+        """auto_reset is a required boolean policy when explicitly provided."""
+        with pytest.raises(TypeError, match="auto_reset.*bool"):
+            assign_tick_params(fused_snn, auto_reset=None)
 
     def test_validate_tick_params_unassigned(self):
         """validate_tick_params raises if tick_start is still None."""
@@ -546,7 +982,7 @@ class TestValidGraphs:
             def __init__(self):
                 super().__init__()
                 self.conv = nn.Conv2d(3, 16, 3, padding=1)
-                self.ifn = sj.IFNode()
+                self.ifn = neuron.IFNode()
 
             def forward(self, x):
                 return self.ifn(self.conv(x))
@@ -579,7 +1015,7 @@ class TestValidGraphs:
                 super().__init__()
                 self.conv_a = nn.Conv2d(3, 16, 3, padding=1)
                 self.conv_b = nn.Conv2d(3, 16, 3, padding=1)
-                self.lif = sj.LIFNode(tau=2.0)
+                self.lif = neuron.LIFNode(tau=2.0)
 
             def forward(self, x):
                 return self.lif(self.conv_a(x) + self.conv_b(x))
@@ -871,9 +1307,9 @@ class TestValidateCompiledGraph:
         op.core_params.tick_duration = 0
         op.core_params.tick_initial = 0
         out = OutputNode()
-        inp.output_domain = SignalDomain.VALUE
-        op.output_domain = SignalDomain.VALUE
-        out.output_domain = SignalDomain.VALUE
+        inp.signal_semantics.output_domain = SignalDomain.VALUE
+        op.signal_semantics.output_domain = SignalDomain.VALUE
+        out.signal_semantics.output_domain = SignalDomain.VALUE
         graph.add_node(inp)
         graph.add_node(op)
         graph.add_node(out)
@@ -911,7 +1347,7 @@ class TestValidateCompiledGraph:
             node.core_params.tick_start = 1
             node.core_params.tick_duration = 0
             node.core_params.tick_initial = 0
-            node.output_domain = SignalDomain.VALUE
+            node.signal_semantics.output_domain = SignalDomain.VALUE
 
         inp = graph.input_nodes()[0]
         graph.add_node(branch)
@@ -931,10 +1367,10 @@ class TestValidateCompiledGraph:
         cat = ConcatOp(dim=1)
         out = OutputNode()
 
-        inp_a.output_domain = SignalDomain.VALUE
-        inp_b.output_domain = SignalDomain.VALUE
-        cat.output_domain = SignalDomain.VALUE
-        out.output_domain = SignalDomain.VALUE
+        inp_a.signal_semantics.output_domain = SignalDomain.VALUE
+        inp_b.signal_semantics.output_domain = SignalDomain.VALUE
+        cat.signal_semantics.output_domain = SignalDomain.VALUE
+        out.signal_semantics.output_domain = SignalDomain.VALUE
 
         _set_multi_input_single_output_layouts(
             cat,
@@ -963,9 +1399,9 @@ class TestValidateCompiledGraph:
         split = SplitOp(sections=(2, 4), dim=1)
         out = OutputNode()
 
-        inp.output_domain = SignalDomain.VALUE
-        split.output_domain = SignalDomain.VALUE
-        out.output_domain = SignalDomain.VALUE
+        inp.signal_semantics.output_domain = SignalDomain.VALUE
+        split.signal_semantics.output_domain = SignalDomain.VALUE
+        out.signal_semantics.output_domain = SignalDomain.VALUE
 
         split.input_layouts = (_layout((1, 5), (0, 1)),)
 
@@ -976,6 +1412,47 @@ class TestValidateCompiledGraph:
         graph.add_edge(split.name, out.name, src_port=1)
 
         with pytest.raises(GraphValidationError, match="invalid split spec"):
+            validate_compiled_graph(graph)
+
+    def test_rejects_standalone_act_32bit_input_without_direct_add(self):
+        graph = PAIIRGraph("bad_standalone_act_direct_add")
+        inp = InputNode(shape=torch.Size((1, 4)))
+        comp = StandaloneCompOp(nn.Linear(4, 4, bias=False))
+        act = StandaloneActOp(ANNNodeV25(lut=LutReLU()))
+        out = OutputNode(shape=torch.Size((1, 4)))
+
+        _set_single_layouts(comp, (1, 4), (1, 4), (0, 1), (0, 1))
+        _set_single_layouts(act, (1, 4), (1, 4), (0, 1), (0, 1))
+
+        for node in (comp, act):
+            node.core_params.tick_start = 1
+            node.core_params.tick_duration = 0
+            node.core_params.tick_initial = 0
+
+        comp.core_params.set_input_format((DataSign.SIGNED, DataWidth.WIDTH_8BIT))
+        comp.core_params.set_output_format((DataSign.SIGNED, DataWidth.WIDTH_32BIT))
+        comp.core_params.set_weight_format((DataSign.SIGNED, DataWidth.WIDTH_8BIT))
+        act.core_params.set_input_format((DataSign.SIGNED, DataWidth.WIDTH_32BIT))
+        act.core_params.set_output_format((DataSign.UNSIGNED, DataWidth.WIDTH_8BIT))
+        act.core_params.set_weight_format((DataSign.UNSIGNED, DataWidth.WIDTH_1BIT))
+
+        inp.signal_semantics.output_domain = SignalDomain.VALUE
+        comp.signal_semantics.output_domain = SignalDomain.POTENTIAL
+        act.signal_semantics.output_domain = SignalDomain.VALUE
+        out.signal_semantics.output_domain = SignalDomain.VALUE
+
+        graph.add_node(inp)
+        graph.add_node(comp)
+        graph.add_node(act)
+        graph.add_node(out)
+        graph.add_edge(inp.name, comp.name)
+        graph.add_edge(comp.name, act.name)
+        graph.add_edge(act.name, out.name)
+
+        with pytest.raises(
+            GraphValidationError,
+            match="receives WIDTH_32BIT input but add_potential is not AddPotentialMode.DIRECT_ADD",
+        ):
             validate_compiled_graph(graph)
 
 
@@ -1004,13 +1481,16 @@ class TestSplitPassBehavior:
     def test_signal_domain_and_data_format_propagate_through_split(self):
         graph, inp, split, act = self._build_split_routing_graph()
 
-        propagate_signal_domain(graph)
+        propagate_signal_semantics(
+            graph,
+            input_formats={inp.name: (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)},
+        )
         propagate_data_format(
             graph, input_formats={inp.name: (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)}
         )
 
-        assert split.output_domain is SignalDomain.VALUE
-        assert act.output_domain is SignalDomain.VALUE
+        assert split.signal_semantics.output_domain is SignalDomain.VALUE
+        assert act.signal_semantics.output_domain is SignalDomain.VALUE
         assert act.core_params.input_sign == DataSign.UNSIGNED
         assert act.core_params.input_width == DataWidth.WIDTH_1BIT
 
@@ -1045,9 +1525,9 @@ class TestValidateDeployableGraph:
         cpu = CPUOp()
         out = OutputNode()
 
-        inp.output_domain = SignalDomain.VALUE
-        cpu.output_domain = SignalDomain.VALUE
-        out.output_domain = SignalDomain.VALUE
+        inp.signal_semantics.output_domain = SignalDomain.VALUE
+        cpu.signal_semantics.output_domain = SignalDomain.VALUE
+        out.signal_semantics.output_domain = SignalDomain.VALUE
 
         graph.add_node(inp)
         graph.add_node(cpu)
@@ -1064,9 +1544,9 @@ class TestValidateDeployableGraph:
         split = SplitOp(sections=2, dim=1)
         out = OutputNode()
 
-        inp.output_domain = SignalDomain.VALUE
-        split.output_domain = SignalDomain.VALUE
-        out.output_domain = SignalDomain.VALUE
+        inp.signal_semantics.output_domain = SignalDomain.VALUE
+        split.signal_semantics.output_domain = SignalDomain.VALUE
+        out.signal_semantics.output_domain = SignalDomain.VALUE
 
         graph.add_node(inp)
         graph.add_node(split)
@@ -1084,10 +1564,10 @@ class TestValidateDeployableGraph:
         add = PotentialAddOp(op_signs=(1, 1))
         out = OutputNode()
 
-        inp_a.output_domain = SignalDomain.VALUE
-        inp_b.output_domain = SignalDomain.VALUE
-        add.output_domain = SignalDomain.POTENTIAL
-        out.output_domain = SignalDomain.POTENTIAL
+        inp_a.signal_semantics.output_domain = SignalDomain.VALUE
+        inp_b.signal_semantics.output_domain = SignalDomain.VALUE
+        add.signal_semantics.output_domain = SignalDomain.POTENTIAL
+        out.signal_semantics.output_domain = SignalDomain.POTENTIAL
 
         graph.add_node(inp_a)
         graph.add_node(inp_b)
@@ -1107,10 +1587,10 @@ class TestValidateDeployableGraph:
         cat = ConcatOp(dim=1)
         out = OutputNode()
 
-        inp_a.output_domain = SignalDomain.VALUE
-        inp_b.output_domain = SignalDomain.POTENTIAL
-        cat.output_domain = SignalDomain.VALUE
-        out.output_domain = SignalDomain.VALUE
+        inp_a.signal_semantics.output_domain = SignalDomain.VALUE
+        inp_b.signal_semantics.output_domain = SignalDomain.POTENTIAL
+        cat.signal_semantics.output_domain = SignalDomain.VALUE
+        out.signal_semantics.output_domain = SignalDomain.VALUE
 
         graph.add_node(inp_a)
         graph.add_node(inp_b)
@@ -1134,10 +1614,10 @@ class TestValidateDeployableGraph:
         )
         out = OutputNode()
 
-        inp_a.output_domain = SignalDomain.VALUE
-        inp_b.output_domain = SignalDomain.VALUE
-        acc.output_domain = SignalDomain.VALUE
-        out.output_domain = SignalDomain.VALUE
+        inp_a.signal_semantics.output_domain = SignalDomain.VALUE
+        inp_b.signal_semantics.output_domain = SignalDomain.VALUE
+        acc.signal_semantics.output_domain = SignalDomain.VALUE
+        out.signal_semantics.output_domain = SignalDomain.VALUE
         _set_single_layouts(acc, (1, 4), (1, 4), (0, 1), (0, 1))
 
         graph.add_node(inp_a)
@@ -1162,14 +1642,77 @@ class ValueBranchAdd(nn.Module):
         super().__init__()
         self.conv_a = nn.Conv2d(3, 4, 1)
         self.conv_b = nn.Conv2d(3, 4, 1)
-        self.if_a = sj.IFNode(v_threshold=1.0)
-        self.if_b = sj.IFNode(v_threshold=1.0)
+        self.if_a = neuron.IFNode(v_threshold=1.0)
+        self.if_b = neuron.IFNode(v_threshold=1.0)
 
     def forward(self, x):
         return self.if_a(self.conv_a(x)) + self.if_b(self.conv_b(x))
 
 
-class TestSignalDomain:
+class TestSignalSemantics:
+    def test_input_node_sets_known_code_range_from_effective_input_format(self):
+        graph = PAIIRGraph("input_semantics")
+        inp = InputNode(shape=torch.Size((1, 4)))
+        out = OutputNode(shape=torch.Size((1, 4)))
+        graph.add_node(inp)
+        graph.add_node(out)
+        graph.add_edge(inp.name, out.name)
+
+        propagate_signal_semantics(
+            graph,
+            input_formats={inp.name: (DataSign.SIGNED, DataWidth.WIDTH_4BIT)},
+        )
+
+        assert inp.signal_semantics.output_domain is SignalDomain.VALUE
+        assert inp.signal_semantics.known_code_range == (-8, 7)
+        assert out.signal_semantics.output_domain is SignalDomain.VALUE
+        assert out.signal_semantics.known_code_range == (-8, 7)
+
+    def test_input_node_default_known_code_range_uses_fixed_signed_8bit(self):
+        graph = PAIIRGraph("input_semantics_default")
+        inp = InputNode(shape=torch.Size((1, 4)))
+        out = OutputNode(shape=torch.Size((1, 4)))
+        graph.add_node(inp)
+        graph.add_node(out)
+        graph.add_edge(inp.name, out.name)
+
+        propagate_signal_semantics(graph)
+
+        assert inp.signal_semantics.output_domain is SignalDomain.VALUE
+        assert inp.signal_semantics.known_code_range == (-128, 127)
+        assert out.signal_semantics.output_domain is SignalDomain.VALUE
+        assert out.signal_semantics.known_code_range == (-128, 127)
+
+    def test_concat_known_code_range_requires_all_predecessors_known(self):
+        graph = PAIIRGraph("concat_known_code_range")
+        inp = InputNode(shape=torch.Size((1, 4)))
+        add = GeneralAddOp(
+            operands=(
+                AddOperandSpec(1, AddOperandKind.TENSOR, tensor_port=0),
+                AddOperandSpec(1, AddOperandKind.CONST, const_value=1),
+            )
+        )
+        cat = ConcatOp(dim=1)
+        out = OutputNode(shape=torch.Size((1, 8)))
+        for node in (inp, add, cat, out):
+            graph.add_node(node)
+        graph.add_edge(inp.name, add.name)
+        graph.add_edge(inp.name, cat.name, dst_port=0)
+        graph.add_edge(add.name, cat.name, dst_port=1)
+        graph.add_edge(cat.name, out.name)
+
+        propagate_signal_semantics(
+            graph,
+            input_formats={inp.name: (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)},
+        )
+
+        assert inp.signal_semantics.known_code_range == (0, 1)
+        assert add.signal_semantics.output_domain is SignalDomain.VALUE
+        assert add.signal_semantics.known_code_range is None
+        assert cat.signal_semantics.output_domain is SignalDomain.VALUE
+        assert cat.signal_semantics.known_code_range is None
+        assert out.signal_semantics.known_code_range is None
+
     def test_standalone_maxpool_preserves_value_domain(self):
         class ValueMaxPool(nn.Module):
             def __init__(self):
@@ -1183,7 +1726,7 @@ class TestSignalDomain:
         unfused = torch_to_paiir(ValueMaxPool(), torch.randn(1, 3, 8, 8))
         fused = fuse_to_offline_cores(specialize_general_adds(unfused))
 
-        propagate_signal_domain(fused)
+        propagate_signal_semantics(fused)
 
         pool = next(
             node
@@ -1192,11 +1735,13 @@ class TestSignalDomain:
             and isinstance(node.comp, nn.MaxPool2d)
         )
         out = fused.output_nodes()[0]
-        assert pool.output_domain == SignalDomain.VALUE
+        assert pool.signal_semantics.output_domain == SignalDomain.VALUE
+        assert pool.signal_semantics.known_code_range == (0, 254)
         assert pool.neuron_params.output_type == OutputType.VALUE
-        assert out.output_domain == SignalDomain.VALUE
+        assert out.signal_semantics.output_domain == SignalDomain.VALUE
+        assert out.signal_semantics.known_code_range == (0, 254)
 
-    def test_standalone_maxpool_preserves_potential_domain(self):
+    def test_standalone_maxpool_rejects_potential_domain(self):
         class PotentialMaxPool(nn.Module):
             def __init__(self):
                 super().__init__()
@@ -1209,31 +1754,31 @@ class TestSignalDomain:
         unfused = torch_to_paiir(PotentialMaxPool(), torch.randn(1, 3, 8, 8))
         fused = fuse_to_offline_cores(specialize_general_adds(unfused))
 
-        propagate_signal_domain(fused)
-
-        pool = next(
-            node
-            for node in fused.nodes.values()
-            if isinstance(node, StandaloneCompOp)
-            and isinstance(node.comp, nn.MaxPool2d)
-        )
-        out = fused.output_nodes()[0]
-        assert pool.output_domain == SignalDomain.POTENTIAL
-        assert pool.neuron_params.output_type == OutputType.POTENTIAL
-        assert out.output_domain == SignalDomain.POTENTIAL
+        with pytest.raises(GraphValidationError, match="Standalone MaxPool"):
+            propagate_signal_semantics(fused)
 
     def test_general_add_from_scalar_propagates_value_domain(self):
         graph = torch_to_paiir(AddScalarDomain(), torch.randn(1, 3, 8, 8), strict=False)
 
-        propagate_signal_domain(graph)
+        propagate_signal_semantics(
+            graph,
+            input_formats={
+                graph.input_nodes()[0].name: (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)
+            },
+        )
 
         add = find_first(graph, GeneralAddOp)
         out = graph.output_nodes()[0]
-        assert graph.input_nodes()[0].output_domain == SignalDomain.VALUE
-        assert add.output_domain == SignalDomain.VALUE
-        assert out.output_domain == SignalDomain.VALUE
+        assert (
+            graph.input_nodes()[0].signal_semantics.output_domain == SignalDomain.VALUE
+        )
+        assert graph.input_nodes()[0].signal_semantics.known_code_range == (0, 1)
+        assert add.signal_semantics.output_domain == SignalDomain.VALUE
+        assert add.signal_semantics.known_code_range is None
+        assert out.signal_semantics.output_domain == SignalDomain.VALUE
+        assert out.signal_semantics.known_code_range is None
 
-    def test_potential_add_from_residual_comp_propagates_potential_domain(self):
+    def test_accumulate_without_activation_propagates_potential_domain(self):
         class MembraneAdd(nn.Module):
             def __init__(self):
                 super().__init__()
@@ -1246,52 +1791,51 @@ class TestSignalDomain:
         unfused = torch_to_paiir(MembraneAdd(), torch.randn(1, 3, 8, 8))
         fused = fuse_to_offline_cores(specialize_general_adds(unfused))
 
-        propagate_signal_domain(fused)
+        propagate_signal_semantics(fused)
 
-        add = find_first(fused, PotentialAddOp)
+        accum = find_first(fused, AccumulateOp)
         out = fused.output_nodes()[0]
-        assert add.output_domain == SignalDomain.POTENTIAL
-        assert out.output_domain == SignalDomain.POTENTIAL
+        assert accum.act is None
+        assert accum.signal_semantics.output_domain == SignalDomain.POTENTIAL
+        assert accum.signal_semantics.known_code_range is None
+        assert out.signal_semantics.output_domain == SignalDomain.POTENTIAL
+        assert out.signal_semantics.known_code_range is None
 
     def test_accumulate_with_activation_propagates_value_domain(self):
         unfused = torch_to_paiir(SNNResidualAdd(), make_img_3ch_8x8())
         fused = fuse_to_offline_cores(specialize_general_adds(unfused))
 
-        propagate_signal_domain(fused)
+        propagate_signal_semantics(fused)
 
         accum = find_first(fused, AccumulateOp)
         out = fused.output_nodes()[0]
-        assert accum.output_domain == SignalDomain.VALUE
-        assert out.output_domain == SignalDomain.VALUE
+        assert accum.signal_semantics.output_domain == SignalDomain.VALUE
+        assert accum.signal_semantics.known_code_range == (0, 1)
+        assert out.signal_semantics.output_domain == SignalDomain.VALUE
+        assert out.signal_semantics.known_code_range == (0, 1)
 
     def test_potential_add_rejects_value_domain_inputs(self):
         unfused = torch_to_paiir(ValueBranchAdd(), torch.randn(1, 3, 8, 8))
         fused = fuse_to_offline_cores(specialize_general_adds(unfused))
 
         with pytest.raises(GraphValidationError, match="PotentialAddOp"):
-            propagate_signal_domain(fused)
+            propagate_signal_semantics(fused)
 
     def test_rechecks_accumulate_signs(self):
         graph = PAIIRGraph("bad_accumulate_signs")
         inp_a = InputNode(shape=torch.Size((1, 4)))
         inp_b = InputNode(shape=torch.Size((1, 4)))
         acc = AccumulateOp(
-            comps=[nn.Linear(4, 4), nn.Linear(4, 4)],
-            act=IFNodeV25(),
-            op_signs=(1, 1),
+            comps=[nn.Linear(4, 4), nn.Linear(4, 4)], act=IFNodeV25(), op_signs=(1, 1)
         )
         out = OutputNode()
 
-        inp_a.output_domain = SignalDomain.VALUE
-        inp_b.output_domain = SignalDomain.VALUE
-        acc.output_domain = SignalDomain.VALUE
-        out.output_domain = SignalDomain.VALUE
+        inp_a.signal_semantics.output_domain = SignalDomain.VALUE
+        inp_b.signal_semantics.output_domain = SignalDomain.VALUE
+        acc.signal_semantics.output_domain = SignalDomain.VALUE
+        out.signal_semantics.output_domain = SignalDomain.VALUE
         _set_multi_input_single_output_layouts(
-            acc,
-            [(1, 4), (1, 4)],
-            (1, 4),
-            [(0, 1), (0, 1)],
-            (0, 1),
+            acc, [(1, 4), (1, 4)], (1, 4), [(0, 1), (0, 1)], (0, 1)
         )
         acc.signs = (1, 0)
 

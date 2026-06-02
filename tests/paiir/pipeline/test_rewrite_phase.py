@@ -1,7 +1,7 @@
 from paibox.paiir.ir.graph import PAIIRGraph
 from paibox.paiir.pipeline.rewrite_phase import (
-    AnalysisDependentRewritePass,
-    run_analysis_dependent_rewrite_phase,
+    RewritePass,
+    run_fixed_point_rewrite_phase,
 )
 
 
@@ -21,10 +21,10 @@ def test_rewrite_phase_replays_analyses_until_fixed_point() -> None:
         state["rewritten"] = True
         return g.clone_shallow()
 
-    result = run_analysis_dependent_rewrite_phase(
+    result = run_fixed_point_rewrite_phase(
         graph,
-        refresh_analyses=refresh,
-        rewrite_passes=(AnalysisDependentRewritePass("rewrite_once", rewrite_once),),
+        rewrite_passes=(RewritePass("rewrite_once", rewrite_once),),
+        refresh_graph=refresh,
     )
 
     assert result is not graph
@@ -34,19 +34,13 @@ def test_rewrite_phase_replays_analyses_until_fixed_point() -> None:
 def test_rewrite_phase_raises_when_not_converged() -> None:
     graph = PAIIRGraph("g")
 
-    def refresh(g: PAIIRGraph) -> PAIIRGraph:
-        return g
-
     def rewrite_always(g: PAIIRGraph) -> PAIIRGraph:
         return g.clone_shallow()
 
     try:
-        run_analysis_dependent_rewrite_phase(
+        run_fixed_point_rewrite_phase(
             graph,
-            refresh_analyses=refresh,
-            rewrite_passes=(
-                AnalysisDependentRewritePass("rewrite_always", rewrite_always),
-            ),
+            rewrite_passes=(RewritePass("rewrite_always", rewrite_always),),
             max_rounds=2,
         )
     except RuntimeError as exc:

@@ -36,13 +36,93 @@ paibox.paiir/
 
 对后端开发者来说，通常有两类入口：
 
-- **公共入口**：从 `paibox.paiir` 顶层导入 `compile_to_paiir`、`PAIIRGraph`、`OfflineCoreOp` 等稳定 API
+- **公共入口**：从 `paibox.paiir` 顶层导入 `compile_to_paiir`、`CompileConfig`、`PAIIRGraph`、`TransformOp` 等稳定 API
 - **内部扩展入口**：从 `paibox.paiir.pipeline.passes`、`paibox.paiir.ir.*` 等模块导入更细粒度的类型与 pass
+
+补充：
+
+- `OfflineCoreOp`、`SequentialOp`、`AccumulateOp` 等更细粒度 IR 类型当前通过 `paibox.paiir.ir` 暴露，而不是 `paibox.paiir` 顶层导出
 
 补充说明：
 
 - `paibox.paiir.pipeline.passes` 是当前编译 pass 的公共入口
 - `paibox.paiir.pipeline.pass_manager` 目前仍是实验性基础设施，不驱动默认 `compile_to_paiir()` 路径
+
+## 前端 lowering 扩展点
+
+PAIIR 前端默认支持标准 PyTorch 模块、少量 canonical function-form 算子，以及当前白名单内的 `spikingjelly.activation_based.layer.X` wrapper。自定义模块不要依赖 lowering 猜测字段名或量化表达式，应显式注册到受支持的 canonical 模块或神经元。
+
+### 自定义计算模块
+
+`register_module(...)` 用于把用户自定义 `nn.Module` 转换为 PAIIR 已支持的 canonical `nn.Module`，例如 `nn.Conv1d`、`nn.Conv2d`、`nn.Linear`、pooling 模块（含 `nn.AdaptiveMaxPool1d/2d` 与 `nn.AdaptiveAvgPool1d/2d`）、zero-padding 模块、标准激活模块或 PAIIR 神经元/LUT 模块。
+
+```python
+from torch import nn
+from paibox.paiir import register_module
+
+
+def to_canonical_conv(module: MyQuantConv) -> nn.Module:
+    conv = nn.Conv2d(
+        in_channels=module.in_channels,
+        out_channels=module.out_channels,
+        kernel_size=module.kernel_size,
+        stride=module.stride,
+        padding=module.padding,
+        dilation=module.dilation,
+        groups=module.groups,
+        bias=module.bias_int32 is not None,
+    )
+    # 在这里显式完成 int8 权重、scale、zero-point 等用户语义到
+    # canonical Conv2d.weight / Conv2d.bias 的转换。
+    return conv
+
+
+register_module(MyQuantConv, to_canonical_conv)
+```
+
+注册函数返回的模块必须已经是当前 PAIIR lowering 支持的模块；返回 bypass 模块或未知模块会报错。重复注册同一模块类型也会报错，避免全局 lowering 规则被静默覆盖。
+
+SpikingJelly `activation_based.layer` wrapper 是另一类前端入口。当前支持的 wrapper 包括 `layer.Conv1d/2d`、`layer.Linear`、`layer.MaxPool1d/2d`、`layer.AvgPool1d/2d`、`layer.AdaptiveAvgPool1d/2d`、`layer.Flatten`；这些 wrapper 会按对应普通模块路径进入 PAIIR。注意这里讨论的是 SpikingJelly `activation_based.layer` 模块内实际存在的 wrapper；原生 `torch.nn` 模块支持属于另一类入口。
+
+普通 `AvgPool1d/2d` 与 `MaxPool1d/2d` 当前不支持 `ceil_mode=True`。该属性会导致后端部署语义不成立，因此 lowering 阶段统一抛出 `UnsupportedOpError`，不走 `strict=False` 的 warning/bypass 路径。通过 `register_module(...)` 返回的 canonical pooling 模块也遵循同一硬错误规则。
+
+### 自定义神经元或 LUT 激活
+
+`register_neuron(...)` 是面向神经元/激活的兼容入口。converter 可以返回 `CoreNeuronV25`，也可以返回 `LutActivation`；后者会被包装为 `ANNNodeV25(lut)`。
+
+```python
+from paibox.paiir import ANNNodeV25, LutReLU, register_neuron
+
+register_neuron(MyActivation, lambda module: ANNNodeV25(LutReLU()))
+```
+
+对于 SNN 神经元，converter 也可以直接返回 `IFNodeV25` / `LIFNodeV25`。当前
+`v_threshold` 已支持：
+
+- 标量 `float`：整层共享阈值
+- 1D `Tensor(shape=(C,))`：按输出 channel 的 per-channel 阈值
+
+后者会在 PAIIR 仿真中按 `N,C,...` 显式广播，并在 backend 导出时按输出
+channel 展开为每个 neuron 的标量 `threshold_pos`。当前导出契约限制为：
+
+- batch size 必须为 `1`
+- tensor 必须是 1D
+- `numel()` 必须等于输出 `shape[1]`
+- `lut` 与 tensor `thres_pos` 不可共存
+
+### function-form conv 边界
+
+`F.conv1d` / `F.conv2d` 会在 lowering 分析阶段 materialize 为 canonical `nn.Conv1d` / `nn.Conv2d`，但只支持权重和 bias 能直接解析为静态 tensor 的形式，以及简单的 tensor `to` / `view` / `reshape` 辅助节点。形如 `weight_int8 * scale` 的用户量化表达式不在核心 functional conv lowering 中推断；应通过 `register_module(...)` 在用户 converter 中显式构造 canonical conv。
+
+### zero pad lowering 边界
+
+当前 PAIIR 支持静态 constant-zero padding：
+
+- `torch.nn.functional.pad(..., mode="constant", value=0/None)`
+- `nn.ZeroPad1d/2d`
+- `nn.ConstantPad1d/2d(value=0)`
+
+非零 constant pad，以及 reflection / replication / circular pad 会在 strict lowering 中报 unsupported。编译前半段会保守尝试把单消费者、对称、非负的 `PadOp -> Conv1d/Conv2d` 折叠进后继 Conv 的 `padding` 字段；其它 `PadOp` 会保留为 backend-ready routing 节点。
 
 ## 编译流程与 API
 
@@ -63,17 +143,27 @@ PyTorch 模型
     │
     ▼  ⑥ propagate_data_format()    — 两阶段数据格式推理（输出/权重 → 输入传播）
     │
-    ▼  ⑦ assign_tick_params()       — 基于 DAG 深度分配时序参数
+    ▼  ⑦ rewrite_delayed_avgpool_division() — 可选 AvgPool 延迟除法改写
     │
-    ▼  ⑧ calibrate_avgpool_thresholds() — 可选 AvgPool 阈值细化
+    ▼  ⑧ rewrite_standalone_avgpools() — standalone AvgPool 后处理，含输出边界近似
     │
-    ▼  ⑨ validate_compiled_graph()  — 编译完成后的结构/元信息校验
+    ▼  ⑨ assign_tick_params()       — 基于 DAG 深度分配时序参数
     │
-    ▼  ⑩ validate_deployable_graph() — backend-ready 子集与契约校验
+    ▼  ⑩ calibrate_avgpool_thresholds() — 可选 AvgPool 阈值细化
+    │
+    ▼  ⑪ validate_compiled_graph()  — 编译完成后的结构/元信息校验
+    │
+    ▼  ⑫ validate_deployable_graph() — backend-ready 子集与契约校验
     │
     ▼
 PAIIRGraph (backend-ready，可交付后端)
 ```
+
+`PotentialAddOp` 是可部署膜电位加/减的中间表示。若其输入全部来自单消费者 compute path，`fuse_to_offline_cores()` 会进一步把它吸收到 `AccumulateOp`：
+
+- `CompOps -> PotentialAddOp -> ActivationOp` 融合为 `AccumulateOp(act=...)`
+- `CompOps -> PotentialAddOp` 融合为 `AccumulateOp(act=None)`，输出仍是膜电位
+- 不能安全融合的膜电位加/减仍保留为 `PotentialAddOp`
 
 ### 一站式编译接口
 
@@ -89,32 +179,56 @@ graph = compile_to_paiir(model, torch.randn(1, 3, 32, 32))
 graph = compile_to_paiir(
     model,
     torch.randn(1, 3, 32, 32),
-    tick_duration=100,       # 每核工作时长（0 = 常开）
-    auto_reset=True,         # 工作周期结束后自动复位神经元状态
+    timesteps=100,           # 一次样本/一次推理的时间步数
+    auto_reset=True,         # 每 100 个有效工作步自动复位神经元状态
 )
 
 # 使用 CompileConfig + 关键字覆盖
 from paibox.paiir import CompileConfig
 
-cfg = CompileConfig(tick_duration=100, auto_reset=True)
+cfg = CompileConfig(timesteps=100, auto_reset=True)
 graph = compile_to_paiir(model, x, compile_config=cfg, strict=False)
 ```
 
 `compile_to_paiir` 完整参数：
 
-| 参数                         | 类型                              | 说明                                                |
-| ---------------------------- | --------------------------------- | --------------------------------------------------- |
-| `model`                      | `nn.Module`                       | PyTorch 模型                                        |
-| `*sample_inputs`             | `Tensor`                          | 示例输入（batch_size 必须为 1），用于推断形状和维度 |
-| `tick_duration`              | `int \| None`                     | 全局工作时长，默认 0（常开）                        |
-| `auto_reset`                 | `bool \| None`                    | 工作周期结束后自动复位，默认 True                   |
-| `tick_overrides`             | `dict[str, TickOverride] \| None` | 按节点名指定时序覆盖                                |
-| `input_formats`              | `dict[str, DataFormat] \| None`   | 按 InputNode 名指定输入数据格式                     |
-| `compile_config`             | `CompileConfig \| None`           | 配置对象（关键字参数优先级更高）                    |
-| `concrete_args`              | `dict[str, Any] \| None`          | 传递给 `fx.Tracer.trace` 的具体参数                 |
-| `strict`                     | `bool`                            | True = 遇到不支持的算子时报错；False = 警告并跳过   |
-| `enable_avgpool_calibration` | `bool \| None`                    | 是否启用共享核 AvgPool+LIF 阈值细化，默认关闭       |
-| `enable_split_avgpool_lif`   | `bool \| None`                    | 是否允许条件式 AvgPool+LIF 分核部署，默认关闭       |
+| 参数                              | 类型                                           | 说明                                                |
+| --------------------------------- | ---------------------------------------------- | --------------------------------------------------- |
+| `model`                           | `nn.Module`                                    | PyTorch 模型                                        |
+| `*sample_inputs`                  | `Tensor`                                       | 示例输入（batch_size 必须为 1），用于推断形状和维度 |
+| `timesteps`                       | `int`                                          | 一次样本/一次推理的时间步数，默认 1，必须为正整数   |
+| `auto_reset`                      | `bool`                                         | 是否按 `timesteps` 自动复位，默认 True              |
+| `input_formats`                   | `dict[str, DataFormat] \| None`                | 按 InputNode 名指定输入数据格式                     |
+| `compile_config`                  | `CompileConfig \| None`                        | 配置对象（关键字参数优先级更高）                    |
+| `concrete_args`                   | `dict[str, Any] \| None`                       | 传递给 `fx.Tracer.trace` 的具体参数                 |
+| `strict`                          | `bool`                                         | True = 遇到不支持的算子时报错；False = 警告并跳过   |
+| `enable_avgpool_calibration`      | `bool \| None`                                 | 是否启用共享核 AvgPool+LIF 阈值细化，默认关闭       |
+| `enable_split_avgpool_lif`        | `bool \| None`                                 | 是否允许条件式 AvgPool+LIF 分核部署，默认关闭       |
+| `enable_delayed_avgpool_division` | `bool \| None`                                 | 是否启用 AvgPool 延迟除法改写，默认开启             |
+| `output_approx`                   | `"default" \| "sum_approx_if_avgpool" \| None` | 输出边界近似策略，默认保持标准策略                  |
+
+默认 `timesteps=1`、`auto_reset=True`，且当前不按 ANN/SNN mode 区分时序配置。公开参数映射到底层硬件 tick 字段的规则为：`auto_reset=True` 时 `tick_duration=0`、`tick_initial=timesteps`；`auto_reset=False` 时 `tick_duration=timesteps`、`tick_initial=0`。通过关键字参数或 `CompileConfig` 显式传入的 `timesteps` / `auto_reset` 优先于内置默认值；关键字参数优先级高于 `CompileConfig`。
+
+### 输出边界 AvgPool 近似
+
+`output_approx="sum_approx_if_avgpool"` 是显式 opt-in 的输出层策略。它只处理直接流向 `OutputNode` 的 `AvgPool1d/2d`，允许中间存在格式透明 routing 节点；SpikingJelly `VotingLayer` lowering 后得到的 `AvgPool1d` 也属于这一类。
+
+满足条件时，输出层 `AvgPool` 会被改写为：
+
+```text
+SequentialOp(SumPool1d/2d, ANNNodeV25(identity LUT))
+```
+
+后端看到的是普通 VALUE-domain 离线核输出，数据格式由 identity LUT 的输出范围推导。例如 `VotingLayer(10)` 的输出可成为范围 `[0, 10]` 的 `u4 DATA`。但这个输出不再是原始平均值，而是未归一化的 sum/count。
+
+当前 CPU 侧责任没有结构化写入 PAIIR 图或 proto。编译期会通过 `OutputApproxWarning` 明确提示：
+
+- 原输出层节点和原算子类型
+- 实际导出形式，例如 `SumPool1d + identity LUT`
+- 导出 code range 和 DATA bit width
+- 应用侧 CPU 需要除以 logical divisor 恢复平均值，或按任务语义累计 count 后再做 `argmax`
+
+后续如果引入可部署的 `CPUOp` 或导出侧 CPU task 描述，应把这段 divide/accumulate 职责从 warning 提升为结构化图/导出元数据。
 
 ### 分步编译
 
@@ -156,7 +270,7 @@ propagate_signal_domain(graph)
 propagate_data_format(graph)
 
 # ⑦ 时序参数分配（原地填充 tick_start / tick_duration / tick_initial）
-assign_tick_params(graph, tick_duration=100, auto_reset=True)
+assign_tick_params(graph, timesteps=100, auto_reset=True)
 
 # ⑧ 可选：共享核 AvgPool+LIF 阈值细化
 calibrate_avgpool_thresholds(graph)
@@ -219,16 +333,18 @@ PAIIRNode (基类，自动分配唯一 name)
 └── OpNode (算子基类，携带 TensorLayout 元信息)
     ├── OfflineCoreOp (离线核，映射到芯片核心)
     │   ├── SequentialOp      — comp -> act（最常见）
-    │   ├── AccumulateOp      — comps -> add/sub -> act（多路径融合）
-    │   ├── PotentialAddOp             — 纯加法/减法（输出膜电位，无激活）
+    │   ├── AccumulateOp      — comps -> add/sub -> optional act（多路径融合）
+    │   ├── PotentialAddOp    — 膜电位加法/减法（输出膜电位）
     │   ├── StandaloneCompOp  — 纯计算（融合前的中间状态）
     │   └── StandaloneActOp   — 纯激活（融合前的中间状态）
+    ├── TransformOp     — 路由变换（layout / shape，非核操作，不占用核资源）
+    ├── PadOp           — constant-zero padding 路由节点（非核操作）
     ├── ConcatOp        — 路由拼接（非核操作，不占用核资源）
     ├── OnlineCoreOp    — 在线学习核（占位符）
     └── CPUOp           — CPU 回退（占位符，仅 v2.5）
 ```
 
-融合后的正常图中主要出现 `SequentialOp`、`AccumulateOp`、`PotentialAddOp`、`ConcatOp` 四种算子。`StandaloneCompOp` 和 `StandaloneActOp` 通常在融合后不再独立存在，但在以下场景中仍可能保留：
+融合后的正常图中主要出现 `SequentialOp`、`AccumulateOp`、`PotentialAddOp`、`TransformOp`、`PadOp`、`ConcatOp` 等算子。`AccumulateOp.act` 可为 `None`；此时该核执行多路 compute 后直接输出膜电位。`PotentialAddOp` 仍表示显式膜电位加/减，但当它的输入都是可融合 compute path 且没有多消费者约束时，会被 `AccumulateOp` 吸收。`StandaloneCompOp` 和 `StandaloneActOp` 通常在融合后不再独立存在，但在以下场景中仍可能保留：
 
 前端表达层还可能出现 `GeneralAddOp`，用于忠实表示 PyTorch 的通用 `add/sub` 语义；但它不属于 backend-ready 子集。只要图是通过 `compile_to_paiir()` 生成的，`validate_deployable_graph()` 会确保这类表达层节点已经被收紧或拒绝。
 
@@ -242,6 +358,8 @@ PAIIRNode (基类，自动分配唯一 name)
 - 它可以出现在 `torch_to_paiir()` 或 compile 中途图里
 - `validate_deployable_graph()` 之后的 backend-ready 图不允许残留 `SplitOp`
 - 因此后端如果只消费 `compile_to_paiir()` 的最终结果，默认不需要实现 `SplitOp` 的真实部署逻辑
+
+`TransformOp` 与 `PadOp` 和 `SplitOp` 不同：`TransformOp` 与 `PadOp` 属于 backend-ready 图允许保留的 routing 节点；`SplitOp` 仍是 frontend-only IR。来自 `permute` / `transpose` / `flatten` / `reshape` / `view` / `squeeze` / `unsqueeze` 等变换在 compile 结束后仍可能以 `TransformOp` 形式存在，未能安全折叠进 Conv 的 constant-zero padding 则会以 `PadOp` 形式存在；后端必须能消费这些 routing 语义，而不是假设它们都已在前端消失。
 
 ## 计算图遍历与查询
 
@@ -344,16 +462,17 @@ class TensorLayout:
 
 当前 `output_domain` 按节点定义，是单值语义，不按输出端口拆分。对当前 routing-only 节点：
 
-- `ReshapeOp` 输出域继承其唯一输入
+- `TransformOp` 输出域继承其唯一输入
 - `SplitOp` 虽然是多输出，但所有 split 分支继承同一个输入域
 - `ConcatOp` 要求所有输入域一致，然后输出该共同域
 
-后端应把它视为节点输出语义，而不是直接等同于芯片寄存器里的 `OutputType`。对有 `neuron_params` 的离线核节点，两者通常一致；对 `InputNode`、`OutputNode`、`ConcatOp`、`SplitOp`、`ReshapeOp`、`GeneralAddOp` 这类非神经元或 routing 节点，则只能使用 `SignalDomain`。
+后端应把它视为节点输出语义，而不是直接等同于芯片寄存器里的 `OutputType`。对有 `neuron_params` 的离线核节点，两者通常一致；对 `InputNode`、`OutputNode`、`ConcatOp`、`SplitOp`、`TransformOp`、`GeneralAddOp` 这类非神经元或 routing 节点，则只能使用 `SignalDomain`。
 
 当前实现约定还更进一步：
 
 - `output_domain` 是 frontend graph 语义的 source of truth
 - 对 `OfflineCoreOp`，backend-visible `neuron_params.output_type` 应与 `output_domain` 保持一致
+- `AccumulateOp(act=None)` 必须输出 `POTENTIAL`，且 `lut_data` 为 `None`
 - `validate_compiled_graph()` 会把这种一致性当作 compiled-graph 契约的一部分来检查
 - 因此后端若消费离线核节点，读取 `neuron_params.output_type` 时可以假设它已经与前端传播得到的 `output_domain` 对齐，而不需要自己再为 `StandaloneCompOp` / `StandaloneActOp` / `AccumulateOp` 等节点重复推断 VALUE/POTENTIAL 语义
 
@@ -382,7 +501,7 @@ cp.output_width: DataWidth        # 输出位宽
 cp.weight_sign: DataSign          # 权重符号
 cp.weight_width: DataWidth        # 权重位宽
 
-# 时序参数（由 assign_tick_params 填充）
+# 内部硬件时序参数（由 assign_tick_params 从公开 timesteps/auto_reset 映射后填充）
 cp.tick_start: int | None         # 启动时刻（第几个 sync_all）
 cp.tick_duration: int             # 工作时长（0 = 常开）
 cp.tick_initial: int              # 自动复位周期（0 = 不复位）
@@ -398,7 +517,7 @@ raw_weights: list[Tensor] | None = op.weights
 ```
 
 - `SequentialOp`：若 `comp` 自带显式参数（如 Conv / Linear），返回 `[weight_tensor]`（int8）；池化返回 `None`
-- `AccumulateOp`：返回 `[w0, w1, ...]`（int8），与 `comps` 一一对应；若任一 comp 无显式参数则返回 `None`
+- `AccumulateOp`：返回 `[w0, w1, ...]`（int8），与 `comps` 一一对应；无论 `act` 是否存在，权重路径都按 `comps/signs` 解释；若任一 comp 无显式参数则返回 `None`
 - `PotentialAddOp`：返回 `None`
 - `StandaloneActOp`：返回 `None`
 
@@ -408,6 +527,7 @@ raw_weights: list[Tensor] | None = op.weights
 >
 > - Conv：由 kernel 展开为 dense matrix
 > - Pool：由 `kernel_size / stride / padding / dilation` 合成窗口连接矩阵
+> - `nn.AdaptiveMaxPool1d/2d` / `nn.AdaptiveAvgPool1d/2d`：由 PyTorch adaptive pooling 的输出位置到输入窗口边界合成位置相关连接矩阵；矩阵只表达连接和符号，avgpool 的除法语义由后续补偿/解释路径处理
 > - `StandaloneActOp` / `PotentialAddOp`：在 `comp is None` 时按路径语义合成 signed identity matrix
 >
 > 因此，不要把 `op.weights` 直接理解为“最终部署权重矩阵”。
@@ -422,25 +542,29 @@ params: NeuronParams = op.neuron_params
 
 关键字段：
 
-| 字段                  | 类型                       | 说明                                             |
-| --------------------- | -------------------------- | ------------------------------------------------ |
-| `reset_mode`          | `RM`                       | `MODE_NORMAL`（硬复位）/ `MODE_LINEAR`（软复位） |
-| `reset_v`             | `float`                    | 复位电压                                         |
-| `thres_pos`           | `float`                    | 正阈值                                           |
-| `thres_neg`           | `float`                    | 负阈值                                           |
-| `thres_pos_mode`      | `ThresholdPosMode`         | `FIRE`（触发）/ `CEILING`（截断）                |
-| `thres_neg_mode`      | `ThresholdNegMode`         | `FIRE`（触发）/ `FLOOR`（截断）                  |
-| `leak_tau`            | `int`                      | 移位指数（正 = 左移放大，负 = 右移衰减）         |
-| `leak_v`              | `float`                    | 加性漏电压（含融合后的 bias）                    |
-| `init_v`              | `float`                    | 初始膜电位                                       |
-| `output_type`         | `OutputType`               | 输出类型                                         |
-| `lateral_inhi`        | `LateralInhibitionMode`    | 侧抑制                                           |
-| `leak_multi_sequence` | `LeakMultiComparisonOrder` | 乘性漏执行顺序                                   |
-| `leak_multi_input`    | `LeakMultiInputMode`       | 输入是否参与乘性漏                               |
-| `leak_multi_mode`     | `LeakMultiMode`            | 乘性漏模式                                       |
-| `leak_add_mode`       | `LeakAddMode`              | 加性漏方向                                       |
+| 字段                  | 类型                       | 说明                                                      |
+| --------------------- | -------------------------- | --------------------------------------------------------- |
+| `reset_mode`          | `RM`                       | `MODE_NORMAL`（硬复位）/ `MODE_LINEAR`（软复位）          |
+| `reset_v`             | `float`                    | 复位电压                                                  |
+| `thres_pos`           | `float \| Tensor`          | 正阈值；tensor 时表示 1D per-channel 阈值                 |
+| `thres_neg`           | `float`                    | 负阈值                                                    |
+| `thres_pos_mode`      | `ThresholdPosMode`         | `FIRE`（触发）/ `CEILING`（截断）                         |
+| `thres_neg_mode`      | `ThresholdNegMode`         | `FIRE`（触发）/ `FLOOR`（截断）                           |
+| `leak_tau`            | `int`                      | 移位指数（正 = 左移放大，负 = 右移衰减）                  |
+| `leak_v`              | `float \| Tensor`          | 加性漏电压（含融合后的 bias）；tensor 时为 1D per-channel |
+| `init_v`              | `float`                    | 初始膜电位                                                |
+| `output_type`         | `OutputType`               | 输出类型                                                  |
+| `lateral_inhi`        | `LateralInhibitionMode`    | 侧抑制                                                    |
+| `leak_multi_sequence` | `LeakMultiComparisonOrder` | 乘性漏执行顺序                                            |
+| `leak_multi_input`    | `LeakMultiInputMode`       | 输入是否参与乘性漏                                        |
+| `leak_multi_mode`     | `LeakMultiMode`            | 乘性漏模式                                                |
+| `leak_add_mode`       | `LeakAddMode`              | 加性漏方向                                                |
 
 > **bias 融合**：`SequentialOp` 和 `AccumulateOp` 的 `neuron_params` 已将 Conv/Linear 的 bias 融合到 `leak_v` 中，后端无需额外处理。
+
+> **per-channel 参数导出约束**：当前 backend 只支持 1D per-channel `thres_pos`
+> / `leak_v`，并按输出 tensor 的 channel 轴 `shape[1]` 解释；不支持
+> per-spatial、per-group、per-element 或 batch-dependent tensor。
 
 #### 4. LUT 数据（ANN 模式）
 
@@ -468,7 +592,7 @@ SNN 模式下 `lut_data` 为 `None`。
 from paibox.paiir.ir.op_node import SequentialOp
 
 seq: SequentialOp
-seq.comp: nn.Module        # 计算模块（Conv2d / Linear / MaxPool2d / AvgPool2d 等）
+seq.comp: nn.Module        # 计算模块（Conv2d / Linear / MaxPool2d / AvgPool2d / Adaptive*Pool2d 等）
 seq.act: CoreNeuronV25     # 激活模块
 seq.weights                # list[Tensor] | None，原始参数张量；池化通常为 None
 seq.neuron_params          # NeuronParams（含 bias 融合、AvgPool 补偿）
@@ -532,6 +656,58 @@ input_names = graph.predecessors(cat.name)  # 已按 dst_port 排序
 
 `ConcatOp` 不映射到任何芯片核，后端利用输入端口顺序和各前驱的输出形状来确定轴突地址范围。
 
+#### PadOp
+
+```python
+from paibox.paiir.ir.op_node import PadOp
+
+pad: PadOp
+pad.padding: tuple[int, ...]  # PyTorch F.pad 顺序：从最后一维开始成对描述
+pad.input_layouts[0]
+pad.output_layouts[0]
+```
+
+`PadOp` 表示静态 constant-zero padding，不映射到 OfflineCore。它的 `padding`
+tuple 与 PyTorch `F.pad` 一致，例如 2D spatial pad 使用 `(left, right, top,
+bottom)`。当它不能被保守折叠进后继 Conv 时，backend-ready 图会保留该节点。
+后端需要按 `input_layouts` / `output_layouts` 生成插零后的路由映射；其
+data format 透传输入，VALUE-domain `known_code_range` 必须包含插入的 0。
+
+#### TransformOp
+
+```python
+from paibox.paiir.ir.op_node import LayoutStage, ShapeStage, TransformOp
+
+tr: TransformOp
+tr.stages: tuple[LayoutStage | ShapeStage, ...]
+tr.input_layouts[0]    # 输入 layout
+tr.output_layouts[0]   # 输出 layout
+```
+
+`TransformOp` 是当前 PAIIR 中统一承载 layout / shape 重解释的 routing 节点，不映射到任何芯片核。它的核心行为是按顺序执行 `stages`：
+
+- `LayoutStage(dims)`：按给定轴顺序物化逻辑 layout，底层调用 `materialize_logical_layout(...)`
+- `ShapeStage(shape_fn)`：根据当前张量 shape 做 reshape；若 `shape_fn is None`，语义是 flatten
+
+当前实现中，它的来源有两类：
+
+- layout-only：`permute` / `transpose` 在 lowering 时变成 `TransformOp((LayoutStage(...),))`
+- shape-only：`flatten` / `reshape` / `view` / `squeeze` / `unsqueeze` / identity `repeat` 在 lowering 时变成 `TransformOp((ShapeStage(...),))`
+
+compile 前半段还会对它做两类重写：
+
+- `canonicalize_transform_chains()`：合并相邻的 `TransformOp`，并删除 shape 与元素顺序都不变的 identity transform
+- `commute_pre_activation_transforms()`：把“保持扁平元素顺序不变”的前置 transform 从 `comp -> transform -> act` 交换到 `act` 后面，为融合创造机会
+
+后端可依赖的最小契约：
+
+- `TransformOp` 必须恰好有一个前驱
+- `input_layouts` / `output_layouts` 都必须完整，且输入输出元素总数一致
+- `output_domain` 继承其唯一前驱域
+- 不应把它映射到 OfflineCore；它只表示 routing / remap 语义
+
+backend 的正确消费方式不是手写匹配 `permute` / `reshape` 模式，而是像 `backendv2.RemapNode` 一样，直接对 index tensor 执行 `raw_node(flat_indices)`，再读取变换后的扁平索引映射。这样可以天然兼容单 stage 和多 stage 的组合 `TransformOp`。
+
 ## 完整示例
 
 ### 示例 1：提取部署所需的全部核信息
@@ -593,13 +769,17 @@ def extract_cores(graph):
 ### 示例 2：提取图的拓扑连接关系
 
 ```python
+from paibox.paiir.ir.ir_base import InputNode, OutputNode
+from paibox.paiir.ir.op_node import ConcatOp, OfflineCoreOp, PadOp, TransformOp
+
+
 def extract_topology(graph):
     """提取图的拓扑连接，用于后端路由"""
     topology = {
         "inputs": [],
         "outputs": [],
         "cores": [],
-        "routing": [],  # ConcatOp
+        "routing": [],  # TransformOp / PadOp / ConcatOp
         "edges": [],
     }
 
@@ -609,11 +789,14 @@ def extract_topology(graph):
             topology["inputs"].append({"name": name, "shape": node.shape})
         elif isinstance(node, OutputNode):
             topology["outputs"].append({"name": name, "shape": node.shape})
-        elif isinstance(node, ConcatOp):
+        elif isinstance(node, (TransformOp, PadOp, ConcatOp)):
             topology["routing"].append({
                 "name": name,
-                "dim": node.dim,
+                "type": type(node).__name__,
                 "input_order": graph.predecessors(name),
+                "stages": getattr(node, "stages", None),
+                "padding": getattr(node, "padding", None),
+                "dim": getattr(node, "dim", None),
             })
         elif isinstance(node, OfflineCoreOp):
             topology["cores"].append(name)
@@ -777,7 +960,6 @@ class LutData:
 - `graph.summary()`、`graph.predecessors()`、`graph.successors()`、`graph.get_edge_output_layout(...)`、`core_params`、`neuron_params`、`lut_data` 等接口，是后端读取部署信息的主要入口
 - 对 `OfflineCoreOp`，若 `output_domain` 与 `neuron_params.output_type` 不一致，`validate_compiled_graph()` 会直接报错；不要依赖这种不一致状态进入 backend
 - 若需要扩展编译流程，请优先在 `paibox.paiir.pipeline.passes` 中新增或调整 pass；`pass_manager` 目前不驱动默认编译路径
-- 当前分支已经将 `OpNode` 的 shape/dims 正式接口切换为 `input_layouts/output_layouts`；`backendv2` 尚未适配这次接口变化，需要单独跟进
 - `Edge.src_port` 与 `Edge.dst_port` 仍然保留：
   - `src_port` 表示源节点输出索引，`SplitOp` 依赖它选择分支
   - `dst_port` 表示目标节点输入槽位，`ConcatOp` / `AccumulateOp` / `PotentialAddOp` 等依赖它保持输入顺序

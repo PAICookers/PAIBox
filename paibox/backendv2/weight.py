@@ -29,7 +29,7 @@ class Weight:
         if AddPotential == AddPotentialMode.DIRECT_ADD:
             # in direct add mode, weight width should be at least 4 bit to avoid overflow
             weight_width = DataWidth.WIDTH_1BIT
-            input_width = DataWidth.WIDTH_32BIT
+            input_width = DataWidth.WIDTH_1BIT
             if isinstance(data, list):
                 data = np.array(data, dtype=np.int16)
             data = data.astype(np.int16)  # ensure weight is in int16 to avoid overflow

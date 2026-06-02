@@ -1,6 +1,6 @@
-from __future__ import annotations
-
+import warnings
 from abc import abstractmethod
+from collections import defaultdict, deque
 from collections.abc import Sequence, Set
 from typing import Generic, TypeVar
 
@@ -12,6 +12,8 @@ from paicorelib import (
     FoldType,
     NeuronType,
     OfflineNeuDestInfoV2,
+    OfflineNeuFoldedAttrsV2Part1,
+    OfflineNeuFoldedAttrsV2Part2,
     OfflineNeuFullAttrsV2Part1,
     OfflineNeuFullAttrsV2Part2,
     WeightCompressType,
@@ -25,6 +27,7 @@ from .coreplacement import (
     EmptyOfflineCorePlacementV2,
     OfflineCorePlacementV2,
 )
+from .fold_neu import get_fold_info
 from .get_weight import (
     WeightInfo,
     choose_weight_strategy,
@@ -39,10 +42,11 @@ from .op_node import (
     InputElem,
     Neuron,
     RemapElem,
-    ReorderNode,
+    RemapNode,
     SourceElem,
     SourceNode,
 )
+from .weight import Weight
 
 FANIN_BASE = 512
 
@@ -50,14 +54,13 @@ FANIN_BASE = 512
 class Group:
     group_counter = 0
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.id: int = type(self).group_counter
         type(self).group_counter += 1
         self.name: str = f"Group_{self.id}"
 
     def info(self, prefix: str = "") -> str:
-        info_str = f"{prefix}{self.name}:"
-        return info_str
+        return f"{prefix}{self.name}:"
 
     def __str__(self) -> str:
         return self.info() + "\n"
@@ -78,7 +81,7 @@ class DestGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
         self,
         input_list: Sequence[SOURCE_ELEM],
         input_nodes: Set[SOURCE_NODE] | None = None,
-    ):
+    ) -> None:
         self.input_nodes: set[SOURCE_NODE] | None = (
             set(input_nodes) if input_nodes is not None else None
         )
@@ -87,7 +90,7 @@ class DestGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
         self.index_map: dict[SOURCE_ELEM, int] = {}
         self.set_index_map()
 
-    def set_index_map(self):
+    def set_index_map(self) -> None:
         self.index_map = {elem: i for i, elem in enumerate(self.input_list)}
 
     def info(self, prefix: str = "") -> str:
@@ -108,19 +111,21 @@ class DestGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
         return info_str
 
     def __str__(self) -> str:
-        return "DestGroup: \n" + self.info(prefix="  ") + "\n"
+        return f"{self.__class__.__name__}: \n" + self.info(prefix="  ") + "\n"
 
 
 class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
     def __init__(
-        self,
-        raw_neus: Sequence[SOURCE_ELEM],
-        nodes: Set[SOURCE_NODE] | None = None,
-    ):
+        self, raw_neus: Sequence[SOURCE_ELEM], nodes: Set[SOURCE_NODE] | None = None
+    ) -> None:
         self.nodes: Set[SOURCE_NODE] | None = set(nodes) if nodes is not None else None
         self.raw_elems: list[SOURCE_ELEM] = list(raw_neus)
+        self.used_elems: list[SOURCE_ELEM] = []
         self.elem_set: set[SOURCE_ELEM] = set(raw_neus)
         self.dests: dict[SOURCE_ELEM, "RoutingGroup | OutputGroup| RemapGroup"] = {}
+
+    def update_raw_elems(self) -> None:
+        self.raw_elems = self.used_elems
 
     @abstractmethod
     def add_elem(self, elem: SourceElem) -> SourceElem | None:
@@ -131,7 +136,7 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
     ) -> tuple["RoutingGroup | OutputGroup", int]:
         dest_group = self.dests[elem]
         if isinstance(dest_group, RemapGroup):
-            return dest_group.reorder_dest_info(elem)
+            return dest_group.remap_dest_info(elem)
         dest_axon = dest_group.index_map.get(elem, -1)
         assert dest_axon >= 0, f"Neuron {elem} not found in dest_group's index_map"
         return dest_group, dest_axon
@@ -139,13 +144,13 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
     def get_dest(self, elem: SOURCE_ELEM) -> "RoutingGroup | OutputGroup":
         dest_group = self.dests[elem]
         if isinstance(dest_group, RemapGroup):
-            return dest_group.reorder_dest(elem)
+            return dest_group.remap_dest(elem)
         return dest_group
 
     def get_axon(self, elem: SOURCE_ELEM) -> SourceElem:
         dest_group = self.dests[elem]
         if isinstance(dest_group, RemapGroup):
-            return dest_group.reorder_axon(elem)
+            return dest_group.remap_axon(elem)
         return elem
 
     def info(self, prefix: str = "") -> str:
@@ -169,39 +174,39 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
         info_str += f"\n{prefix}   ".join(dest_strs)
         return info_str
 
-    def routing_summary(self) -> str:
-        summary_str = "    Not Deploy Group\n"
+    def routing_summary(self, prefix: str = "") -> str:
+        summary_str = f"{prefix}    Not Deploy Group\n"
         return summary_str
 
     def __str__(self) -> str:
-        info_str = "SourceGroup: \n" + self.info(prefix="  ")
-        return info_str + "\n"
+        return f"{self.__class__.__name__}: \n" + self.info(prefix="  ") + "\n"
 
     def get_detail_dest(
-        self, elem: SOURCE_ELEM, self_coord: CoordXY = CoordXY(0, 0)
+        self, elems: list[SOURCE_ELEM], self_coord: CoordXY = CoordXY(0, 0)
     ) -> OfflineNeuDestInfoV2:
-        dest_routing_group = self.get_dest(elem)
-        axon_elem = self.get_axon(elem)
+        dest_routing_group = self.get_dest(elems[0])
+        axon_elem = self.get_axon(elems[0])
         if isinstance(dest_routing_group, RoutingGroup):
             axon_addr_logic = dest_routing_group.index_map.get(axon_elem, -1)
             assert axon_addr_logic >= 0, "axon_addr_logic should be non-negative"
             assert (
-                elem.output_bit_num == dest_routing_group.input_bit_num
+                elems[0].output_bit_num == dest_routing_group.input_bit_num
             ), "Output bit num of elem must match input bit num of dest routing group"
             axon_bit_count = axon_addr_logic * dest_routing_group.input_bit_num
         elif isinstance(dest_routing_group, OutputGroup):
-            axon_bit_count = dest_routing_group.axon_bit_allocator.allocate(
-                self_coord, elem
+            axon_bit_count = -1
+            axon_bit_count = dest_routing_group.input_mapping[axon_elem]
+            assert (
+                axon_bit_count <= dest_routing_group.axon_bit_allocator.max_axon_bit
+            ), (
+                "Total axon bit count for output group exceeds the maximum "
+                f"supported by {dest_routing_group.lcn.name}"
             )
-            assert axon_bit_count < FANIN_BASE * (
-                2**LCN_EX.LCN_128X.value
-            ), "Total axon bit count for output group exceeds the maximum supported by LCN_128X"
 
         dest_coord = dest_routing_group.base_coord
         coord_copy = dest_routing_group.multicast_config
 
-        addr_axon = axon_bit_count % FANIN_BASE
-        tick_relative = axon_bit_count // FANIN_BASE
+        tick_relative, addr_axon = divmod(axon_bit_count, FANIN_BASE)
 
         coord_offset, _ = find_coordxy_shortest_path(
             target=dest_coord, start=self_coord
@@ -218,26 +223,26 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
             addr_copy_y=coord_copy.y,
         )
 
-    def set_detail_dest(self):
+    def set_detail_dest(self) -> None:
         pass
 
 
 class RemapGroup(
-    Group, DestGroup[SourceElem, SourceNode], SourceGroup[RemapElem, ReorderNode]
+    Group, DestGroup[SourceElem, SourceNode], SourceGroup[RemapElem, RemapNode]
 ):
-    reorder_group_counter = 0
+    remap_group_counter = 0
 
     def __init__(
         self,
         raw_elems: Sequence[RemapElem],
         input_list: Sequence[SourceElem],
-        nodes: Set[ReorderNode] | None = None,
+        nodes: Set[RemapNode] | None = None,
         input_nodes: Set[SourceNode] | None = None,
-    ):
+    ) -> None:
         Group.__init__(self)
         DestGroup.__init__(self, input_list, input_nodes)
         SourceGroup.__init__(self, raw_elems, nodes)
-        self.name: str = f"ReorderG_{self.id}"
+        self.name: str = f"RemapG_{self.id}"
         self.remap_dict: dict[SourceElem, RemapElem] = dict()
         self.source_dict: dict[RemapElem, SourceElem] = dict()
         self.set_remap_dict()
@@ -248,7 +253,9 @@ class RemapGroup(
         self.raw_elems.append(elem)
         self.elem_set.add(elem)
         raw_elem = elem.origin_elem()
-        raw_input = self.source_dict[raw_elem]
+        raw_input = self.source_dict.get(raw_elem, None)
+        if raw_input is None:
+            return None
         copy_input = raw_input.copy(elem.index.copy_id)
         self.input_list.append(copy_input)
         self.input_set.add(copy_input)
@@ -258,49 +265,66 @@ class RemapGroup(
         return copy_input
 
     def set_remap_dict(self) -> None:
-        assert self.nodes is not None, "nodes must be provided for ReorderGroup"
+        assert self.nodes is not None, "nodes must be provided for RemapGroup"
         for node in self.nodes:
-            reorder_map = node.get_reorder_info()
-            self.remap_dict.update(reorder_map)
+            remap_info = node.get_remap_info()
+            self.remap_dict.update(remap_info)
         assert (
             set(self.remap_dict.keys()) == self.input_set
-        ), "reorder_map keys must match input_set"
-        assert set(self.remap_dict.values()) == set(
-            self.raw_elems
-        ), "reorder_map values must match raw_neus"
+        ), "remap_info keys must match input_set"
+        assert set(self.remap_dict.values()).issubset(
+            set(self.raw_elems)
+        ), "remap_info values must match raw_neus"
 
         for src, dst in self.remap_dict.items():
             self.source_dict[dst] = src
 
-    def reorder_axon(self, elem: SourceElem) -> SourceElem:
+    def remap_axon(self, elem: SourceElem) -> SourceElem:
         out_elem = self.remap_dict[elem]
         return self.get_axon(out_elem)
 
-    def reorder_dest(self, elem: SourceElem) -> "RoutingGroup|OutputGroup":
+    def remap_dest(self, elem: SourceElem) -> "RoutingGroup|OutputGroup":
         out_elem = self.remap_dict[elem]
         return self.get_dest(out_elem)
 
-    def reorder_dest_info(
+    def remap_dest_info(
         self, elem: SourceElem
     ) -> tuple["RoutingGroup | OutputGroup", int]:
         out_elem = self.remap_dict[elem]
         return self.get_dest_info(out_elem)
 
+    def remap_info(self, prefix: str = "") -> str:
+        info_str = ""
+        remap_strs = []
+        if len(self.input_list) > 6:
+            print_remaps = self.input_list[:3] + self.input_list[-3:]
+        else:
+            print_remaps = self.input_list
+
+        for input in print_remaps:
+            remap_strs.append(f"{str(input)} -> {str(self.remap_dict[input])}")
+        if len(self.input_list) > 6:
+            remap_strs = remap_strs[:3] + ["..."] + remap_strs[-3:]
+        info_str += f"\n{prefix}Number of Remaps: {len(self.input_list)}"
+        info_str += f"\n{prefix}Remaps:\n{prefix}   "
+        info_str += f"\n{prefix}   ".join(remap_strs)
+        return info_str
+
     def info(self, prefix: str = "") -> str:
         info_str = Group.info(self, prefix)
         info_str += DestGroup.info(self, prefix=prefix + "  ")
         info_str += SourceGroup.info(self, prefix=prefix + "  ")
+        info_str += self.remap_info(prefix=prefix + "  ")
         info_str += "\n"
         return info_str
 
-    def routing_summary(self) -> str:
-        summary_str = f"Reorder Group {self.name}:\n"
-        summary_str += SourceGroup.routing_summary(self)
+    def routing_summary(self, prefix: str = "") -> str:
+        summary_str = f"{prefix}Remap Group {self.name}:\n"
+        summary_str += SourceGroup.routing_summary(self, prefix=prefix)
         return summary_str
 
     def __str__(self) -> str:
-        info_str = self.info()
-        return info_str
+        return self.info()
 
 
 class RoutingGroup(
@@ -312,19 +336,18 @@ class RoutingGroup(
         input_list: Sequence[SourceElem],
         nodes: Set[CoreOpNode] | None = None,
         input_nodes: Set[SourceNode] | None = None,
-    ):
+    ) -> None:
         Group.__init__(self)
         DestGroup.__init__(self, input_list, input_nodes)
         SourceGroup.__init__(self, raw_neus, nodes)
         self.name: str = f"RG_{self.id}"
 
         self.lcn: LCN_EX = LCN_EX.LCN_1X
+        self.recommand_lcn: LCN_EX | None = None
         self.input_bit_num: int = 0
 
         # self.core_blocks: list[CoreBlock] = []
         self.last_full_attrs: OfflineNeuFullAttrsV2Part2 | None = None
-        self.last_dest_group: RoutingGroup | None = None
-        self.last_dest_index: int | None = None
 
         self.n_core_required: int = -1
         self.core_placements: list[CorePlacement] = []
@@ -341,7 +364,7 @@ class RoutingGroup(
         self.nodes = None
         return None
 
-    def set_lcn(self):
+    def set_lcn(self) -> None:
         intput_bit_nums: set[int] = set([neu.input_bit_num for neu in self.raw_elems])
         pred_output_bit_nums: set[int] = set(
             [src.output_bit_num for src in self.input_list]
@@ -352,8 +375,8 @@ class RoutingGroup(
         assert (
             len(pred_output_bit_nums) == 1
         ), "All input elements in the routing group must have the same output bit num."
-        print(f"{self.raw_elems[0]}: input_bit_nums: {intput_bit_nums}")
-        print(f"{self.input_list[0]}: pred_output_bit_nums: {pred_output_bit_nums}")
+        # print(f"{self.raw_elems[0]}: input_bit_nums: {intput_bit_nums}")
+        # print(f"{self.input_list[0]}: pred_output_bit_nums: {pred_output_bit_nums}")
 
         self.input_bit_num = intput_bit_nums.pop()
         assert (
@@ -361,7 +384,10 @@ class RoutingGroup(
         ), "Input bit num of neurons must match output bit num of input elements."
         max_axon_addr = len(self.input_list) * self.input_bit_num
         lcn = ((max_axon_addr - 1) // FANIN_BASE).bit_length()
-        self.lcn = LCN_EX(lcn)
+        if self.recommand_lcn is not None and lcn < self.recommand_lcn.value:
+            self.lcn = self.recommand_lcn
+        else:
+            self.lcn = LCN_EX(lcn)
 
     def try_store_neuron(
         self,
@@ -389,6 +415,12 @@ class RoutingGroup(
             )
             weight_sram_req = selected_weight.n_sram_required
             attrs_part2.weight_compress = weight_compress
+            print(
+                f"\tno zero elements in base weight {weight_info.index} is {np.count_nonzero(base_weight)}"
+            )
+            print(
+                f"\tbase weight {weight_info.index} requires {weight_sram_req} SRAM lines with compression {weight_compress}."
+            )
             if weight_sram_req > 4096:
                 raise NotImplementedError(
                     f"Base weight {weight_info.index} requires {weight_sram_req} SRAM lines, which exceeds the limit."
@@ -467,38 +499,241 @@ class RoutingGroup(
             )
         return current_core
 
+    def try_to_fold_neuron(
+        self,
+        base_weights: list[np.ndarray],
+        ordered_neus: list[Neuron],
+        ordered_infos: list[WeightInfo],
+        frontend_core_conf: Frontend_Core_Config,
+        backend_core_conf: Backend_Core_Config,
+        prefix: str = "",
+    ):
+        folded_neurons: set[Neuron] = set()
+        buckets: dict[int, list[tuple[Neuron, WeightInfo]]] = defaultdict(
+            list[tuple[Neuron, WeightInfo]]
+        )
+        for neu, info in zip(ordered_neus, ordered_infos):
+            buckets[info.index].append((neu, info))
+        current_core = OfflineCorePlacementV2(frontend_core_conf, backend_core_conf)
+        stored_base_weight: dict[int, tuple[int, WeightCompressType]] = {}
+        weight_strategy_cache: dict[int, tuple[Weight, WeightCompressType]] = {}
+        for index, bucket in buckets.items():
+            neurons = [neu for neu, _ in bucket]
+            neu_nodes = [neu.target for neu in neurons]
+            if len(set(neu_nodes)) != 1:
+                # 这个 base weight 对应的 neurons 来自不同的 neuron nodes 上，暂时不考虑折叠
+                continue
+            sub_buckets: dict[
+                RoutingGroup | OutputGroup, list[tuple[Neuron, WeightInfo]]
+            ] = defaultdict(list[tuple[Neuron, WeightInfo]])
+            for neu, info in bucket:
+                dest_group = self.get_dest(neu)
+                sub_buckets[dest_group].append((neu, info))
+
+            for dest_group, sub_bucket in sub_buckets.items():
+                if isinstance(dest_group, OutputGroup):
+                    print(
+                        f"{prefix} neurons with base weight [{index}]: dest is OutputGroup {dest_group.name}, skip fold."
+                    )
+                    # OutputGroup 的 axon bit 依赖路由后坐标分配，当前阶段不做 fold
+                    continue
+                if len(sub_bucket) <= 1:
+                    continue
+                sub_neurons = [neu for neu, _ in sub_bucket]
+                weight_offsets = [info.offset for _, info in sub_bucket]
+                axon_addr_offsets = [self.get_dest_info(neu)[1] for neu in sub_neurons]
+
+                fold_info = get_fold_info(weight_offsets, axon_addr_offsets)
+                if fold_info is None:
+                    continue
+                ranges, fold_axon_skews, fold_weight_skews = fold_info
+                print(
+                    f"{prefix}Find fold {len(sub_neurons)} neurons with base weight {index} "
+                    f"to dest group {dest_group.name}:"
+                )
+                print(f"{prefix}    fold_range: {ranges}")
+                print(f"{prefix}    fold_weight_skews: {fold_weight_skews}")
+                print(f"{prefix}    fold_axon_skews: {fold_axon_skews}")
+                skip_fold = False
+                for skew in fold_weight_skews:
+                    if skew * self.input_bit_num > 2047:
+                        print(
+                            f"{prefix}Fold weight skew {skew} is too large for input bit num {self.input_bit_num}, skipping fold."
+                        )
+                        skip_fold = True
+                        break
+                for skew in fold_axon_skews:
+                    if skew * dest_group.input_bit_num > 2047:
+                        print(
+                            f"{prefix}Fold axon skew {skew} is too large for input bit num {self.input_bit_num}, skipping fold."
+                        )
+                        skip_fold = True
+                        break
+                if skip_fold:
+                    continue
+
+                if index not in weight_strategy_cache:
+                    current_weight_width = frontend_core_conf.weight_width
+                    base_weight = base_weights[index]
+                    selected_weight, weight_compress = choose_weight_strategy(
+                        base_weight,
+                        current_weight_width,
+                        frontend_core_conf.input_width,
+                        frontend_core_conf.add_potential,
+                    )
+                    weight_strategy_cache[index] = (selected_weight, weight_compress)
+                selected_weight, weight_compress = weight_strategy_cache[index]
+                weight_sram_req = selected_weight.n_sram_required
+
+                attrs_part2 = sub_neurons[0].attrs_part2()
+                attrs_part2.weight_compress = weight_compress
+                neuron_type = NeuronType.FULL
+                output_type = sub_neurons[0].output_type()
+                attrs_part1 = OfflineNeuFullAttrsV2Part1(
+                    weight_skew=weight_offsets[0] * self.input_bit_num,
+                    weight_address_start=0,  # 之后会统一设置
+                    weight_address_end=0,  # 之后会统一设置
+                    fold_type=FoldType.FOLDED,
+                    neuron_type=neuron_type,
+                    output_type=output_type,
+                )
+
+                if isinstance(dest_group, OutputGroup):
+                    # if folded neurons send to output group,
+                    # axon skews should be all 1.
+                    assert fold_axon_skews == [
+                        1,
+                        1,
+                        1,
+                    ], "Folded neurons sending to output group should have axon skew of 1"
+
+                fold_attrs_part1 = OfflineNeuFoldedAttrsV2Part1(
+                    fold_axon_y=fold_axon_skews[0] * dest_group.input_bit_num,
+                    fold_axon_x=fold_axon_skews[1] * dest_group.input_bit_num,
+                    fold_axon_xy=fold_axon_skews[2] * dest_group.input_bit_num,
+                    fold_skew_y=fold_weight_skews[0] * self.input_bit_num,
+                    fold_skew_x=fold_weight_skews[1] * self.input_bit_num,
+                    fold_skew_xy=fold_weight_skews[2] * self.input_bit_num,
+                    fold_range_y=ranges[0],
+                    fold_range_x=ranges[1],
+                    fold_range_xy=ranges[2],
+                    fold_number=len(sub_neurons),
+                )
+                num_fold_part2 = (len(sub_neurons) - 1 + 3) // 4
+                fold_attrs_part2s = [
+                    OfflineNeuFoldedAttrsV2Part2() for _ in range(num_fold_part2)
+                ]
+                neu_placement = OfflineNeuronPlacement(
+                    sub_neurons,
+                    attrs_part1,
+                    attrs_part2,
+                    fold_attrs_part1,
+                    fold_attrs_part2s,
+                )
+                neu_sram_req = neu_placement.n_sram_required
+
+                added_weight_sram_req = (
+                    0 if index in stored_base_weight else weight_sram_req
+                )
+                total_sram_req = neu_sram_req + added_weight_sram_req
+                if total_sram_req > 4096:
+                    print(
+                        f"{prefix}Folding neurons with base weight {index} to dest group "
+                        f"{dest_group.name} requires {total_sram_req} SRAM lines, "
+                        "which exceeds the limit. Skipping folding."
+                    )
+                    continue
+
+                if current_core.n_sram_required + total_sram_req > 4096:
+                    if len(current_core.neus) > 0:
+                        self.core_placements.append(current_core)
+                    current_core = OfflineCorePlacementV2(
+                        frontend_core_conf, backend_core_conf
+                    )
+                    stored_base_weight.clear()
+                    added_weight_sram_req = weight_sram_req
+                    total_sram_req = neu_sram_req + added_weight_sram_req
+                    if total_sram_req > 4096:
+                        print(
+                            f"{prefix}Folding neurons with base weight {index} to dest group "
+                            f"{dest_group.name} requires {total_sram_req} SRAM lines, "
+                            "which exceeds the limit. Skipping folding."
+                        )
+                        continue
+
+                remaining_sram = 4096 - current_core.n_sram_required - total_sram_req
+                print(
+                    f"{prefix}core[{len(self.core_placements)}]:Folded neuron stored with base weight {index} "
+                    f"to dest group {dest_group.name}:"
+                )
+                print(f"{prefix}    num neurons: {len(sub_neurons)}")
+                print(f"{prefix}    num sram lines: {neu_sram_req}")
+                print(f"{prefix}    weight sram lines: {added_weight_sram_req}")
+                print(f"{prefix}    total sram lines: {total_sram_req}")
+                print(f"{prefix}    remaining sram lines: {remaining_sram}")
+
+                if index not in stored_base_weight:
+                    current_core.weights.append(selected_weight)
+                    stored_base_weight[index] = (
+                        len(current_core.weights) - 1,
+                        weight_compress,
+                    )
+                stored_weight_index, _ = stored_base_weight[index]
+                current_core.neus.append(neu_placement)
+                current_core.neu_weight_map[len(current_core.neus) - 1] = (
+                    stored_weight_index
+                )
+                folded_neurons.update(sub_neurons)
+
+        return folded_neurons, current_core, stored_base_weight
+
     def place_neurons_optimal(
         self,
         frontend_core_conf: Frontend_Core_Config,
         backend_core_conf: Backend_Core_Config,
         group_items: list[tuple[Neuron, np.ndarray]],
         block_id: int = 0,
-    ):
+        prefix: str = "",
+    ) -> None:
         weights_of_group = [item[1] for item in group_items]
-        weight_infos, base_weights = group_shift_weights_optimized(weights_of_group)
+        weight_infos, base_weights = group_shift_weights_optimized(
+            weights_of_group, prefix
+        )
         # reorder group_items making the ones with the same base weight together, to improve weight storage efficiency
-        reordered_items, reordered_infos = reorder_by_base_weight(
+        reordered_neus, reordered_infos = reorder_by_base_weight(
             group_items, weight_infos
         )
 
-        # with open(f"{self.name}_weight_base.txt", "w") as f:
-        #     for weight in base_weights:
-        #         f.write(" ".join(map(str, weight)) + "\n")
-        #     for info in reordered_infos:
-        #         f.write(f"index: {info.index}, offset: {info.offset}\n")
+        import os
 
-        current_core = OfflineCorePlacementV2(frontend_core_conf, backend_core_conf)
+        if os.environ.get("DUMP_WEIGHTS", None) == "1":
+            output_dir = os.environ.get("PAIBOX_OUTPUT_PATH", "./weights")
+            with open(f"{output_dir}/weights/{self.name}_weight_base.txt", "w") as f:
+                for weight in base_weights:
+                    f.write(" ".join(map(str, weight)) + "\n")
+                for info in reordered_infos:
+                    f.write(f"index: {info.index}, offset: {info.offset}\n")
+
+        print(f"{prefix}trying to fold neurons")
+        folded_neurons, current_core, stored_base_weight = self.try_to_fold_neuron(
+            base_weights,
+            reordered_neus,
+            reordered_infos,
+            frontend_core_conf,
+            backend_core_conf,
+            prefix=f"{prefix}    ",
+        )
+
+        # current_core = OfflineCorePlacementV2(frontend_core_conf, backend_core_conf)
         self.last_full_attrs = None
-        stored_base_weight: dict[int, tuple[int, WeightCompressType]] = (
-            {}
-        )  # map from base weight index to the index of core's weight list where it's stored
-
-        description = f"allocating {self.name} block [{block_id}]"
-        for (neu, weight_of_neu), weight_info in track(
-            zip(reordered_items, reordered_infos),
+        description = f"{prefix}place unfolded neurons"
+        for neu, weight_info in track(
+            zip(reordered_neus, reordered_infos),
             description=description,
-            total=len(reordered_items),  # 明确指定总数，确保进度条计算准确
+            total=len(reordered_neus),  # 明确指定总数，确保进度条计算准确
         ):
+            if neu in folded_neurons:
+                continue
             current_core = self.try_store_neuron(
                 neu,
                 stored_base_weight,
@@ -511,104 +746,24 @@ class RoutingGroup(
         if len(current_core.neus) > 0:
             self.core_placements.append(current_core)
 
-    def place_neurons_raw(
-        self,
-        frontend_core_conf: Frontend_Core_Config,
-        backend_core_conf: Backend_Core_Config,
-        group_items: list[tuple[Neuron, np.ndarray]],
-        block_id: int = 0,
-    ):
-        current_core = OfflineCorePlacementV2(frontend_core_conf, backend_core_conf)
-
-        self.last_full_attrs = None
-
-        for neu, weight_of_neu in group_items:
-            attrs_part2 = neu.attrs_part2()
-
-            # Weight Strategy
-            current_weight_width = frontend_core_conf.weight_width
-            selected_weight, attrs_part2.weight_compress = choose_weight_strategy(
-                weight_of_neu,
-                current_weight_width,
-                frontend_core_conf.input_width,
-                frontend_core_conf.add_potential,
-            )
-
-            neuron_type = (
-                NeuronType.HALF
-                if attrs_part2 == self.last_full_attrs
-                else NeuronType.FULL
-            )
-            output_type = neu.output_type()
-            attrs_part1 = OfflineNeuFullAttrsV2Part1(
-                weight_skew=0,
-                weight_address_start=0,
-                weight_address_end=0,
-                fold_type=FoldType.UNFOLDED,
-                neuron_type=neuron_type,
-                output_type=output_type,
-            )
-            neu_placement = OfflineNeuronPlacement([neu], attrs_part1, attrs_part2)
-
-            # SRAM Check
-            neu_sram_req = neu_placement.n_sram_required
-            weight_sram_req = selected_weight.n_sram_required
-            total_req = neu_sram_req + weight_sram_req
-
-            if total_req > 4096:
-                raise NotImplementedError(
-                    f"Neuron {neu} with its weight requires {total_req} SRAM lines."
-                )
-
-            if current_core.n_sram_required + total_req > 4096:
-                if len(current_core.neus) > 0:
-                    self.core_placements.append(current_core)
-
-                # Create new core with inheritance
-                current_core = OfflineCorePlacementV2(
-                    frontend_core_conf, backend_core_conf
-                )
-                neuron_type = NeuronType.FULL
-                neu_placement.neu_attrs_part1.neuron_type = NeuronType.FULL
-                self.last_full_attrs = attrs_part2
-
-            elif neuron_type == NeuronType.FULL:
-                self.last_full_attrs = attrs_part2
-
-            # print(f"Neuron {neu} assigned type {neu_placement.neuron_type}.")
-            current_core.neus.append(neu_placement)
-            current_core.weights.append(selected_weight)
-
-            idx = len(current_core.neus) - 1
-            current_core.neu_weight_map[idx] = idx
-
-        if len(current_core.neus) > 0:
-            self.core_placements.append(current_core)
-
-    def allocate_neurons(self):
+    def allocate_neurons(self) -> None:
         """core placement generation"""
         # you can get neu_attrs_part2, inherited_core_config, target_lcn, lcn for each neuron in self.raw_elems, like:
         # all the attrs in neu_attrs_part2 are valid except weight compress, you should set weight compress according to your weight storage strategy
         # inherited core_config are valid except weight_width, you can set weight_width larger than or equal to the original value for optimization
 
-        if self.nodes is not None and self.input_nodes is not None:
-            node = list(self.nodes)[0]
-            # print(f"kernel weight from node {node.name}:\n", node.weights[0])
-
+        print(f"\nAllocating neurons for Routing Group {self.name}...")
+        prefix = "    "
         weights = get_raw_weights(self.raw_elems, self.input_list)
 
         # print(f"weight of routing group {self.name}:\n", weights)
-        print(f"weight shape of routing group {self.name}: {weights.shape}")
+        print(f"{prefix}weight shape of routing group {self.name}: {weights.shape}")
 
         # print compelet weights into file for debug
         # with open(f"{self.name}_weights.txt", "w") as f:
         #     weights_transposed = weights.T
         #     for row in weights_transposed:
         #         f.write(" ".join(map(str, row)) + "\n")
-
-        print(
-            f"Allocating neurons for Routing Group {self.name} with {len(self.raw_elems)} neurons."
-        )
 
         # 1. Grouping Phase
         core_groups: dict[
@@ -629,24 +784,29 @@ class RoutingGroup(
             core_groups[key].append((neu, weight_of_neu))
 
         self.core_placements: list[CorePlacement] = []
-        print(f"grouping finished, number of core groups: {len(core_groups)}")
+        print(f"{prefix}Number of core blocks: {len(core_groups)}")
+        # for key, group_items in core_groups.items():
+        #     print(f"\n\tCore block with {len(group_items)}:")
+        #     print(f"\t\tfrontend_core_conf={key[0]}")
+        #     print(f"\t\tbackend_core_conf={key[1]}")
 
         # 2. Allocation Phase
         for i, (key, group_items) in enumerate(core_groups.items()):
             # print(f"\n\nAllocating group with frontend_core_conf={key[0]}")
             # print(f"backend_core_conf={key[1]}")
             # print(f"Neu of this group: {[str(item[0]) for item in group_items]}")
-            print(f"Number of neurons in this group: {len(group_items)}")
+            print(f"{prefix}allocating core_block[{i}] ({len(group_items)} neurons)...")
             frontend_core_conf, backend_core_conf = key
-            # Initialize the first core for the current group
-            current_core = OfflineCorePlacementV2(frontend_core_conf, backend_core_conf)
-
             self.last_full_attrs = None
             self.place_neurons_optimal(
-                frontend_core_conf, backend_core_conf, group_items, i
+                frontend_core_conf,
+                backend_core_conf,
+                group_items,
+                i,
+                prefix=f"{prefix}    ",
             )
             print(
-                f"Number of cores after allocating this group: {len(self.core_placements)}"
+                f"{prefix}Number of cores of core_block[{i}]: {len(self.core_placements)}"
             )
 
         self.n_core_required = len(self.core_placements)
@@ -677,9 +837,8 @@ class RoutingGroup(
                 # mostly each neu_placement contains only one raw_neu
                 # for folded neuron placement, it may contain multiple raw_neus
                 # but we only need to set dest_info for the first raw_neu
-                main_neu = neu_placement.raw_neus[0]
                 dest_info = self.get_detail_dest(
-                    main_neu, self_coord=core_placement.coord
+                    neu_placement.raw_neus, self_coord=core_placement.coord
                 )
                 neu_placement.dest_info = dest_info
 
@@ -716,39 +875,42 @@ class RoutingGroup(
         return info_str
 
     def __str__(self) -> str:
-        info_str = self.info()
-        return info_str
+        return self.info()
 
-    def routing_summary(self) -> str:
-        summary_str = (
-            f"{self.name} Routing Summary ({len(self.core_placements)} cores):\n"
-        )
+    def routing_summary(self, prefix: str = "") -> str:
+        summary_str = f"{prefix}{self.name} Routing Summary ({len(self.core_placements)} cores):\n"
         for i, core_placement in enumerate(self.core_placements):
-            summary_str += f"  Core Placement {i} at {core_placement.coord}:\n"
-            summary_str += f"    Number of Neurons: {len(core_placement.neus)}\n"
-            summary_str += f"    Number of Weights: {len(core_placement.weights)}\n"
+            if core_placement._coord is not None:
+                summary_str += (
+                    f"{prefix}  Core Placement {i} at {core_placement.coord}:\n"
+                )
+            else:
+                summary_str += f"{prefix}  Core Placement {i} at Unassigned Coord:\n"
+            summary_str += f"{prefix}    Number of Neurons: {sum([len(neu_placement.raw_neus) for neu_placement in core_placement.neus])}\n"
             summary_str += (
-                f"    Neuron SRAM Required: {core_placement.neuron_sram_required}\n"
+                f"{prefix}    Number of Weights: {len(core_placement.weights)}\n"
             )
             summary_str += (
-                f"    Weight SRAM Required: {core_placement.weight_sram_required}\n"
+                f"{prefix}    Number of Neuron Placements: {len(core_placement.neus)}\n"
             )
+            summary_str += f"{prefix}    Neuron SRAM Required: {core_placement.neuron_sram_required}\n"
+            summary_str += f"{prefix}    Weight SRAM Required: {core_placement.weight_sram_required}\n"
             summary_str += (
-                f"    Total SRAM Required: {core_placement.n_sram_required}\n"
+                f"{prefix}    Total SRAM Required: {core_placement.n_sram_required}\n"
             )
         return summary_str
 
 
 class InputGroup(Group, SourceGroup[InputElem, InNode]):
     def __init__(
-        self,
-        raw_elems: Sequence[SourceElem],
-        nodes: Set[SourceNode] | None = None,
-    ):
+        self, raw_elems: Sequence[InputElem], nodes: Set[InNode] | None = None
+    ) -> None:
         Group.__init__(self)
         SourceGroup.__init__(self, raw_elems, nodes)
         self.name: str = f"InputG_{self.id}"
-        self.dest_infos: dict[SourceElem, OfflineNeuDestInfoV2] = {}
+        self.dest_infos: dict[InputElem, OfflineNeuDestInfoV2] = {}
+        self.dest_lcn: dict[InputElem, LCN_EX] = {}
+        self.thread_id: int = 0
 
     def add_elem(self, elem: SourceElem) -> SourceElem | None:
         if not isinstance(elem, InputElem):
@@ -764,69 +926,119 @@ class InputGroup(Group, SourceGroup[InputElem, InNode]):
         info_str += "\n"
         return info_str
 
-    def routing_summary(self) -> str:
-        summary_str = f"Input Group {self.name}:\n"
-        summary_str += SourceGroup.routing_summary(self)
+    def routing_summary(self, prefix: str = "") -> str:
+        summary_str = f"{prefix}{self.__class__.__name__} {self.name}:\n"
+        summary_str += SourceGroup.routing_summary(self, prefix=prefix)
         return summary_str
 
     def __str__(self) -> str:
-        info_str = self.info()
-        return info_str
+        return self.info()
 
-    def set_detail_dest(self):
+    def set_detail_dest(self) -> None:
         for elem in self.raw_elems:
-            dest_info = self.get_detail_dest(elem)
+            dest_info = self.get_detail_dest([elem])
             self.dest_infos[elem] = dest_info
+            dest_rg = self.get_dest(elem)
+            self.dest_lcn[elem] = dest_rg.lcn
+
+
+def _max_axon_bit_for_lcn(target_lcn: LCN_EX) -> int:
+    """Return the largest flat output axon bit address supported by an LCN."""
+    return FANIN_BASE * (1 << target_lcn.value) - 1
+
+
+MAX_LCN = LCN_EX.LCN_128X
+OUTPUT_TIMESTEP_FIELD_BITS = MAX_LCN.value + 1
 
 
 class OutputAxonAllocator:
-    def __init__(self):
-        self.axon_infos: dict[CoordXY, list[tuple[int, SourceElem]]] = {}
-        self.used_bits: dict[CoordXY, set[int]] = {}
-        self.lowest_free_bit: dict[CoordXY, int] = {}
+    """Assign stable flat output axon bit addresses for one OutputGroup."""
 
-    def get_next_free_bit(self, coord: CoordXY, start: int) -> int:
+    DEFAULT_TARGET_LCN = MAX_LCN
+
+    def __init__(self, target_lcn: LCN_EX = DEFAULT_TARGET_LCN) -> None:
+        self.target_lcn = target_lcn
+        self.max_axon_bit = _max_axon_bit_for_lcn(target_lcn)
+        # Ordered export view: proto output entries keep this allocation order.
+        self.axon_infos: list[tuple[int, SourceElem]] = []
+        # Fast idempotency guard for repeated detail-destination generation.
+        self.axon_by_elem: dict[SourceElem, int] = {}
+        self.used_bits: set[int] = set()
+        self.lowest_free_bit: int = 0
+
+    def retarget(self, target_lcn: LCN_EX) -> None:
+        """Narrow or widen capacity after allocation without changing addresses."""
+        max_axon_bit = _max_axon_bit_for_lcn(target_lcn)
+        if self.used_bits and max(self.used_bits) > max_axon_bit:
+            raise ValueError(
+                f"Cannot retarget output allocator to {target_lcn.name}: "
+                f"allocated axon bit {max(self.used_bits)} exceeds "
+                f"the maximum supported axon bit {max_axon_bit}."
+            )
+        self.target_lcn = target_lcn
+        self.max_axon_bit = max_axon_bit
+
+    def get_next_free_bit(self, start: int) -> int:
         while True:
-            if start not in self.used_bits.get(coord, set()):
+            if start > self.max_axon_bit:
+                return start
+            if start not in self.used_bits:
                 return start
             start += 1
 
-    def free_to_store_32bit(self, coord: CoordXY, start: int) -> bool:
+    def free_to_store_32bit(self, start: int) -> bool:
         for i in range(4):
-            if start + i * 8 in self.used_bits.get(coord, set()):
+            # A 32-bit voltage value occupies 4 byte lanes, 8 bits apart.
+            axon_bit = start + i * 8
+            if axon_bit > self.max_axon_bit or axon_bit in self.used_bits:
                 return False
         return True
 
-    def allocate(self, coord: CoordXY, elem: SourceElem) -> int:
-        if coord not in self.axon_infos:
-            self.axon_infos[coord] = []
-            self.lowest_free_bit[coord] = 0
-            self.used_bits[coord] = set()
+    def allocate(self, elem: SourceElem) -> int:
+        if elem in self.axon_by_elem:
+            return self.axon_by_elem[elem]
+
         if elem.output_bit_num <= 8:
-            axon_bit = self.lowest_free_bit[coord]
-            self.used_bits[coord].add(axon_bit)
-            self.axon_infos[coord].append((axon_bit, elem))
-            next_free_bit = self.get_next_free_bit(coord, axon_bit + 1)
-            self.lowest_free_bit[coord] = next_free_bit
+            axon_bit = self.lowest_free_bit
+            if axon_bit > self.max_axon_bit:
+                raise ValueError(
+                    f"Cannot allocate {elem.output_bit_num}-bit output for "
+                    f"element {elem}: output axon space is exhausted."
+                )
+            self.used_bits.add(axon_bit)
+            self.axon_infos.append((axon_bit, elem))
+            next_free_bit = self.get_next_free_bit(axon_bit + 1)
+            self.lowest_free_bit = next_free_bit
         elif elem.output_bit_num == 32:
-            candidate_bit = self.lowest_free_bit[coord]
+            candidate_bit = self.lowest_free_bit
             while True:
-                if self.free_to_store_32bit(coord, candidate_bit):
+                if candidate_bit > self.max_axon_bit:
+                    raise ValueError(
+                        f"Cannot allocate 32-bit output for element {elem}: "
+                        "output axon space is exhausted."
+                    )
+                # A 32-bit voltage value occupies 4 byte lanes, 8 bits apart.
+                if self.free_to_store_32bit(candidate_bit):
                     axon_bit = candidate_bit
                     for i in range(4):
-                        self.used_bits[coord].add(candidate_bit + i * 8)
-                    self.axon_infos[coord].append((axon_bit, elem))
-                    updated_free_bit = self.get_next_free_bit(
-                        coord, self.lowest_free_bit[coord]
-                    )
-                    self.lowest_free_bit[coord] = updated_free_bit
+                        self.used_bits.add(candidate_bit + i * 8)
+                    self.axon_infos.append((axon_bit, elem))
+                    updated_free_bit = self.get_next_free_bit(self.lowest_free_bit)
+                    self.lowest_free_bit = updated_free_bit
                     break
                 else:
-                    candidate_bit = self.get_next_free_bit(coord, candidate_bit + 1)
+                    candidate_bit = self.get_next_free_bit(candidate_bit + 1)
         else:
             raise ValueError(
                 f"Unsupported output bit num {elem.output_bit_num} for element {elem}."
             )
+        if axon_bit > self.max_axon_bit:
+            raise ValueError(
+                f"Axon bit {axon_bit} allocated for element {elem} exceeds "
+                f"the maximum supported axon bit {self.max_axon_bit}."
+            )
+
+        self.axon_by_elem[elem] = axon_bit
         return axon_bit
 
 
@@ -835,15 +1047,17 @@ class OutputGroup(Group, DestGroup[SourceElem, SourceNode]):
         self,
         input_list: Sequence[SourceElem],
         input_nodes: Set[SourceNode] | None = None,
-    ):
+    ) -> None:
         Group.__init__(self)
         DestGroup.__init__(self, input_list, input_nodes)
         self.name: str = f"OutputG_{self.id}"
         self._multicast_config: AERPacketZXYCopy = AERPacketZXYCopy(0, 0, 0)
         self._base_coord: CoordXY = CoordXY(0, 0)
-        self.axon_bit_allocator = OutputAxonAllocator()
-        self.lcn = LCN_EX.LCN_128X
+        self.lcn = OutputAxonAllocator.DEFAULT_TARGET_LCN
+        self.axon_bit_allocator = OutputAxonAllocator(self.lcn)
         self.input_bit_num: int = 1
+        self.thread_id: int = 0
+        self.input_mapping: dict[SourceElem, int] = {}
 
     def info(self, prefix: str = "") -> str:
         info_str = Group.info(self, prefix=prefix)
@@ -851,17 +1065,73 @@ class OutputGroup(Group, DestGroup[SourceElem, SourceNode]):
         info_str += "\n"
         return info_str
 
-    def routing_summary(self) -> str:
-        summary_str = f"Output Group {self.name}:\n"
-        summary_str += "   Output Group is the final destination, no further routing.\n"
+    def routing_summary(self, prefix: str = "") -> str:
+        summary_str = f"{prefix}{self.__class__.__name__} {self.name}:\n"
+        summary_str += f"{prefix}   {self.__class__.__name__} is the final destination, no further routing.\n"
         return summary_str
 
     def __str__(self) -> str:
-        info_str = self.info()
-        return info_str
+        return self.info()
 
-    def set_detail_dest(self):
+    def set_detail_dest(self) -> None:
         pass
+
+    def _build_axon_allocator(self, target_lcn: LCN_EX) -> OutputAxonAllocator:
+        # Build the allocator to completion so capacity checks and final state match.
+        allocator = OutputAxonAllocator(target_lcn)
+        for elem in self.input_list:
+            allocator.allocate(elem)
+        return allocator
+
+    def set_lcn(self, required_ts: int) -> None:
+        """Select output target LCN from deployed axon addresses.
+
+        ``required_ts`` is the application runtime length. It does not drive the
+        selected LCN; it only warns when the chosen output address width leaves
+        too few local timestep bits for STREAM decoding.
+        """
+        if required_ts <= 0:
+            raise ValueError(f"required_ts must be positive, got {required_ts}.")
+
+        try:
+            max_allocator = self._build_axon_allocator(MAX_LCN)
+        except ValueError as exc:
+            raise ValueError(
+                f"Output axon space is exhausted even with {MAX_LCN.name}."
+            ) from exc
+
+        if max_allocator.used_bits:
+            max_axon_addr = max(max_allocator.used_bits)
+        else:
+            max_axon_addr = 0
+
+        # LCN is derived from deployed output axon address width. Runtime step
+        # width is considered only to warn when STREAM decode cannot cover T.
+        min_tick_relative_bit = (max_axon_addr // FANIN_BASE).bit_length()
+        min_ts_bit = max((required_ts - 1).bit_length(), 1)
+
+        if min_tick_relative_bit > MAX_LCN.value:
+            raise ValueError(
+                f"Max axon address {max_axon_addr} requires at least "
+                f"{min_tick_relative_bit} bits, which exceeds the maximum "
+                f"supported by {MAX_LCN.name}."
+            )
+        if min_ts_bit + min_tick_relative_bit > OUTPUT_TIMESTEP_FIELD_BITS:
+            warnings.warn(
+                "Output timestep bits and axon address bits cannot both fit in "
+                f"{OUTPUT_TIMESTEP_FIELD_BITS} bits; runtime decode will require "
+                "STEP mode.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            target_lcn = MAX_LCN
+        else:
+            target_lcn = LCN_EX(min_tick_relative_bit)
+
+        max_allocator.retarget(target_lcn)
+        self.lcn = target_lcn
+        self.axon_bit_allocator = max_allocator
+        self.input_mapping = max_allocator.axon_by_elem.copy()
 
     @property
     def multicast_config(self) -> AERPacketZXYCopy:
@@ -876,28 +1146,18 @@ def toposort_for_rg(
     groups: list[RemapGroup | RoutingGroup],
 ) -> tuple[list[RoutingGroup], dict[int, list[int]]]:
     """topological sort for routing groups based on their dests"""
-    from collections import defaultdict, deque
-
     routing_groups = [rg for rg in groups if isinstance(rg, RoutingGroup)]
     rg_set = set(routing_groups)
 
-    print("Routing Groups before topological sort:")
-    for rg in routing_groups:
-        print(f"{rg.name}")
-
     indegree = {rg: 0 for rg in routing_groups}
 
-    for rg in indegree.keys():
-        print(f"Routing Group {rg.name} has indegree {indegree[rg]} before sorting.")
     graph: dict[RoutingGroup, list[RoutingGroup]] = defaultdict(list)
     graph_set: dict[RoutingGroup, set[RoutingGroup]] = defaultdict(set)
 
     for rg in routing_groups:
-        for neu in track(
-            rg.raw_elems,
-            description=f"Processing Routing Group {rg.name} ({len(rg.raw_elems)} neurons)",
-            total=len(rg.raw_elems),  # 明确指定总数，确保进度条计算准确
-        ):
+        graph[rg] = []
+        graph_set[rg] = set()
+        for neu in rg.raw_elems:
             dest_rg = rg.get_dest(neu)
             if dest_rg not in rg_set or dest_rg is rg:
                 continue
@@ -906,10 +1166,9 @@ def toposort_for_rg(
                 graph_set[rg].add(dest_rg)
                 indegree[dest_rg] += 1
 
+    print("\nRouting Group Graph:")
     for rg in graph:
-        print(
-            f"Routing Group {rg.name} has edges to {[dest.name for dest in graph[rg]]}"
-        )
+        print(f"\t{rg.name}: {[dest.name for dest in graph[rg]]}")
 
     queue = deque([rg for rg in routing_groups if indegree[rg] == 0])
     sorted_rgs = []

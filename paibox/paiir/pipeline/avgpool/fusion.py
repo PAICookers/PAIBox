@@ -4,7 +4,6 @@ import math
 from typing import cast
 
 import torch
-import torch.nn as nn
 from paicorelib import (
     DataSign,
     DataWidth,
@@ -23,7 +22,6 @@ from ...ir.op_node import (
     StandaloneActOp,
     StandaloneCompOp,
 )
-from ...nn import SumPool1d, SumPool2d
 from ..data_format import infer_output_format
 from ..fusion_utils import _materialize_shared_sequential
 from .compensation import (
@@ -33,7 +31,7 @@ from .compensation import (
 )
 from .deploy_scheme import AvgPoolDeployScheme, select_avgpool_lif_candidate
 from .metadata import AvgPoolDeployMetadata
-from .utils import _get_avgpool_divisor, _get_pool_window_size, _is_avgpool
+from .utils import build_sum_pool, get_avgpool_divisor, get_pool_window_size, is_avgpool
 
 __all__ = [
     "_try_handle_avgpool_activation",
@@ -180,7 +178,7 @@ def _try_handle_avgpool_activation(
     pred = graph.nodes[pred_name]
     if not isinstance(pred, StandaloneCompOp):
         return None
-    if not _is_avgpool(pred.comp):
+    if not is_avgpool(pred.comp):
         return None
     if len(graph.successors(pred_name)) != 1:
         return None
@@ -188,7 +186,7 @@ def _try_handle_avgpool_activation(
     if not act_node.act.is_snn:
         # ANN activations only need static AvgPool gain compensation, so the
         # regular shared-core SequentialOp remains the preferred topology.
-        avg_divisor = _get_avgpool_divisor(pred.comp)
+        avg_divisor = get_avgpool_divisor(pred.comp)
         shared = _materialize_shared_sequential(
             pred_name, pred, act_name, act_node, consumed, node_remap
         )
@@ -199,7 +197,7 @@ def _try_handle_avgpool_activation(
         # IF must split: shared-core AvgPool would enable leak on the neuron
         # datapath and turn the downstream behavior into LIF-like dynamics.
         _, out_width = _infer_avgpool_pred_output_format(graph, pred_name)
-        avg_divisor = _get_avgpool_divisor(pred.comp)
+        avg_divisor = get_avgpool_divisor(pred.comp)
 
         core1_lut = _build_split_avgpool_core1_lut(
             out_width, avg_divisor, emit_exact_sum_code=False
@@ -215,8 +213,8 @@ def _try_handle_avgpool_activation(
         )
 
     _, out_width = _infer_avgpool_pred_output_format(graph, pred_name)
-    sum_window_size = _get_pool_window_size(pred.comp)
-    avg_divisor = _get_avgpool_divisor(pred.comp)
+    sum_window_size = get_pool_window_size(pred.comp)
+    avg_divisor = get_avgpool_divisor(pred.comp)
 
     # LIF is the only case where both shared-core & split-core can be valid.
     # Delegate the final topology choice to the AvgPool deployment policy.
@@ -264,27 +262,13 @@ def _materialize_split_avgpool_pair(
     Core 1 is always ``SumPool + ANNNodeV25(lut)`` and Core 2 reuses the
     original activation node.
     """
-    if isinstance(pred.comp, nn.AvgPool1d):
-        sumpool = SumPool1d(
-            pred.comp.kernel_size,
-            pred.comp.stride,
-            pred.comp.padding,
-            pred.comp.ceil_mode,
-        )
-    elif isinstance(pred.comp, nn.AvgPool2d):
-        sumpool = SumPool2d(
-            pred.comp.kernel_size,
-            pred.comp.stride,
-            pred.comp.padding,
-            pred.comp.ceil_mode,
-        )
-    else:
-        raise TypeError("split AvgPool pair requires AvgPool1d/2d")
+    assert is_avgpool(pred.comp)
+    sumpool = build_sum_pool(pred.comp)
 
     core1_act = ANNNodeV25(core1_lut)
     core1 = SequentialOp(sumpool, core1_act)
     core1.input_layouts = pred.input_layouts
-    core1.output_layouts = act_node.output_layouts
+    core1.output_layouts = act_node.input_layouts
 
     consumed.add(pred_name)
     consumed.add(act_name)

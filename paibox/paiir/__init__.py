@@ -28,6 +28,7 @@ from .ir import (
     ANNNodeV25,
     CoreNeuronV25,
     IFNodeV25,
+    LayoutStage,
     LIFNodeV25,
     LutActivation,
     LutAdaptiveActivation,
@@ -38,13 +39,15 @@ from .ir import (
     LutSoftsign,
     LutTanh,
     PAIIRGraph,
+    ShapeStage,
+    TransformOp,
 )
 
 # Compile entrypoints
 from .pipeline import CompileConfig, compile_to_paiir
 
 # Conversion entrypoints
-from .lowering import register_neuron, torch_to_paiir
+from .lowering import register_module, register_neuron, torch_to_paiir
 
 __all__ = [
     # Chip-accurate operators
@@ -55,14 +58,18 @@ __all__ = [
     "LutActivation",
     "LutAdaptiveActivation",
     "LutCustom",
+    "LayoutStage",
     "LutReLU",
     "LutLinear",
     "LutSigmoid",
     "LutTanh",
     "LutSoftsign",
+    "ShapeStage",
+    "TransformOp",
     # Graph
     "PAIIRGraph",
     # Conversion and passes
+    "register_module",
     "register_neuron",
     "torch_to_paiir",
     "compile_to_paiir",

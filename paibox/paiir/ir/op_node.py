@@ -1,31 +1,41 @@
 """Operator IR nodes for chip deployment.
 
 Each :class:`OfflineCoreOp` represents a computation unit that maps to a single
-chip offline core (v2.0 or v2.5): a compute operation plus a neuron / activation.
-The IR is version-agnostic; the backend handles target-specific lowering.
+chip offline core (v2.0 or v2.5): compute, activation, or both. The IR is
+version-agnostic; the backend handles target-specific lowering.
 
 Node types:
 
 - :class:`SequentialOp` -- compute -> neuron/lut
-- :class:`AccumulateOp` -- multi-path compute -> add/sub -> neuron/lut
+- :class:`AccumulateOp` -- multi-path compute -> add/sub -> optional neuron/lut
 - :class:`StandaloneCompOp` -- compute only (potential output)
 - :class:`StandaloneActOp` -- neuron/lut only
-- routing ops such as :class:`ConcatOp`, :class:`SplitOp`, and :class:`ReshapeOp`
+- routing ops such as :class:`TransformOp`, :class:`ConcatOp`, and
+  :class:`SplitOp`
 
 Add-specific IR nodes live in :mod:`paibox.paiir.ir.add_ops`.
 """
 
 from collections.abc import Callable, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, ClassVar
 
 import torch
 from paicorelib import OutputType, PoolingMode
 from torch import Tensor, nn
+from torch.nn import functional as F
 
 from .calc_params import LutData, NeuronParams, OfflineCoreParams, OnlineCoreParams
 from .core_neuron import CoreNeuronV25
-from .ir_base import PAIIRNode, TensorLayout
+from .ir_base import FormatFlow, PAIIRNode, TensorLayout
+from .maxpool_export import (
+    MaxPoolExportKind,
+    build_identity_lut_data,
+    build_identity_lut_neuron_params,
+    build_spike_identity_neuron_params,
+    is_maxpool_comp,
+    refresh_maxpool_export_kind,
+)
 from .reshape_semantics import materialize_logical_layout
 from .signal_domain import SignalDomain
 
@@ -34,14 +44,18 @@ if TYPE_CHECKING:
 
 __all__ = [
     "TensorLayout",
+    "FormatFlow",
     "OpNode",
     "RoutingOp",
     "OfflineCoreOp",
     "SequentialOp",
     "AccumulateOp",
     "ConcatOp",
+    "PadOp",
     "SplitOp",
-    "ReshapeOp",
+    "TransformOp",
+    "LayoutStage",
+    "ShapeStage",
     "StandaloneCompOp",
     "StandaloneActOp",
     "OnlineCoreOp",
@@ -66,15 +80,15 @@ def _run_comp(comp: nn.Module, x: Tensor) -> Tensor:
     the incoming dtype where possible so standalone/preceding-value MaxPool
     simulation does not spuriously widen into float.
 
-    ``MaxPool1d`` is a special case on the current PyTorch CPU build: integer
-    ``Byte``/``Char`` inputs raise ``NotImplementedError``. For that case we
-    execute the pool in float32 and cast the exact max values back to the
-    original integer dtype.
+    Some MaxPool modules are special cases on the current PyTorch CPU build:
+    integer ``Byte``/``Char`` inputs raise ``NotImplementedError``. For those
+    cases we execute the pool in float32 and cast the exact max values back to
+    the original integer dtype.
 
     Other compute ops such as Conv/Linear still require floating-point tensors
     in PyTorch and therefore use :func:`_ensure_float`.
     """
-    if isinstance(comp, nn.MaxPool1d):
+    if isinstance(comp, (nn.MaxPool1d, nn.AdaptiveMaxPool1d, nn.AdaptiveMaxPool2d)):
         if x.is_floating_point():
             return comp(x)
         return comp(x.to(torch.float32)).to(x.dtype)
@@ -102,22 +116,20 @@ def _get_bias(comp: nn.Module) -> Tensor | None:
 def _get_weight_tensor(comp: nn.Module) -> Tensor | None:
     """Extract the graph-side weight tensor from a compute module.
 
-    Prefer a raw exported weight tensor when a converter preserved one
-    explicitly. Fall back to the runtime ``weight`` parameter for standard
-    PyTorch modules. For function-form conv2d lowering, ``raw_weight`` carries
-    the original FX-exported weight expression, while ``weight`` may only exist
-    as an ``nn.Conv2d`` compatibility surface.
+    The PAIIR conv lowering contract now relies on canonical PyTorch module
+    parameters only. Function-form convs are materialized into standard
+    ``nn.Conv1d`` / ``nn.Conv2d`` modules before they reach graph-side weight
+    queries, so ``weight`` is the only supported source here.
     """
-    for attr in ("raw_weight", "weight_int8", "weight"):
-        weight = getattr(comp, attr, None)
-        if torch.is_tensor(weight):
-            return weight.data
+    weight = getattr(comp, "weight", None)
+    if torch.is_tensor(weight):
+        return weight.data
     return None
 
 
 def _get_pooling_mode(comp: nn.Module) -> PoolingMode:
     """Infer pooling mode from the compute operation."""
-    if isinstance(comp, (nn.MaxPool1d, nn.MaxPool2d)):
+    if is_maxpool_comp(comp):
         return PoolingMode.MAX
     return PoolingMode.AVERAGE
 
@@ -128,6 +140,31 @@ def _tensor_value_range(tensor: Tensor) -> tuple[int, int]:
     return int(qt.min().item()), int(qt.max().item())
 
 
+@dataclass(frozen=True, slots=True)
+class LayoutStage:
+    """One logical layout materialization step inside a transform op."""
+
+    dims: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ShapeStage:
+    """One shape-change step inside a transform op."""
+
+    shape_fn: Callable[[torch.Size], torch.Size] | None = None
+
+
+TransformStage = LayoutStage | ShapeStage
+
+
+def _apply_transform_stage(x: Tensor, stage: TransformStage) -> Tensor:
+    if isinstance(stage, LayoutStage):
+        return materialize_logical_layout(x, stage.dims)
+    if stage.shape_fn is None:
+        return x.flatten()
+    return x.reshape(stage.shape_fn(x.shape))
+
+
 class OpNode(nn.Module, PAIIRNode):
     """Abstract base class for all operator IR nodes.
 
@@ -135,15 +172,15 @@ class OpNode(nn.Module, PAIIRNode):
     variants (offline core, online core, CPU fallback, etc.).
 
     Class attributes:
-        deploy: Whether this node should be deployed to a chip core.
-            Set to False for simulation-only ops (e.g., ReshapeOp).
+        __deploy__: Whether this node should be deployed to a chip core.
+            Set to False for simulation-only routing transforms.
 
     Attributes:
         input_layouts: Tensor layouts at each input port.
         output_layouts: Tensor layouts at each output port.
     """
 
-    deploy: ClassVar[bool] = True
+    __deploy__: ClassVar[bool] = True
     input_layouts: tuple[TensorLayout, ...]
     output_layouts: tuple[TensorLayout, ...]
 
@@ -185,15 +222,43 @@ class RoutingOp(OpNode):
     interpretation but require no actual computation.
 
     Class attributes:
-        deploy: False - routing ops are not deployed to any core.
+        __deploy__: False - routing ops are not deployed to any core.
 
     Subclasses:
+    - :class:`TransformOp` - ordered layout / shape reinterpretation
     - :class:`ConcatOp` - concatenation
     - :class:`SplitOp` - split branch selection
-    - :class:`ReshapeOp` - reshape/flatten/view
     """
 
-    deploy: ClassVar[bool] = False
+    __deploy__: ClassVar[bool] = False
+    __format_flow__: ClassVar[FormatFlow] = FormatFlow.PASS_THROUGH
+    __tick_depth__: ClassVar[int] = 0
+
+
+class TransformOp(RoutingOp):
+    """Explicit tensor view/layout transform routing op.
+
+    ``TransformOp`` is the general PAIIR carrier for ordered tensor
+    reinterpretation steps that do not map to chip compute cores but do affect
+    graph-level simulation and backend remap construction.
+    """
+
+    stages: tuple[TransformStage, ...]
+
+    def __init__(self, stages: Sequence[TransformStage] = ()) -> None:
+        super().__init__()
+        self.stages = tuple(stages)
+
+    def forward(self, x: Tensor) -> Tensor:
+        for stage in self.stages:
+            x = _apply_transform_stage(x, stage)
+        return x
+
+    def extra_repr(self) -> str:
+        parts = [super().extra_repr()]
+        if self.stages:
+            parts.append(f"stages={self.stages}")
+        return ", ".join(parts)
 
 
 class OfflineCoreOp(OpNode):
@@ -219,14 +284,14 @@ class OfflineCoreOp(OpNode):
     def _with_domain_derived_output_type(self, params: NeuronParams) -> NeuronParams:
         """Derive backend-visible output type from propagated frontend domain.
 
-        ``output_domain`` is the frontend semantic source of truth for whether a
+        ``signal_semantics.output_domain`` is the frontend semantic source of truth for whether a
         node emits VALUE- or POTENTIAL-domain data. When that annotation is
         available, keep backend-visible ``output_type`` aligned with it.
         """
-        if self.output_domain is None:
+        if self.signal_semantics.output_domain is None:
             return params
 
-        if self.output_domain is SignalDomain.VALUE:
+        if self.signal_semantics.output_domain is SignalDomain.VALUE:
             return replace(params, output_type=OutputType.VALUE)
         else:
             return replace(params, output_type=OutputType.POTENTIAL)
@@ -305,7 +370,8 @@ class SequentialOp(OfflineCoreOp):
         self.avgpool_deploy_metadata = None
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.act(_prepare_act_input(self.act, _run_comp(self.comp, x)))
+        x = _run_comp(self.comp, x)
+        return self.act(_prepare_act_input(self.act, x))
 
     @property
     def weights(self) -> list[Tensor] | None:
@@ -337,27 +403,28 @@ class SequentialOp(OfflineCoreOp):
 
 
 class AccumulateOp(OfflineCoreOp):
-    """Multi-path accumulation: comps -> add/sub -> activation.
+    """Multi-path accumulation: comps -> add/sub -> optional activation.
 
     Accumulates outputs of multiple compute operations with per-path signs,
-    then feeds the result into a neuron / activation.
-    E.g. ``Conv_a(x1) + Conv_b(x2) -> LIFNodeV25``.
+    then optionally feeds the result into a neuron / activation.
+    E.g. ``Conv_a(x1) + Conv_b(x2) -> LIFNodeV25`` or
+    ``Linear_a(x1) + Linear_b(x2)`` as a potential-domain output.
 
     Args:
         comps: List of compute operations (one per input path).
-        act: Neuron or LUT activation.
+        act: Optional neuron or LUT activation.
         op_signs: Per-path sign. ``(1, 1)`` = add, ``(1, -1)`` = subtract.
 
     The public constructor derives semantic core parameters from ``comps`` and
-    ``act``. Advanced callers that need to preserve prepared compile-time
-    state should construct the node normally, then call
+    optional ``act``. Advanced callers that need to preserve prepared
+    compile-time state should construct the node normally, then call
     :meth:`OfflineCoreOp.override_compile_state`.
     """
 
     def __init__(
         self,
         comps: Sequence[nn.Module],
-        act: CoreNeuronV25,
+        act: CoreNeuronV25 | None,
         op_signs: tuple[int, ...] | None = None,
     ) -> None:
         if op_signs is None:
@@ -368,7 +435,8 @@ class AccumulateOp(OfflineCoreOp):
             )
 
         core_params = OfflineCoreParams()
-        core_params.snn_mode = act.snn_mode
+        if act is not None:
+            core_params.snn_mode = act.snn_mode
         core_params.pooling_mode = _get_pooling_mode(comps[0])
 
         super().__init__(core_params)
@@ -383,6 +451,8 @@ class AccumulateOp(OfflineCoreOp):
             acc = term if acc is None else acc + term
 
         assert acc is not None, "AccumulateOp requires at least one input"
+        if self.act is None:
+            return acc
         return self.act(_prepare_act_input(self.act, acc))
 
     @property
@@ -412,6 +482,8 @@ class AccumulateOp(OfflineCoreOp):
     @property
     def lut_data(self) -> LutData | None:
         """LUT table data for backend export."""
+        if self.act is None:
+            return None
         return self.act.export_lut()
 
     @property
@@ -424,13 +496,24 @@ class AccumulateOp(OfflineCoreOp):
                 term = sign * b
                 fused_bias = term if fused_bias is None else fused_bias + term
 
+        if self.act is None:
+            return self._with_domain_derived_output_type(
+                NeuronParams(
+                    leak_v=fused_bias if fused_bias is not None else 0.0,
+                    output_type=OutputType.POTENTIAL,
+                )
+            )
+
         return self._with_domain_derived_output_type(
             self.act.to_neuron_params(bias=fused_bias)
         )
 
     def extra_repr(self) -> str:
         ops = ", ".join(type(op).__name__ for op in self.comps)
-        return f"{super().extra_repr()}, comps=[{ops}], signs={self.signs}, act={type(self.act).__name__}"
+        act_repr = "None" if self.act is None else type(self.act).__name__
+        return (
+            f"{super().extra_repr()}, comps=[{ops}], signs={self.signs}, act={act_repr}"
+        )
 
 
 class ConcatOp(RoutingOp):
@@ -447,6 +530,8 @@ class ConcatOp(RoutingOp):
         dim: Concatenation dimension (typically 1 for channel-dim).
     """
 
+    __format_flow__: ClassVar[FormatFlow] = FormatFlow.MERGE
+
     def __init__(self, dim: int = 1) -> None:
         super().__init__()
         self.dim = dim
@@ -456,6 +541,49 @@ class ConcatOp(RoutingOp):
 
     def extra_repr(self) -> str:
         return f"{super().extra_repr()}, dim={self.dim}"
+
+
+class PadOp(RoutingOp):
+    """Static constant-zero padding routing op.
+
+    ``padding`` follows :func:`torch.nn.functional.pad`: values are specified
+    in pairs starting from the last dimension.
+    """
+
+    padding: tuple[int, ...]
+
+    def __init__(self, padding: Sequence[int]) -> None:
+        super().__init__()
+        normalized = tuple(int(p) for p in padding)
+        if len(normalized) == 0 or len(normalized) % 2 != 0:
+            raise ValueError(
+                f"{self.__class__.__name__} padding must contain pairs, got {normalized}"
+            )
+        if any(p < 0 for p in normalized):
+            raise ValueError(
+                f"{self.__class__.__name__} only supports non-negative padding, got {normalized}"
+            )
+        self.padding = normalized
+
+    def forward(self, x: Tensor) -> Tensor:
+        return F.pad(x, self.padding, mode="constant", value=0)
+
+    def output_shape_for(self, input_shape: torch.Size) -> torch.Size:
+        if len(self.padding) // 2 > len(input_shape):
+            raise ValueError(
+                f"{self.__class__.__name__} padding {self.padding} is too long for input rank {len(input_shape)}"
+            )
+
+        shape = list(input_shape)
+        for pair_idx in range(0, len(self.padding), 2):
+            left = self.padding[pair_idx]
+            right = self.padding[pair_idx + 1]
+            axis = len(shape) - 1 - pair_idx // 2
+            shape[axis] += left + right
+        return torch.Size(shape)
+
+    def extra_repr(self) -> str:
+        return f"{super().extra_repr()}, padding={self.padding}"
 
 
 class SplitOp(RoutingOp):
@@ -491,37 +619,6 @@ class SplitOp(RoutingOp):
 
     def extra_repr(self) -> str:
         return f"{super().extra_repr()}, sections={self.sections}, dim={self.dim}"
-
-
-class ReshapeOp(RoutingOp):
-    """Reshape operation (flatten, view, reshape).
-
-    Used for simulation to correctly transform tensor shapes between
-    layers (e.g., AvgPool output -> Linear input).
-
-    On chip, reshape is implicit - only the memory layout interpretation
-    changes, no actual computation occurs.
-
-    Args:
-        shape_fn: Function that computes output shape from input shape.
-                  If None, defaults to flatten (all dims after batch).
-    """
-
-    def __init__(
-        self, shape_fn: Callable[[torch.Size], torch.Size] | None = None
-    ) -> None:
-        super().__init__()
-        self.shape_fn = shape_fn
-
-    def forward(self, x: Tensor) -> Tensor:
-        if self.num_inputs == 1:
-            x = materialize_logical_layout(x, self.input_layouts[0].dims)
-
-        if self.shape_fn is None:
-            return x.flatten()
-
-        new_shape = self.shape_fn(x.shape)
-        return x.reshape(new_shape)
 
 
 class StandaloneCompOp(OfflineCoreOp):
@@ -572,9 +669,43 @@ class StandaloneCompOp(OfflineCoreOp):
         backend-visible ``output_type`` must be derived from the propagated
         graph semantic domain instead of using a hard-coded default.
         """
+        if (
+            is_maxpool_comp(self.comp)
+            and self.signal_semantics.output_domain is SignalDomain.VALUE
+        ):
+            kind = refresh_maxpool_export_kind(self)
+            if kind in (MaxPoolExportKind.U_SPIKE, MaxPoolExportKind.S_SPIKE):
+                return self._with_domain_derived_output_type(
+                    build_spike_identity_neuron_params(kind)
+                )
+            if kind is MaxPoolExportKind.LUT:
+                return self._with_domain_derived_output_type(
+                    build_identity_lut_neuron_params(
+                        self.core_params.input_sign,
+                        self.core_params.input_width,
+                        self.signal_semantics.known_code_range,
+                    )
+                )
+
         return self._with_domain_derived_output_type(
             NeuronParams(output_type=OutputType.POTENTIAL)
         )
+
+    @property
+    def lut_data(self) -> LutData | None:
+        """Standalone MaxPool may synthesize an identity LUT for wider VALUE code."""
+        if (
+            is_maxpool_comp(self.comp)
+            and self.signal_semantics.output_domain is SignalDomain.VALUE
+        ):
+            export = refresh_maxpool_export_kind(self)
+            if export is MaxPoolExportKind.LUT:
+                return build_identity_lut_data(
+                    self.core_params.input_sign,
+                    self.core_params.input_width,
+                    self.signal_semantics.known_code_range,
+                )
+        return None
 
     def extra_repr(self) -> str:
         return f"{super().extra_repr()}, comp={type(self.comp).__name__}"

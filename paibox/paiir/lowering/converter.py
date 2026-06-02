@@ -2,21 +2,36 @@
 
 Pipeline:
 
-1. FX symbolic trace with registered module types + bypass types as leaf modules.
-2. ``_EraseModuleTransformer`` removes Dropout/Identity nodes from the graph.
-3. ``ShapeProp`` for tensor shape propagation (when *sample_inputs* given).
-4. ``DimsProp`` for axis ordering propagation (detects transpose/permute).
-5. 1:1 node mapping to PAIIR nodes (no fusion at this stage).
+1. ``copy.deepcopy`` the model; force ``step_mode='s'`` on all SpikingJelly
+   ``StepModule`` instances (original model is never modified).
+2. FX symbolic trace with registered module types + bypass types as leaf modules.
+3. ``_EraseModuleTransformer`` removes no-op modules (Dropout/Identity) from
+   the graph.
+4. ``ShapeProp`` for tensor shape propagation (when *sample_inputs* given).
+5. ``DimsProp`` for axis ordering propagation (detects transpose/permute).
+6. 1:1 node mapping to PAIIR nodes (no fusion at this stage).
+   Supported ``spikingjelly.activation_based.layer.X`` modules lower directly
+   via Python MRO; no canonicalization step required.
 
 Example::
 
-    from paibox.paiir import torch_to_paiir, register_neuron, ANNNodeV25
+    from paibox.paiir import (
+        ANNNodeV25,
+        register_module,
+        register_neuron,
+        torch_to_paiir,
+    )
 
-    # Register a custom neuron type before conversion
+    # Register a custom neuron type before conversion. The converter may
+    # return a CoreNeuronV25 directly, or a LUT activation that is wrapped as
+    # ANNNodeV25 for deployment.
     register_neuron(
         MyNeuron,
-        converter=lambda mod: ANNNodeV25(LutCustom(...)),
+        converter=lambda m: ANNNodeV25(LutCustom(...)),
     )
+
+    # Register a custom compute module by converting it into a canonical module
+    register_module(MyCustomConv, converter=lambda m: nn.Conv2d(...))
 
     # With shape inference
     graph = torch_to_paiir(model, torch.randn(1, 3, 32, 32))
@@ -25,17 +40,22 @@ Example::
     graph = torch_to_paiir(model)
 """
 
+import copy
 import math
 import operator
 import sys
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from functools import partial
+from typing import Any, TypeVar
 
 import torch
-from spikingjelly.activation_based import neuron
+from spikingjelly.activation_based import functional as sj_F
+from spikingjelly.activation_based import layer, neuron
+from spikingjelly.activation_based.base import StepModule
 from torch import Tensor, fx, nn
+from torch.fx.node import Argument, Target
 from torch.fx.passes.shape_prop import ShapeProp
 
 from ..exceptions import UnsupportedOpError, UnsupportedOpWarning
@@ -43,13 +63,30 @@ from ..ir.add_ops import AddOperandKind, AddOperandSpec, GeneralAddOp
 from ..ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
 from ..ir.graph import PAIIRGraph
 from ..ir.ir_base import InputNode, OutputNode
-from ..ir.lut_activation import LutActivation, LutReLU, LutSigmoid, LutSoftsign, LutTanh
-from ..ir.op_node import ConcatOp, OpNode, ReshapeOp, StandaloneActOp, StandaloneCompOp
+from ..ir.lut_activation import (
+    LutActivation,
+    LutCustom,
+    LutLinear,
+    LutReLU,
+    LutReLUSymmetric,
+    LutSigmoid,
+    LutSoftsign,
+    LutTanh,
+)
+from ..ir.op_node import (
+    ConcatOp,
+    LayoutStage,
+    OpNode,
+    PadOp,
+    ShapeStage,
+    StandaloneActOp,
+    StandaloneCompOp,
+    TransformOp,
+)
 from ..ir.reshape_semantics import RESHAPE_LEAF_MODULE_TYPES
 from .conv_lowering import (
     build_conv_ir_node,
     extract_functional_conv_spec,
-    extract_module_conv_spec,
 )
 from .dims_prop import DimsProp
 from .fx_utils import (
@@ -59,10 +96,13 @@ from .fx_utils import (
     get_output_layouts,
     get_output_shape,
 )
-from .shape_analysis import (
-    ReshapeSinkInfo,
-    ShapeAnalysisResult,
-    analyze_shape_helpers,
+from .shape_analysis import ReshapeSinkInfo, ShapeAnalysisResult, analyze_shape_helpers
+from .sj_layers import (
+    _SUPPORTED_SJ_LAYER_COMP_TYPES,
+    SJ_LAYER_ERASE_MODULE_TYPES,
+    describe_sj_layer_module,
+    is_sj_layer_module,
+    is_supported_sj_layer_module,
 )
 from .split_lowering import (
     SplitProducerInfo,
@@ -78,10 +118,16 @@ else:
     from typing_extensions import deprecated
 
 
-__all__ = ["torch_to_paiir", "register_neuron"]
+__all__ = ["torch_to_paiir", "register_module", "register_neuron"]
 
-ModuleMapper = dict[type[nn.Module], Callable[[nn.Module], OpNode]]
+_M = TypeVar("_M", bound=nn.Module)
+
+
+ModuleMapper = dict[type[_M], Callable[[_M], OpNode]]
 """Module mapping type: ``nn.Module`` subclass -> converter function returning an :class:`OpNode`."""
+
+_USER_MODULE_MAP: ModuleMapper = {}
+"""User-registered module mappings layered on top of built-in lowering rules."""
 
 # Modules that are kept in the FX graph but intentionally disappear from PAIIR
 # data flow during lowering.
@@ -92,24 +138,37 @@ LOWERING_BYPASS_MODULE_TYPES = (nn.BatchNorm1d, nn.BatchNorm2d)
 #
 # - BatchNorm stays a true bypass at lowering time.
 # - Flatten is preserved as a leaf for tracing, but lowering materializes it as
-#   a ``ReshapeOp`` so graph-level simulation keeps the shape transition.
-TRACE_LEAF_MODULE_TYPES = LOWERING_BYPASS_MODULE_TYPES + RESHAPE_LEAF_MODULE_TYPES
+#   a shape-only ``TransformOp`` so graph-level simulation keeps the shape
+#   transition.
+PAD_LEAF_MODULE_TYPES = (
+    nn.ZeroPad1d,
+    nn.ZeroPad2d,
+    nn.ConstantPad1d,
+    nn.ConstantPad2d,
+    nn.ReflectionPad1d,
+    nn.ReflectionPad2d,
+    nn.ReplicationPad1d,
+    nn.ReplicationPad2d,
+    nn.CircularPad1d,
+    nn.CircularPad2d,
+)
+
+TRACE_LEAF_MODULE_TYPES = (
+    LOWERING_BYPASS_MODULE_TYPES + RESHAPE_LEAF_MODULE_TYPES + PAD_LEAF_MODULE_TYPES
+)
 
 # Modules removed by _EraseModuleTransformer: each call_module node is replaced
 # by its input, leaving no trace in the graph after dead-code elimination.
-ERASE_MODULE_TYPES = (nn.Dropout, nn.Identity)
+ERASE_MODULE_TYPES = (nn.Dropout, nn.Identity) + SJ_LAYER_ERASE_MODULE_TYPES
 
 ADD_OPS = (operator.add, torch.add)
 SUB_OPS = (operator.sub, torch.sub)
 CAT_OPS = (torch.cat,)
+PAD_FUNCS = (torch.nn.functional.pad,)
 
 # Known bypass targets (shape/dim ops that don't need IR nodes)
 KNOWN_BYPASS_FUNCS = (operator.getitem,)
-KNOWN_BYPASS_METHODS = ("size", "contiguous", "transpose", "permute")
-
-
-def _map_comp(mod: nn.Module, **kwargs) -> OpNode:
-    return StandaloneCompOp(comp=mod, **kwargs)
+KNOWN_BYPASS_METHODS = ("size", "contiguous")
 
 
 def _has_nonzero_padding(padding: Any) -> bool:
@@ -118,78 +177,360 @@ def _has_nonzero_padding(padding: Any) -> bool:
     return int(padding) != 0
 
 
-def _unsupported_avgpool_description(mod: nn.Module) -> str | None:
-    if not isinstance(mod, (nn.AvgPool1d, nn.AvgPool2d)):
+def _describe_ceil_mode_pooling_issue(m: nn.Module) -> str | None:
+    """Describe pooling ceil windows that cannot enter deployable PAIIR."""
+    if not isinstance(m, (nn.AvgPool1d, nn.AvgPool2d, nn.MaxPool1d, nn.MaxPool2d)):
         return None
 
-    if mod.count_include_pad is False and _has_nonzero_padding(mod.padding):
+    if m.ceil_mode:
+        return f"nn.Module '{type(m).__name__}' with ceil_mode=True"
+
+    return None
+
+
+def _describe_avgpool_lowering_issue(m: nn.Module) -> str | None:
+    if not isinstance(m, (nn.AvgPool1d, nn.AvgPool2d)):
+        return None
+
+    if m.count_include_pad is False and _has_nonzero_padding(m.padding):
         return (
-            f"nn.Module '{type(mod).__name__}' with count_include_pad=False and "
-            "padding>0"
+            f"nn.Module '{type(m).__name__}' with count_include_pad=False and padding>0"
         )
 
     return None
 
 
-def _map_sj_ifnode(mod: nn.Module, **kwargs) -> OpNode:
-    assert isinstance(mod, neuron.IFNode)
+def _describe_maxpool_lowering_issue(m: nn.Module) -> str | None:
+    if not isinstance(
+        m,
+        (
+            nn.MaxPool1d,
+            nn.MaxPool2d,
+            nn.AdaptiveMaxPool1d,
+            nn.AdaptiveMaxPool2d,
+        ),
+    ):
+        return None
+
+    if m.return_indices:
+        return f"nn.Module '{type(m).__name__}' with return_indices=True"
+
+    return None
+
+
+def _normalize_static_padding(value: Any) -> tuple[int, ...] | None:
+    if isinstance(value, int):
+        return (value, value)
+    if not isinstance(value, (tuple, list)):
+        return None
+    if len(value) == 0 or len(value) % 2 != 0:
+        return None
+
+    padding: list[int] = []
+    for item in value:
+        if not isinstance(item, int):
+            return None
+        if item < 0:
+            return None
+        padding.append(item)
+    return tuple(padding)
+
+
+def _is_zero_pad_value(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, (int, float)):
+        return float(value) == 0.0
+    if torch.is_tensor(value):
+        return value.numel() == 1 and float(value.item()) == 0.0
+    return False
+
+
+def _build_pad_ir_node(padding: Any, value: Any = 0) -> PadOp | None:
+    normalized = _normalize_static_padding(padding)
+    if normalized is None or not _is_zero_pad_value(value):
+        return None
+    try:
+        return PadOp(normalized)
+    except ValueError:
+        return None
+
+
+def _extract_module_pad_ir_node(m: nn.Module) -> PadOp | None:
+    if isinstance(m, (nn.ZeroPad1d, nn.ZeroPad2d)):
+        return _build_pad_ir_node(m.padding, 0)
+
+    if isinstance(m, (nn.ConstantPad1d, nn.ConstantPad2d)):
+        return _build_pad_ir_node(m.padding, m.value)
+
+    return None
+
+
+def _describe_pad_lowering_issue(m: nn.Module) -> str | None:
+    if isinstance(m, (nn.ReflectionPad1d, nn.ReflectionPad2d)):
+        return f"nn.Module '{type(m).__name__}' with reflection padding"
+    if isinstance(m, (nn.ReplicationPad1d, nn.ReplicationPad2d)):
+        return f"nn.Module '{type(m).__name__}' with replication padding"
+    if isinstance(m, (nn.CircularPad1d, nn.CircularPad2d)):
+        return f"nn.Module '{type(m).__name__}' with circular padding"
+    if isinstance(m, (nn.ConstantPad1d, nn.ConstantPad2d)):
+        return f"nn.Module '{type(m).__name__}' with nonzero or invalid padding"
+    if isinstance(m, (nn.ZeroPad1d, nn.ZeroPad2d)):
+        return f"nn.Module '{type(m).__name__}' with invalid padding"
+    return None
+
+
+def _set_sj_layer_step_mode_single(model: nn.Module) -> None:
+    """Force step_mode='s' on all SpikingJelly StepModule instances in the model copy.
+
+    Covers sj_layer.X (compute wrappers) and neuron.IFNode/LIFNode (MemoryModule ->
+    StepModule), and any other StepModule subclass in the model.
+
+    Called before FX tracing so ShapeProp can execute SJ forwards safely.
+    Emits a warning if any module actually had step_mode != 's'.
+    """
+    multi_step_modules = [
+        type(m).__name__
+        for m in model.modules()
+        if isinstance(m, StepModule) and m.step_mode != "s"
+    ]
+    if multi_step_modules:
+        warnings.warn(
+            f"Model contains SpikingJelly modules with step_mode='m' "
+            f"({', '.join(multi_step_modules)}). "
+            f"step_mode has been set to 's' on the internal model copy for "
+            f"chip deployment. The original model is not modified.",
+            UserWarning,
+            stacklevel=3,
+        )
+        sj_F.set_step_mode(model, "s")
+
+
+def _map_comp(m: nn.Module, **kwargs) -> StandaloneCompOp:
+    return StandaloneCompOp(m, **kwargs)
+
+
+def _map_sj_ifnode(m: neuron.IFNode, **kwargs) -> StandaloneActOp:
     return StandaloneActOp(
-        act=IFNodeV25(
-            mod.v_threshold,
-            mod.v_reset,
-            mod.surrogate_function,
-            mod.detach_reset,
+        IFNodeV25(
+            m.v_threshold, m.v_reset, m.surrogate_function, m.detach_reset, **kwargs
+        )
+    )
+
+
+def _map_sj_lifnode(m: neuron.LIFNode, **kwargs) -> StandaloneActOp:
+    return StandaloneActOp(
+        LIFNodeV25(
+            m.tau,
+            m.decay_input,
+            m.v_threshold,
+            m.v_reset,
+            m.surrogate_function,
+            m.detach_reset,
             **kwargs,
         )
     )
 
 
-def _map_sj_lifnode(mod: nn.Module, **kwargs) -> OpNode:
-    assert isinstance(mod, neuron.LIFNode)
-    return StandaloneActOp(
-        act=LIFNodeV25(
-            mod.tau,
-            mod.decay_input,
-            mod.v_threshold,
-            mod.v_reset,
-            mod.surrogate_function,
-            mod.detach_reset,
-            **kwargs,
-        )
+NeuronConverterResult = CoreNeuronV25 | LutActivation
+
+
+def _normalize_neuron_converter_result(
+    module_type: type[nn.Module], converted: NeuronConverterResult
+) -> CoreNeuronV25:
+    if isinstance(converted, CoreNeuronV25):
+        return converted.clone()
+
+    if isinstance(converted, LutActivation):
+        return ANNNodeV25(copy.deepcopy(converted))
+
+    raise TypeError(
+        "register_neuron converter must return a CoreNeuronV25 or "
+        f"LutActivation, got {type(converted).__name__} for {module_type.__name__}"
     )
 
 
-def _map_core_neuron(mod: nn.Module, **kwargs) -> OpNode:
-    assert isinstance(mod, CoreNeuronV25)
-    return StandaloneActOp(act=mod)
+def _build_standalone_act_mapper(
+    module_type: type[_M], cvt: Callable[[_M], NeuronConverterResult]
+) -> Callable[[nn.Module], OpNode]:
+    def wrapper(m: nn.Module) -> OpNode:
+        if not isinstance(m, module_type):
+            raise TypeError(f"expected {module_type.__name__}, got {type(m).__name__}")
+        return StandaloneActOp(_normalize_neuron_converter_result(module_type, cvt(m)))
+
+    return wrapper
 
 
-def _map_lut_activation(mod: nn.Module, **kwargs) -> OpNode:
-    assert isinstance(mod, LutActivation)
-    return StandaloneActOp(act=ANNNodeV25(mod))
+def _ensure_supported_canonical_module(
+    module_type: type[nn.Module], canonical: nn.Module
+) -> nn.Module:
+    if not isinstance(canonical, nn.Module):
+        raise TypeError(
+            "register_module converter must return an nn.Module, "
+            f"got {type(canonical).__name__} for {module_type.__name__}"
+        )
+
+    if _is_lowering_bypass_module(canonical):
+        raise TypeError(
+            "register_module converter must return a builtin canonical module "
+            "supported by PAIIR lowering, "
+            f"got unsupported {type(canonical).__name__}"
+        )
+
+    if isinstance(canonical, PAD_LEAF_MODULE_TYPES):
+        if _extract_module_pad_ir_node(canonical) is None:
+            raise TypeError(
+                "register_module converter returned an unsupported "
+                f"canonical module: {_describe_pad_lowering_issue(canonical)}"
+            )
+        return canonical
+
+    if type(canonical) not in _DEFAULT_MODULE_MAP:
+        raise TypeError(
+            "register_module converter must return a builtin canonical module "
+            "supported by PAIIR lowering, "
+            f"got unsupported {type(canonical).__name__}"
+        )
+
+    # Canonical converters must not smuggle unsupported pool geometry into IR.
+    if (ceil_issue := _describe_ceil_mode_pooling_issue(canonical)) is not None:
+        raise UnsupportedOpError(
+            module_type.__name__, f"canonical module: {ceil_issue}"
+        )
+
+    if (avgpool_issue := _describe_avgpool_lowering_issue(canonical)) is not None:
+        raise TypeError(
+            "register_module converter returned an unsupported "
+            f"canonical module: {avgpool_issue}"
+        )
+
+    return canonical
 
 
-_DEFAULT_MODULE_MAP: ModuleMapper = {
-    # Compute ops
-    nn.Conv1d: _map_comp,
-    nn.Conv2d: _map_comp,
-    nn.Linear: _map_comp,
-    nn.MaxPool1d: _map_comp,
-    nn.MaxPool2d: _map_comp,
-    nn.AvgPool1d: _map_comp,
-    nn.AvgPool2d: _map_comp,
-    # SJ neuron -> chip-accurate neuron (IFNodeV25/LIFNodeV25 are CoreNeuronV25 subclasses)
-    neuron.IFNode: _map_sj_ifnode,
-    neuron.LIFNode: _map_sj_lifnode,
-    # Standard activations -> ANNNodeV25 with LUT
-    nn.ReLU: lambda _: StandaloneActOp(act=ANNNodeV25(LutReLU())),
-    nn.Sigmoid: lambda _: StandaloneActOp(act=ANNNodeV25(LutSigmoid())),
-    nn.Tanh: lambda _: StandaloneActOp(act=ANNNodeV25(LutTanh())),
-    nn.Softsign: lambda _: StandaloneActOp(act=ANNNodeV25(LutSoftsign())),
-    # PAIIR activation ops (pass through)
-    CoreNeuronV25: _map_core_neuron,
-    LutActivation: _map_lut_activation,
-}
+def _map_supported_canonical_module(canonical: nn.Module) -> OpNode:
+    if isinstance(canonical, PAD_LEAF_MODULE_TYPES):
+        ir_node = _extract_module_pad_ir_node(canonical)
+        if ir_node is None:
+            raise TypeError(
+                "register_module converter returned an unsupported "
+                f"canonical module: {_describe_pad_lowering_issue(canonical)}"
+            )
+        return ir_node
+
+    mapper = _DEFAULT_MODULE_MAP[type(canonical)]
+    ir_node = mapper(canonical)
+    if not isinstance(ir_node, OpNode):
+        raise TypeError(
+            "register_module converter returned a canonical module that lowers "
+            "as a bypass, which is not allowed"
+        )
+    return ir_node
+
+
+def _build_module_mapper(
+    module_type: type[_M], cvt: Callable[[_M], nn.Module]
+) -> Callable[[nn.Module], OpNode]:
+    def wrapper(m: nn.Module) -> OpNode:
+        if not isinstance(m, module_type):
+            raise TypeError(f"expected {module_type.__name__}, got {type(m).__name__}")
+        canonical = _ensure_supported_canonical_module(module_type, cvt(m))
+        return _map_supported_canonical_module(canonical)
+
+    return wrapper
+
+
+_BUILTIN_PAIIR_LUT_MODULES = (
+    LutActivation,
+    LutCustom,
+    LutLinear,
+    LutReLU,
+    LutReLUSymmetric,
+    LutSigmoid,
+    LutTanh,
+    LutSoftsign,
+)
+
+_BUILTIN_PAIIR_NEURONS = (
+    CoreNeuronV25,
+    IFNodeV25,
+    LIFNodeV25,
+    ANNNodeV25,
+)
+
+
+def _build_compute_module_map() -> ModuleMapper:
+    modules = [
+        nn.Conv1d,
+        nn.Conv2d,
+        nn.Linear,
+        nn.MaxPool1d,
+        nn.MaxPool2d,
+        nn.AdaptiveMaxPool1d,
+        nn.AdaptiveMaxPool2d,
+        nn.AvgPool1d,
+        nn.AvgPool2d,
+        nn.AdaptiveAvgPool1d,
+        nn.AdaptiveAvgPool2d,
+    ]
+    return dict.fromkeys(modules, _map_comp)
+
+
+def _build_spikingjelly_neuron_module_map() -> ModuleMapper:
+    return {neuron.IFNode: _map_sj_ifnode, neuron.LIFNode: _map_sj_lifnode}
+
+
+def _map_sj_voting_layer(m: nn.Module, **kwargs) -> StandaloneCompOp:
+    if not isinstance(m, layer.VotingLayer):
+        raise TypeError(f"expected VotingLayer, got {type(m).__name__}")
+
+    return _map_comp(nn.AvgPool1d(m.voting_size, m.voting_size), **kwargs)
+
+
+def _build_standard_activation_module_map() -> ModuleMapper:
+    return {
+        nn.ReLU: _build_standalone_act_mapper(nn.ReLU, lambda _: ANNNodeV25(LutReLU())),
+        nn.Sigmoid: _build_standalone_act_mapper(
+            nn.Sigmoid, lambda _: ANNNodeV25(LutSigmoid())
+        ),
+        nn.Tanh: _build_standalone_act_mapper(nn.Tanh, lambda _: ANNNodeV25(LutTanh())),
+        nn.Softsign: _build_standalone_act_mapper(
+            nn.Softsign, lambda _: ANNNodeV25(LutSoftsign())
+        ),
+    }
+
+
+def _build_builtin_paiir_lut_map() -> ModuleMapper:
+    return {
+        m: _build_standalone_act_mapper(m, lambda m: ANNNodeV25(copy.deepcopy(m)))
+        for m in _BUILTIN_PAIIR_LUT_MODULES
+    }
+
+
+def _build_builtin_paiir_neuron_map() -> ModuleMapper:
+    return {
+        m: _build_standalone_act_mapper(m, lambda m: m.clone())
+        for m in _BUILTIN_PAIIR_NEURONS
+    }
+
+
+def _build_spikingjelly_layer_comp_map() -> ModuleMapper:
+    module_map = dict.fromkeys(_SUPPORTED_SJ_LAYER_COMP_TYPES, _map_comp)
+    module_map[layer.VotingLayer] = _map_sj_voting_layer
+    return module_map  # type: ignore
+
+
+def build_default_module_map() -> ModuleMapper:
+    return {
+        **_build_compute_module_map(),
+        **_build_spikingjelly_neuron_module_map(),
+        **_build_spikingjelly_layer_comp_map(),
+        **_build_standard_activation_module_map(),
+        **_build_builtin_paiir_lut_map(),
+        **_build_builtin_paiir_neuron_map(),
+    }
+
+
+_DEFAULT_MODULE_MAP = build_default_module_map()
 
 
 try:
@@ -208,14 +549,13 @@ if legacy_neuron is not None:
             "`spikingjelly.activation_based.neuron.IFNode`."
         )
     )
-    def _map_legacy_ifnode(mod: nn.Module, **kwargs) -> OpNode:
-        assert isinstance(mod, legacy_if)
+    def _map_legacy_ifnode(m: legacy_if, **kwargs) -> StandaloneActOp:
         return StandaloneActOp(
             act=IFNodeV25(
-                mod.v_threshold,
-                mod.v_reset,
-                mod.surrogate_function,
-                mod.detach_reset,
+                m.v_threshold,  # type: ignore
+                m.v_reset,  # type: ignore
+                m.surrogate_function,
+                m.detach_reset,
                 **kwargs,
             )
         )
@@ -227,22 +567,26 @@ if legacy_neuron is not None:
             "`spikingjelly.activation_based.neuron.LIFNode`."
         )
     )
-    def _map_legacy_lifnode(mod: nn.Module, **kwargs) -> OpNode:
-        assert isinstance(mod, legacy_lif)
+    def _map_legacy_lifnode(m: legacy_lif, **kwargs) -> StandaloneActOp:
         return StandaloneActOp(
             act=LIFNodeV25(
-                mod.tau,
-                mod.decay_input,
-                mod.v_threshold,
-                mod.v_reset,
-                mod.surrogate_function,
-                mod.detach_reset,
+                m.tau,
+                m.decay_input,
+                m.v_threshold,  # type: ignore
+                m.v_reset,  # type: ignore
+                m.surrogate_function,
+                m.detach_reset,
                 **kwargs,
             )
         )
 
     _DEFAULT_MODULE_MAP[legacy_if] = _map_legacy_ifnode
     _DEFAULT_MODULE_MAP[legacy_lif] = _map_legacy_lifnode
+
+
+def _get_full_module_map() -> ModuleMapper:
+    """Return built-in lowering rules overlaid with user registrations."""
+    return {**_DEFAULT_MODULE_MAP, **_USER_MODULE_MAP}
 
 
 def propagate_shapes(gm: fx.GraphModule, *inputs: Tensor) -> None:
@@ -272,10 +616,6 @@ def propagate_dims(gm: fx.GraphModule) -> None:
     DimsProp().propagate(gm)
 
 
-_propagate_shapes = propagate_shapes
-_propagate_dims = propagate_dims
-
-
 def _is_dtype_getattr(node: fx.Node) -> bool:
     return (
         node.op == "call_function"
@@ -283,12 +623,6 @@ def _is_dtype_getattr(node: fx.Node) -> bool:
         and len(node.args) >= 2
         and node.args[1] == "dtype"
     )
-
-
-def _make_fixed_shape_fn(
-    target_shape: torch.Size,
-) -> Callable[[torch.Size], torch.Size]:
-    return lambda _input_shape, target=target_shape: target
 
 
 def _normalize_dim(ndim: int, dim: int) -> int:
@@ -313,26 +647,74 @@ def _flatten_output_shape(
     return torch.Size((*input_shape[:start], flat_size, *input_shape[end + 1 :]))
 
 
-def _make_flatten_shape_fn(
-    start_dim: int = 0, end_dim: int = -1
-) -> Callable[[torch.Size], torch.Size]:
-    return lambda input_shape, s=start_dim, e=end_dim: _flatten_output_shape(
-        input_shape, s, e
-    )
-
-
-def _build_reshape_op(
+def _build_shape_transform_op(
     output_shape: torch.Size,
     shape_fn: Callable[[torch.Size], torch.Size] | None = None,
-) -> ReshapeOp | None:
-    """Create a ``ReshapeOp`` from analyzed shape metadata or a shape function."""
+) -> TransformOp | None:
+    """Create a shape-only ``TransformOp`` from analyzed reshape metadata."""
     if shape_fn is not None:
-        return ReshapeOp(shape_fn)
+        return TransformOp((ShapeStage(shape_fn),))
 
     if output_shape:
-        return ReshapeOp(shape_fn=_make_fixed_shape_fn(output_shape))
+        return TransformOp((ShapeStage(lambda _: output_shape),))
 
     return None
+
+
+def _extract_int_dims(values: Sequence[object]) -> tuple[int, ...] | None:
+    dims: list[int] = []
+    for value in values:
+        if not isinstance(value, int):
+            return None
+        dims.append(value)
+    return tuple(dims)
+
+
+def _extract_permute_dims(node: fx.Node) -> tuple[int, ...] | None:
+    if node.op == "call_method":
+        if len(node.args) >= 2 and isinstance(node.args[1], (tuple, list)):
+            return _extract_int_dims(node.args[1])
+        dims = node.args[1:]
+        if dims:
+            extracted = _extract_int_dims(dims)
+            if extracted is not None:
+                return extracted
+        dims_kw = node.kwargs.get("dims")
+        if isinstance(dims_kw, (tuple, list)):
+            return _extract_int_dims(dims_kw)
+        return None
+
+    if len(node.args) >= 2 and isinstance(node.args[1], (tuple, list)):
+        return _extract_int_dims(node.args[1])
+
+    dims = node.args[1:]
+    if dims:
+        return _extract_int_dims(dims)
+    return None
+
+
+def _extract_transpose_dims(node: fx.Node) -> tuple[int, int] | None:
+    if (
+        len(node.args) >= 3
+        and isinstance(node.args[1], int)
+        and isinstance(node.args[2], int)
+    ):
+        return int(node.args[1]), int(node.args[2])
+    dim0 = node.kwargs.get("dim0")
+    dim1 = node.kwargs.get("dim1")
+    if isinstance(dim0, int) and isinstance(dim1, int):
+        return int(dim0), int(dim1)
+    return None
+
+
+def _build_layout_transform_op(
+    ndim: int, permute_dims: tuple[int, ...]
+) -> TransformOp | None:
+    if ndim <= 0 or len(permute_dims) != ndim:
+        return None
+    if sorted(permute_dims) != list(range(ndim)):
+        return None
+    return TransformOp((LayoutStage(permute_dims),))
 
 
 def _resolve_attr_value(gm: fx.GraphModule, target: str) -> Any:
@@ -545,32 +927,83 @@ def _lower_general_add_ir(
 
 def _build_flatten_ir_node(
     data_input: fx.Node, start_dim: int, end_dim: int
-) -> tuple[ReshapeOp, tuple[fx.Node, ...]] | None:
+) -> tuple[TransformOp, tuple[fx.Node, ...]]:
     """Build the normalized PAIIR form for any flatten-style operation."""
-    return (
-        ReshapeOp(shape_fn=_make_flatten_shape_fn(start_dim, end_dim)),
-        (data_input,),
-    )
+    return TransformOp(
+        (
+            ShapeStage(
+                partial(_flatten_output_shape, start_dim=start_dim, end_dim=end_dim)
+            ),
+        )
+    ), (data_input,)
 
 
 def _build_reshape_like_ir_node(
     sink_info: ReshapeSinkInfo,
-) -> tuple[ReshapeOp, tuple[fx.Node, ...]] | None:
-    """Lower one analyzed reshape sink to ``ReshapeOp`` and its data input."""
+) -> tuple[TransformOp, tuple[fx.Node, ...]] | None:
+    """Lower one analyzed reshape sink to a shape-only ``TransformOp``."""
     if sink_info.kind == "flatten":
         return _build_flatten_ir_node(
             sink_info.data_input, sink_info.start_dim, sink_info.end_dim
         )
 
-    ir_node = _build_reshape_op(sink_info.output_shape)
-    if ir_node is None:
+    ir_node = _build_shape_transform_op(sink_info.output_shape)
+    return None if ir_node is None else (ir_node, (sink_info.data_input,))
+
+
+def _build_layout_transform_ir_node(
+    node: fx.Node,
+) -> tuple[TransformOp, tuple[fx.Node, ...]] | None:
+    """Lower explicit permute/transpose nodes to a layout-only ``TransformOp``."""
+    if not node.args or not isinstance(node.args[0], fx.Node):
         return None
-    return ir_node, (sink_info.data_input,)
+
+    data_input = node.args[0]
+    output_shape = get_output_shape(node)
+    ndim = len(output_shape)
+
+    if node.target in {"permute", "permute_"} or node.target is torch.permute:
+        permute_dims = _extract_permute_dims(node)
+        if permute_dims is None:
+            return None
+        if ndim == 0:
+            ndim = len(permute_dims)
+        ir_node = _build_layout_transform_op(ndim, permute_dims)
+        if ir_node is None:
+            return None
+        return ir_node, (data_input,)
+
+    if node.target in {"transpose", "transpose_"} or node.target is torch.transpose:
+        transpose_dims = _extract_transpose_dims(node)
+        if transpose_dims is None:
+            return None
+
+        input_shape = get_output_shape(data_input)
+        if ndim == 0:
+            ndim = len(input_shape)
+        if ndim <= 0:
+            return None
+
+        dim0 = _normalize_dim(ndim, transpose_dims[0])
+        dim1 = _normalize_dim(ndim, transpose_dims[1])
+        transposed_dims = list(range(ndim))
+        transposed_dims[dim0], transposed_dims[dim1] = (
+            transposed_dims[dim1],
+            transposed_dims[dim0],
+        )
+        ir_node = _build_layout_transform_op(ndim, tuple(transposed_dims))
+        if ir_node is None:
+            return None
+        return ir_node, (data_input,)
+
+    return None
 
 
 class _PAIIRTracer(fx.Tracer):
-    """Custom FX Tracer that treats registered, bypass, and erase types as
-    leaf modules so they are not traced into.
+    """Custom FX Tracer that treats known frontend modules as leaves.
+
+    SpikingJelly ``layer.X`` modules are always leaves. Supported ones lower
+    directly via Python MRO; unsupported ones fail through normal lowering.
     """
 
     def __init__(
@@ -580,6 +1013,8 @@ class _PAIIRTracer(fx.Tracer):
         self.custom_leaf_modules = custom_leaf_modules
 
     def is_leaf_module(self, m: nn.Module, module_qualified_name: str) -> bool:
+        if is_sj_layer_module(m):
+            return True
         if self.custom_leaf_modules and isinstance(m, self.custom_leaf_modules):
             return True
         if getattr(m, "_is_leaf_module", False):
@@ -588,14 +1023,18 @@ class _PAIIRTracer(fx.Tracer):
 
 
 class _EraseModuleTransformer(fx.Transformer):
-    """Remove ``ERASE_MODULE_TYPES`` (Dropout, Identity) nodes from a traced graph.
+    """Remove ``ERASE_MODULE_TYPES`` nodes from a traced graph.
 
     Each matching ``call_module`` node is replaced by its single input node.
     Dead-code elimination is run automatically so no orphaned nodes remain.
     """
 
-    def call_module(self, target: str, args: tuple, kwargs: dict):
-        if isinstance(self.submodules[target], ERASE_MODULE_TYPES):
+    def call_module(
+        self, target: Target, args: tuple[Argument, ...], kwargs: dict[str, Any]
+    ) -> Any:
+        if isinstance(target, str) and isinstance(
+            self.submodules[target], ERASE_MODULE_TYPES
+        ):
             return args[0]
         return super().call_module(target, args, kwargs)
 
@@ -608,21 +1047,42 @@ class _EraseModuleTransformer(fx.Transformer):
 
 
 def register_neuron(
-    module_type: type[nn.Module],
-    converter: Callable[[nn.Module], CoreNeuronV25],
+    module_type: type[_M], converter: Callable[[_M], NeuronConverterResult]
 ) -> None:
-    """Register a custom neuron type for PAIIR conversion.
+    """Register a custom neuron/activation type for PAIIR conversion.
 
-    The converter receives the PyTorch module and must return a
-    :class:`CoreNeuronV25` with appropriate chip parameters.
+    This is the compatibility layer for deploy-facing neuron operators. The
+    converter receives the PyTorch module and must return either a
+    :class:`CoreNeuronV25` with appropriate chip parameters, or a
+    :class:`LutActivation` that will be wrapped as ``ANNNodeV25(lut)``.
     """
-    if module_type in _DEFAULT_MODULE_MAP:
+    if module_type in _USER_MODULE_MAP:
         raise ValueError(
             f"Module type {module_type} is already registered. "
             f"Overriding existing registrations is not allowed."
         )
 
-    _DEFAULT_MODULE_MAP[module_type] = lambda mod: StandaloneActOp(act=converter(mod))
+    _USER_MODULE_MAP[module_type] = _build_standalone_act_mapper(module_type, converter)
+
+
+def register_module(
+    module_type: type[_M], converter: Callable[[_M], nn.Module]
+) -> None:
+    """Register a custom module by converting it to a canonical module.
+
+    The converter receives the user module instance and must return a canonical
+    module already supported by PAIIR lowering, such as ``nn.Conv1d``,
+    ``nn.Conv2d``, ``nn.Linear``, pool modules, builtin activations, or PAIIR
+    neuron/LUT modules. This API intentionally does not guess field names or
+    quantization expressions from custom modules.
+    """
+    if module_type in _USER_MODULE_MAP:
+        raise ValueError(
+            f"Module type {module_type} is already registered. "
+            f"Overriding existing registrations is not allowed."
+        )
+
+    _USER_MODULE_MAP[module_type] = _build_module_mapper(module_type, converter)
 
 
 def torch_to_paiir(
@@ -633,7 +1093,7 @@ def torch_to_paiir(
 ) -> PAIIRGraph:
     """Convert a PyTorch model to a :class:`PAIIRGraph`.
 
-    Performs 1:1 node mapping only — no fusion.  Use
+    Performs 1:1 node mapping only; no fusion. Use
     :func:`fuse_to_offline_cores` afterwards to fuse nodes into
     offline-core units.
 
@@ -656,13 +1116,19 @@ def torch_to_paiir(
         UnsupportedOpError: If ``strict=True`` and an unsupported operator
             is encountered. See :exc:`~paibox.paiir.exceptions.UnsupportedOpError`.
     """
+    model = copy.deepcopy(model)
     model.eval()
-    full_map = {**_DEFAULT_MODULE_MAP}
+    # force 's' so ShapeProp can execute SJ forwards
+    _set_sj_layer_step_mode_single(model)
+    full_map = _get_full_module_map()
 
-    # Edge case: root module itself is in module_map
-    # FX trace always decomposes the root module. Wrap in Sequential
-    # so it becomes a submodule and is treated as a leaf module.
-    if type(model) in full_map:
+    # Edge case: FX trace always decomposes the root module. Wrap supported roots
+    # so they become submodules and are treated as leaf modules.
+    if (
+        type(model) in full_map
+        or isinstance(model, TRACE_LEAF_MODULE_TYPES)
+        or is_sj_layer_module(model)
+    ):
         model = nn.Sequential(model)
 
     # Leaf types = module_map keys + modules that need special post-trace handling.
@@ -685,9 +1151,9 @@ def torch_to_paiir(
     return _fx_graph_to_paiir(gm, full_map, strict)
 
 
-def _is_lowering_bypass_module(mod: nn.Module) -> bool:
-    """Return whether *mod* should be elided during PAIIR lowering."""
-    return isinstance(mod, LOWERING_BYPASS_MODULE_TYPES)
+def _is_lowering_bypass_module(m: nn.Module) -> bool:
+    """Return whether *m* should be elided during PAIIR lowering."""
+    return isinstance(m, LOWERING_BYPASS_MODULE_TYPES)
 
 
 def _fill_layouts(
@@ -839,18 +1305,6 @@ def _apply_module_lowering_rule(
     torch_module = gm.get_submodule(str(node.target))
     input_override = ctx.input_nodes_overrides.get(node)
 
-    conv_spec = extract_module_conv_spec(node, torch_module)
-    if conv_spec is not None:
-        ir_node, conv_input_override = build_conv_ir_node(conv_spec)
-        _register_ir_node(
-            paiir_graph,
-            ctx,
-            node,
-            ir_node,
-            input_nodes_override=conv_input_override,
-        )
-        return True
-
     sink_info = _get_reshape_sink_info(ctx, node)
     if sink_info is not None:
         built = _build_reshape_like_ir_node(sink_info)
@@ -865,22 +1319,58 @@ def _apply_module_lowering_rule(
 
         ir_node, reshape_override = built
         _register_ir_node(
-            paiir_graph,
-            ctx,
-            node,
-            ir_node,
-            input_nodes_override=reshape_override,
+            paiir_graph, ctx, node, ir_node, input_nodes_override=reshape_override
         )
+        return True
+
+    # This is a hard frontend boundary: letting strict=False bypass the pool
+    # would produce a graph that no longer represents the deployment model.
+    if (ceil_issue := _describe_ceil_mode_pooling_issue(torch_module)) is not None:
+        raise UnsupportedOpError(node.name, ceil_issue)
+
+    if (mod_type := type(torch_module)) in _USER_MODULE_MAP:
+        ir_node = module_map[mod_type](torch_module)
+        if isinstance(ir_node, OpNode):
+            _register_ir_node(
+                paiir_graph, ctx, node, ir_node, input_nodes_override=input_override
+            )
+        else:
+            ctx.bypass_nodes.add(node)
+        return True
+
+    if is_sj_layer_module(torch_module) and not is_supported_sj_layer_module(
+        torch_module
+    ):
+        _mark_unsupported(ctx, node, describe_sj_layer_module(torch_module), strict)
         return True
 
     if _is_lowering_bypass_module(torch_module):
         ctx.bypass_nodes.add(node)
         return True
 
-    if (
-        unsupported_avgpool := _unsupported_avgpool_description(torch_module)
-    ) is not None:
-        _mark_unsupported(ctx, node, unsupported_avgpool, strict)
+    if (maxpool_issue := _describe_maxpool_lowering_issue(torch_module)) is not None:
+        _mark_unsupported(ctx, node, maxpool_issue, strict)
+        return True
+
+    if isinstance(torch_module, PAD_LEAF_MODULE_TYPES):
+        ir_node = _extract_module_pad_ir_node(torch_module)
+        if ir_node is None:
+            _mark_unsupported(
+                ctx,
+                node,
+                _describe_pad_lowering_issue(torch_module)
+                or f"nn.Module '{type(torch_module).__name__}'",
+                strict,
+            )
+            return True
+
+        _register_ir_node(
+            paiir_graph, ctx, node, ir_node, input_nodes_override=input_override
+        )
+        return True
+
+    if (avgpool_issue := _describe_avgpool_lowering_issue(torch_module)) is not None:
+        _mark_unsupported(ctx, node, avgpool_issue, strict)
         return True
 
     if (mod_type := type(torch_module)) in module_map:
@@ -968,6 +1458,39 @@ def _apply_builtin_function_lowering_rule(
         _register_ir_node(paiir_graph, ctx, node, ConcatOp(dim=raw_dim))
         return True
 
+    if node.target in PAD_FUNCS:
+        padding = get_call_arg(node, 1, "pad")
+        mode = get_call_arg(node, 2, "mode", "constant")
+        value = get_call_arg(node, 3, "value", None)
+        if mode != "constant":
+            _mark_unsupported(ctx, node, f"function 'pad' with mode='{mode}'", strict)
+            return True
+
+        ir_node = _build_pad_ir_node(padding, value)
+        if ir_node is None:
+            _mark_unsupported(
+                ctx, node, "function 'pad' with nonzero or unsupported padding", strict
+            )
+            return True
+
+        input_arg = get_call_arg(node, 0, "input")
+        if not isinstance(input_arg, fx.Node):
+            _mark_unsupported(ctx, node, "function 'pad' without tensor input", strict)
+            return True
+
+        _register_ir_node(
+            paiir_graph, ctx, node, ir_node, input_nodes_override=(input_arg,)
+        )
+        return True
+
+    built_layout = _build_layout_transform_ir_node(node)
+    if built_layout is not None:
+        ir_node, input_override = built_layout
+        _register_ir_node(
+            paiir_graph, ctx, node, ir_node, input_nodes_override=input_override
+        )
+        return True
+
     sink_info = _get_reshape_sink_info(ctx, node)
     if sink_info is not None:
         built = _build_reshape_like_ir_node(sink_info)
@@ -983,11 +1506,7 @@ def _apply_builtin_function_lowering_rule(
 
         ir_node, input_override = built
         _register_ir_node(
-            paiir_graph,
-            ctx,
-            node,
-            ir_node,
-            input_nodes_override=input_override,
+            paiir_graph, ctx, node, ir_node, input_nodes_override=input_override
         )
         return True
 
@@ -1048,6 +1567,14 @@ def _apply_builtin_method_lowering_rule(
         )
         return True
 
+    built_layout = _build_layout_transform_ir_node(node)
+    if built_layout is not None:
+        ir_node, input_override = built_layout
+        _register_ir_node(
+            paiir_graph, ctx, node, ir_node, input_nodes_override=input_override
+        )
+        return True
+
     sink_info = _get_reshape_sink_info(ctx, node)
     if sink_info is not None:
         built = _build_reshape_like_ir_node(sink_info)
@@ -1062,11 +1589,7 @@ def _apply_builtin_method_lowering_rule(
 
         ir_node, input_override = built
         _register_ir_node(
-            paiir_graph,
-            ctx,
-            node,
-            ir_node,
-            input_nodes_override=input_override,
+            paiir_graph, ctx, node, ir_node, input_nodes_override=input_override
         )
         return True
 

@@ -13,19 +13,28 @@ from paicorelib import (
     OutputType,
     PoolingMode,
     SNNMode,
+    ThresholdNegMode,
+    ThresholdPosMode,
 )
 from torch import nn
 
 from paibox.paiir.ir.add_ops import PotentialAddOp
 from paibox.paiir.ir.calc_params import NeuronParams, OfflineCoreParams
-from paibox.paiir.ir.core_neuron import ANNNodeV25, IFNodeV25, LIFNodeV25
+from paibox.paiir.ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
+from paibox.paiir.ir.ir_base import FormatFlow, OutputNode
 from paibox.paiir.ir.lut_activation import LutReLU, LutSigmoid
 from paibox.paiir.ir.op_node import (
     AccumulateOp,
+    ConcatOp,
+    LayoutStage,
+    PadOp,
     SequentialOp,
+    ShapeStage,
+    SplitOp,
     StandaloneActOp,
     StandaloneCompOp,
     TensorLayout,
+    TransformOp,
 )
 from paibox.paiir.ir.signal_domain import SignalDomain
 from paibox.paiir.pipeline.avgpool.compensation import (
@@ -33,6 +42,69 @@ from paibox.paiir.pipeline.avgpool.compensation import (
     apply_avgpool_snn_compensation,
 )
 from paibox.paiir.pipeline.passes import _infer_node_weight_format
+
+
+class TestNodeCapabilities:
+    def test_routing_nodes_declare_format_flow_and_zero_tick_depth(self):
+        routing_nodes = [TransformOp(), PadOp((1, 1)), SplitOp(sections=2, dim=1)]
+
+        for node in routing_nodes:
+            assert node.__format_flow__ is FormatFlow.PASS_THROUGH
+            assert node.__tick_depth__ == 0
+
+    def test_concat_declares_merge_format_flow_and_zero_tick_depth(self):
+        node = ConcatOp()
+
+        assert node.__format_flow__ is FormatFlow.MERGE
+        assert node.__tick_depth__ == 0
+
+    def test_graph_output_passes_format_without_tick_depth(self):
+        node = OutputNode()
+
+        assert node.__format_flow__ is FormatFlow.PASS_THROUGH
+        assert node.__tick_depth__ == 0
+
+    def test_offline_core_node_defaults_to_no_format_flow_and_one_tick_depth(self):
+        node = StandaloneCompOp(nn.Linear(4, 2))
+
+        assert node.__format_flow__ is FormatFlow.NONE
+        assert node.__tick_depth__ == 1
+
+
+class TestTransformOp:
+    def test_layout_stage_materializes_permuted_layout(self):
+        op = TransformOp((LayoutStage((0, 2, 1)),))
+        x = torch.arange(6, dtype=torch.int64).reshape(1, 2, 3)
+
+        expected = x.permute(0, 2, 1)
+        assert torch.equal(op(x), expected)
+
+    def test_shape_stage_reshapes_without_reordering_flat_indices(self):
+        op = TransformOp((ShapeStage(lambda _: torch.Size((1, 3, 2))),))
+        x = torch.arange(6, dtype=torch.int64).reshape(1, 2, 3)
+
+        expected = x.reshape(1, 3, 2)
+        assert torch.equal(op(x), expected)
+
+    def test_shape_stage_without_shape_fn_flattens_tensor(self):
+        op = TransformOp((ShapeStage(None),))
+        x = torch.arange(6, dtype=torch.int64).reshape(1, 2, 3)
+
+        expected = x.flatten()
+        assert torch.equal(op(x), expected)
+
+    def test_mixed_stage_chain_preserves_declared_execution_order(self):
+        op = TransformOp(
+            (
+                LayoutStage((0, 2, 1)),
+                ShapeStage(lambda _: torch.Size((1, 2, 3))),
+                LayoutStage((0, 2, 1)),
+            )
+        )
+        x = torch.arange(6, dtype=torch.int64).reshape(1, 2, 3)
+
+        expected = x.permute(0, 2, 1).reshape(1, 2, 3).permute(0, 2, 1)
+        assert torch.equal(op(x), expected)
 
 
 class TestSequentialOp:
@@ -105,6 +177,21 @@ class TestAccumulateOp:
         out = op(x1, x2)
         assert out.shape == (1, 8)
 
+    def test_without_activation_emits_potential_sum(self):
+        linear_a = nn.Linear(2, 2, bias=False)
+        linear_b = nn.Linear(2, 2, bias=False)
+        with torch.no_grad():
+            linear_a.weight.copy_(torch.eye(2))
+            linear_b.weight.copy_(2 * torch.eye(2))
+
+        op = AccumulateOp(comps=[linear_a, linear_b], act=None, op_signs=(1, -1))
+        x1 = torch.tensor([[3.0, 4.0]])
+        x2 = torch.tensor([[1.0, 2.0]])
+
+        assert torch.equal(op(x1, x2), torch.tensor([[1.0, 0.0]]))
+        assert op.lut_data is None
+        assert op.neuron_params.output_type is OutputType.POTENTIAL
+
     def test_sign_length_mismatch(self):
         with pytest.raises(ValueError, match="op_signs"):
             AccumulateOp(comps=[nn.Linear(4, 8)], act=IFNodeV25(), op_signs=(1, -1))
@@ -172,10 +259,10 @@ class TestWeights:
     def test_standalone_comp_neuron_params_follow_output_domain(self):
         op = StandaloneCompOp(comp=nn.MaxPool2d(2))
 
-        op.output_domain = SignalDomain.VALUE
+        op.signal_semantics.output_domain = SignalDomain.VALUE
         assert op.neuron_params.output_type == OutputType.VALUE
 
-        op.output_domain = SignalDomain.POTENTIAL
+        op.signal_semantics.output_domain = SignalDomain.POTENTIAL
         assert op.neuron_params.output_type == OutputType.POTENTIAL
 
     def test_add_op_returns_none(self):
@@ -284,6 +371,58 @@ class TestNeuronParams:
         params = op.neuron_params
         assert params.thres_pos == 1
         assert params.output_type == OutputType.VALUE
+
+    def test_standalone_maxpool_unsigned_spike_bypass_neuron_params(self):
+        op = StandaloneCompOp(comp=nn.MaxPool2d(2))
+        op.signal_semantics.output_domain = SignalDomain.VALUE
+        op.core_params.set_input_format((DataSign.UNSIGNED, DataWidth.WIDTH_1BIT))
+
+        params = op.neuron_params
+        assert params.output_type == OutputType.VALUE
+        assert params.reset_mode == RM.MODE_NORMAL
+        assert params.reset_v == 0
+        assert params.thres_pos_mode == ThresholdPosMode.FIRE
+        assert params.thres_neg_mode == ThresholdNegMode.FLOOR
+        assert params.thres_pos == 1
+        assert params.thres_neg == 0
+        assert op.lut_data is None
+
+        act = CoreNeuronV25(
+            reset_mode=params.reset_mode,
+            reset_v=params.reset_v,
+            thres_pos_mode=params.thres_pos_mode,
+            thres_neg_mode=params.thres_neg_mode,
+            thres_pos=params.thres_pos,
+            thres_neg=params.thres_neg,
+            lateral_inhi=params.lateral_inhi,
+            leak_multi_sequence=params.leak_multi_sequence,
+            leak_multi_input=params.leak_multi_input,
+            leak_multi_mode=params.leak_multi_mode,
+            leak_add_mode=params.leak_add_mode,
+            leak_tau_shift=params.leak_tau,
+            leak_v=params.leak_v,
+            init_v=params.init_v,
+        )
+        outputs = [
+            int(act(torch.tensor([x], dtype=torch.float32)).item())
+            for x in [0, 1, 0, 1]
+        ]
+        assert outputs == [0, 1, 0, 1]
+        assert int(act.v.item()) == 0
+
+    def test_standalone_maxpool_wider_value_exports_identity_lut(self):
+        op = StandaloneCompOp(comp=nn.MaxPool2d(2))
+        op.signal_semantics.output_domain = SignalDomain.VALUE
+        op.core_params.set_input_format((DataSign.UNSIGNED, DataWidth.WIDTH_4BIT))
+
+        params = op.neuron_params
+        data = op.lut_data
+
+        assert params.output_type == OutputType.VALUE
+        assert data is not None
+        assert torch.equal(data.thresholds[:16], torch.arange(16, dtype=torch.int32))
+        assert torch.equal(data.values[:16], torch.arange(16, dtype=torch.uint8))
+        assert torch.all(data.values[16:] == 15)
 
 
 class TestLutData:

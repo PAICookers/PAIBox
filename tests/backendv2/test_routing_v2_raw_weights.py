@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import numpy as np
 import paicorelib
 import torch

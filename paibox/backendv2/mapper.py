@@ -1,70 +1,105 @@
-from __future__ import annotations
-
 import os
-from typing import TextIO
+from pathlib import Path
 
-from paicorelib import FrameArrayType
+from paicorelib import CoordZXYOffset
 
 from paibox.paiir import PAIIRGraph
+from paibox.paiir.ir import OfflineCoreOp
 
+from .coreplacement import CorePlacement
+from .export.cheader import export_cheader_files, export_cheader_merged
+from .export.npy import export_frame_npy
+from .export.proto import export_compile_artifacts
+from .export.text import export_debug_txt_files, export_debug_txt_merged
+from .export.utils import (
+    LiteralFormat,
+    TargetPlatform,
+    WordOrder,
+    make_frame_records,
+    resolve_platform_exports,
+)
+from .global_signal import set_global_signal
 from .group_tile import tile_groups
-from .op_node import AllNode, InputElem, Neuron, RemapElem, build_nodes
+from .op_node import AllNode, InputElem, Neuron, RemapElem, SourceElem, build_nodes
 from .rg_build import build_groups
 from .route_solver import route_solve
-from .routing import (
-    InputGroup,
-    OutputGroup,
-    RemapGroup,
-    RoutingGroup,
-    toposort_for_rg,
-)
-
-
-def export_single_framearray(
-    frame_array: FrameArrayType, file: TextIO, prefix: str = ""
-) -> None:
-    for frame in frame_array:
-        hex_str = f"{frame:016x}"
-        hex_str = "_".join(hex_str[i : i + 4] for i in range(0, 16, 4))
-        file.write(f"{prefix}{hex_str}\n")
-
-
-def export_framearray_to_bit(
-    frame_array: FrameArrayType,
-    file: TextIO,
-    prefix: str = "",
-    base: str = "bin",  # 新增参数："bin" 或 "hex"
-) -> None:
-    for frame in frame_array:
-        # mask 取高32位和低32位
-        high32 = (frame >> 32) & 0xFFFFFFFF
-        low32 = frame & 0xFFFFFFFF
-
-        if base == "bin":
-            high_str = f"0b{high32:032b}"
-            low_str = f"0b{low32:032b}"
-        elif base == "hex":
-            high_str = f"0x{high32:08X}"
-            low_str = f"0x{low32:08X}"
-        else:
-            raise ValueError("base must be 'bin' or 'hex'")
-
-        file.write(f"{prefix}{high_str},{low_str},\n")
+from .routing import InputGroup, OutputGroup, RemapGroup, RoutingGroup, toposort_for_rg
 
 
 class Mapper:
-    def __init__(self):
+    def __init__(self) -> None:
         self.groups: list[RoutingGroup | RemapGroup] = []
         self.routing_groups: list[RoutingGroup] = []
         self.nodes: list[AllNode] = []
         self.output_groups: list[OutputGroup] = []
         self.input_groups: list[InputGroup] = []
+        self.coreplacements: list[CorePlacement] = []
+        self.global_starts: dict[int, CoordZXYOffset] = {}
+        self.timesteps: int = 1
 
-    def generate_routing_groups(self, pai_graph: PAIIRGraph):
+    def _resolve_timesteps(self, pai_graph: PAIIRGraph, timesteps: int | None) -> int:
+        """Resolve the application runtime length used by output metadata.
+
+        Auto-reset graphs export ``tick_duration=0`` and carry the public
+        runtime length in ``tick_initial``, so inference must check
+        ``tick_initial`` before falling back to finite ``tick_duration``.
+        """
+
+        def _collect_output_timesteps() -> set[int]:
+            inferred: set[int] = set()
+            visited: set[str] = set()
+            pending = [
+                pred_name
+                for output_node in pai_graph.output_nodes()
+                for pred_name in pai_graph.predecessors(output_node.name)
+            ]
+
+            while pending:
+                name = pending.pop()
+                if name in visited:
+                    continue
+                visited.add(name)
+
+                node = pai_graph.nodes[name]
+                if isinstance(node, OfflineCoreOp):
+                    cp = node.core_params
+                    if cp.tick_initial > 0:
+                        inferred.add(cp.tick_initial)
+                    elif cp.tick_duration > 0:
+                        inferred.add(cp.tick_duration)
+                    continue
+
+                pending.extend(pai_graph.predecessors(name))
+
+            return inferred
+
+        if timesteps is not None:
+            resolved = int(timesteps)
+        else:
+            output_timesteps = _collect_output_timesteps()
+            resolved = next(iter(output_timesteps)) if len(output_timesteps) == 1 else 1
+
+        if resolved <= 0:
+            raise ValueError(f"'timesteps' must be positive, got {resolved}.")
+
+        for name, node in pai_graph.nodes.items():
+            if not isinstance(node, OfflineCoreOp):
+                continue
+
+            tick_duration = node.core_params.tick_duration
+            if tick_duration != 0 and tick_duration < resolved:
+                raise ValueError(
+                    f"'timesteps' ({resolved}) exceeds finite tick_duration "
+                    f"({tick_duration}) of core node '{name}'."
+                )
+
+        return resolved
+
+    def generate_routing_groups(self, pai_graph: PAIIRGraph) -> None:
         self.nodes = build_nodes(pai_graph)
         self.groups, self.input_groups, self.output_groups = build_groups(self.nodes)
 
-    def set_rough_dest(self):
+    def set_rough_dest(self) -> None:
         # determine which routing group each neuron sends to
         source_groups: list[InputGroup | RemapGroup | RoutingGroup] = []
         source_groups.extend(self.input_groups)
@@ -79,6 +114,7 @@ class Mapper:
                 grp.set_lcn()
 
         for src_grp in source_groups:
+            useless_elems: list[SourceElem] = []
             for elem in src_grp.raw_elems:
                 dest_found = False
                 # print(f"\nSetting rough dest for neuron {neu} in group {group.name}:")
@@ -92,26 +128,51 @@ class Mapper:
                         if isinstance(elem, RemapElem):
                             assert isinstance(src_grp, RemapGroup)
                             src_grp.dests[elem] = dest_grp
+                            src_grp.used_elems.append(elem)
                         elif isinstance(elem, InputElem):
                             assert isinstance(src_grp, InputGroup)
                             src_grp.dests[elem] = dest_grp
+                            src_grp.used_elems.append(elem)
                         elif isinstance(elem, Neuron):
                             assert isinstance(src_grp, RoutingGroup)
                             src_grp.dests[elem] = dest_grp
+                            src_grp.used_elems.append(elem)
                         else:
                             raise TypeError(
                                 f"Unsupported element type: {type(elem)} in group {src_grp.name}"
                             )
                         break
                 if not dest_found:
-                    raise ValueError(
-                        f"Dest not found for neuron {elem} in group {src_grp.name}"
-                    )
+                    useless_elems.append(elem)
+            dest_strs: list[str] = []
+            if len(useless_elems) > 6:
+                print_elems = useless_elems[:3] + useless_elems[-3:]
+            else:
+                print_elems = useless_elems
+            for elem in print_elems:
+                dest_strs.append(str(elem))
+            if len(useless_elems) > 6:
+                dest_strs = dest_strs[:3] + ["..."] + dest_strs[-3:]
+            if len(useless_elems) > 0:
+                print(
+                    f"\nfound {len(useless_elems)} elements not used in group {src_grp.name}:"
+                )
+                print("    " + "\n    ".join(dest_strs))
 
-    def routing(self):
+            src_grp.update_raw_elems()
+
+    def routing(self) -> None:
         self.routing_groups, next_rg_group = toposort_for_rg(self.groups)
+        print("\nTrying to solve routing")
+        for rg in self.routing_groups:
+            print(f"\tRouting Group {rg.name} requires {rg.n_core_required} cores.")
 
         areas = [rg.n_core_required for rg in self.routing_groups]
+        print(f"\ttotal cores needed: {sum(areas)}")
+        if sum(areas) > 63:
+            raise ValueError(
+                f"Total cores needed {sum(areas)} exceeds the limit of 63."
+            )
         copy_configs, coords = route_solve(
             areas=areas,
             next_area_id=next_rg_group,
@@ -119,166 +180,124 @@ class Mapper:
             input_area_ids=[],
             output_area_ids=[],
         )
-        print("Routing result:")
-        print("Copy Configs:", copy_configs)
-        print("Coords:", coords)
+
+        print("\nRouting result:")
+        for rg, copy_config, rg_coords in zip(
+            self.routing_groups, copy_configs, coords
+        ):
+            print(f"\t{rg.name}({rg.n_core_required} cores):")
+            print(f"\t\tcopy: {copy_config}")
+            print(f"\t\tcoord: {rg_coords}")
 
         for rg, copy_config, rg_coords in zip(
             self.routing_groups, copy_configs, coords
         ):
             rg.assign_coord(rg_coords, copy_config)
 
-    def set_detail_dest(self):
+    def set_detail_dest(self) -> None:
         for rg in self.routing_groups:
             rg.set_detail_dest()
         for in_grp in self.input_groups:
             in_grp.set_detail_dest()
 
-    def set_auto_core_config(self):
+    def set_auto_core_config(self) -> None:
         for rg in self.routing_groups:
             rg.set_auto_core_config()
 
-    def export_cheader_file(self, output_path: str, base: str = "bin"):
-        os.makedirs(output_path, exist_ok=True)
-        frame1_path = output_path + "/frame_type1.h"
-        frame2_path = output_path + "/frame_type2.h"
-        frame3_path = output_path + "/frame_type3.h"
-        with (
-            open(frame1_path, "w") as frame1_file,
-            open(frame2_path, "w") as frame2_file,
-            open(frame3_path, "w") as frame3_file,
-        ):
-            frame1_file.write(
-                'volatile unsigned int config_frame1[] __attribute__((section(".large_const_data"))) ={\n'
-            )
-            frame2_file.write(
-                'volatile unsigned int config_frame2[] __attribute__((section(".large_const_data"))) ={\n'
-            )
-            frame3_file.write(
-                'volatile unsigned int config_frame3[] __attribute__((section(".large_const_data"))) ={\n'
-            )
-            for rg in self.routing_groups:
-                for core_placement in rg.core_placements:
-                    core_frame_type1, core_frame_type2, core_frame_type3 = (
-                        core_placement.to_frame()
-                    )
-                    # export core_frame_type1 and core_frame_type3 to output_path
-                    export_framearray_to_bit(
-                        core_frame_type1, frame1_file, "\t", base=base
-                    )
-                    if core_frame_type2 is not None:
-                        export_framearray_to_bit(
-                            core_frame_type2, frame2_file, "\t", base=base
-                        )
-                    export_framearray_to_bit(
-                        core_frame_type3, frame3_file, "\t", base=base
-                    )
+    def export_artifacts(
+        self,
+        output_path: str | Path,
+        literal_format: LiteralFormat = "bin",
+        target_platform: TargetPlatform = "riscv",
+        word_order: WordOrder = "high_first",
+        export_merged_frames: bool = True,
+        export_proto_python: bool = True,
+        debug: bool = False,
+    ) -> None:
+        """Export all requested backend artifacts to the output directory."""
+        out = Path(output_path)
+        out.mkdir(parents=True, exist_ok=True)
+        export_x86, export_riscv = resolve_platform_exports(target_platform, debug)
+        frame_records = make_frame_records(self.coreplacements)
 
-            frame1_file.write("};\n")
-            frame2_file.write("};\n")
-            frame3_file.write("};\n")
+        if debug:
+            export_debug_txt_files(out, frame_records)
+            if export_merged_frames:
+                export_debug_txt_merged(out, frame_records)
 
-    def export_cheader_merge(self, output_path: str, base: str = "bin"):
-        os.makedirs(output_path, exist_ok=True)
-        frame_path = output_path + "/frame_type.h"
-        with (open(frame_path, "w") as frame_file,):
-            frame_file.write(
-                'volatile unsigned int config_frame[] __attribute__((section(".large_const_data"))) ={\n'
-            )
-            for rg in self.routing_groups:
-                for core_placement in rg.core_placements:
-                    core_frame_type1, core_frame_type2, core_frame_type3 = (
-                        core_placement.to_frame()
-                    )
-                    # export core_frame_type1 and core_frame_type3 to output_path
-                    export_framearray_to_bit(
-                        core_frame_type1, frame_file, "\t", base=base
-                    )
-                    if core_frame_type2 is not None:
-                        export_framearray_to_bit(
-                            core_frame_type2, frame_file, "\t", base=base
-                        )
-                    export_framearray_to_bit(
-                        core_frame_type3, frame_file, "\t", base=base
-                    )
+        if export_x86:
+            export_frame_npy(out, frame_records, export_merged_frames)
 
-            frame_file.write("};\n")
+        if export_riscv:
+            export_cheader_files(out, frame_records, literal_format)
+            if export_merged_frames:
+                export_cheader_merged(out, frame_records, literal_format)
 
-    def export_merge(self, output_path: str):
-        os.makedirs(output_path, exist_ok=True)
-        frame_path = output_path + "/frame_type.txt"
-        with (open(frame_path, "w") as frame_file,):
-            for rg in self.routing_groups:
-                for core_placement in rg.core_placements:
-                    frame_file.write(
-                        f"# Core at coord ({core_placement.coord.x}, {core_placement.coord.y}):\n"
-                    )
-
-                    core_frame_type1, core_frame_type2, core_frame_type3 = (
-                        core_placement.to_frame()
-                    )
-                    # export core_frame_type1 and core_frame_type3 to output_path
-                    # framearray is np.ndarray of np.uint64 with shape (n_frames, )
-                    # print each frame with 16 hex digits each line
-                    frame_file.write(f"\ttype1:\n")
-                    export_single_framearray(
-                        core_frame_type1, frame_file, prefix="\t\t0x"
-                    )
-                    frame_file.write(f"\ttype2:\n")
-                    if core_frame_type2 is not None:
-                        export_single_framearray(
-                            core_frame_type2, frame_file, prefix="\t\t0x"
-                        )
-                    frame_file.write(f"\ttype3:\n")
-                    export_single_framearray(
-                        core_frame_type3, frame_file, prefix="\t\t0x"
-                    )
-
-    def export(self, output_path: str):
-        os.makedirs(output_path, exist_ok=True)
-        frame1_path = output_path + "/frame_type1.txt"
-        frame2_path = output_path + "/frame_type2.txt"
-        frame3_path = output_path + "/frame_type3.txt"
-        with (
-            open(frame1_path, "w") as frame1_file,
-            open(frame2_path, "w") as frame2_file,
-            open(frame3_path, "w") as frame3_file,
-        ):
-            for rg in self.routing_groups:
-                for core_placement in rg.core_placements:
-                    frame1_file.write(
-                        f"# Core at coord ({core_placement.coord.x}, {core_placement.coord.y}):\n"
-                    )
-                    frame2_file.write(
-                        f"# Core at coord ({core_placement.coord.x}, {core_placement.coord.y}):\n"
-                    )
-                    frame3_file.write(
-                        f"# Core at coord ({core_placement.coord.x}, {core_placement.coord.y}):\n"
-                    )
-
-                    core_frame_type1, core_frame_type2, core_frame_type3 = (
-                        core_placement.to_frame()
-                    )
-                    # export core_frame_type1 and core_frame_type3 to output_path
-                    # framearray is np.ndarray of np.uint64 with shape (n_frames, )
-                    # print each frame with 16 hex digits each line
-                    export_single_framearray(
-                        core_frame_type1, frame1_file, prefix="\t0x"
-                    )
-                    if core_frame_type2 is not None:
-                        export_single_framearray(
-                            core_frame_type2, frame2_file, prefix="\t0x"
-                        )
-                    export_single_framearray(
-                        core_frame_type3, frame3_file, prefix="\t0x"
-                    )
+        export_compile_artifacts(
+            out,
+            target_platform,
+            word_order,
+            export_proto_python,
+            debug,
+            self.timesteps,
+            self.groups,
+            self.input_groups,
+            self.output_groups,
+            self.coreplacements,
+            self.global_starts,
+            frame_records,
+        )
 
     def compile(
         self,
         pai_graph: PAIIRGraph,
-        base: str = "bin",  # 新增参数，指定导出格式
-        output_path: str = "./output",
+        output_path: str | Path | None = None,
+        literal_format: LiteralFormat = "bin",
+        *,
+        timesteps: int | None = None,
+        target_platform: TargetPlatform = "all",
+        word_order: WordOrder = "high_first",
+        export_merged_frames: bool = True,
+        export_proto_python: bool = True,
+        debug: bool = False,
     ) -> None:
+        """Compile a PAIIR graph and export backendv2 deployment artifacts.
+
+        Args:
+            pai_graph: The compiled PAIIR graph to place, route, and export.
+            output_path: Root directory for exported artifacts. When ``None``,
+                ``$PAIBOX_OUTPUT_PATH/frame_out`` is used if the environment
+                variable is set; otherwise defaults to ``./output`` under the
+                current working directory.
+            literal_format: Numeric radix used by generated C headers. ``"bin"``
+                writes 32-bit words as binary literals, while ``"hex"``
+                writes hexadecimal literals.
+            timesteps: Application-side inference sequence length. When
+                ``None``, a finite and consistent output ``tick_initial`` from
+                automatic-reset graphs is used first; otherwise a finite and
+                consistent output ``tick_duration`` is used. If neither is
+                available, it defaults to ``1``.
+            target_platform: Platform-specific artifact set to emit.
+                ``"x86"`` exports ``.npy`` frame arrays, ``"riscv"`` exports
+                C headers, and ``"all"`` exports both. When ``debug=True``,
+                platform-specific exports are always emitted for both targets.
+            word_order: Order used when splitting each 64-bit config frame
+                into 32-bit words for protobuf export. This affects
+                ``proto/config.pb`` and ``proto/config.json`` only; it does not
+                change the logical 64-bit frame sequence.
+            export_merged_frames: Whether to also emit merged frame artifacts
+                that concatenate frame types 1, 2, and 3 into one file per
+                platform or debug view.
+            debug: Whether to emit extra debug artifacts such as
+                human-readable ``cfg_frame*.txt`` / ``cfg_frames.txt`` and
+                ``proto/config.json``. When enabled, x86 and riscv platform
+                artifacts are both exported regardless of ``target_platform``.
+            export_proto_python: Whether to copy ``compile_artifacts_pb2.py``
+                and ``compile_artifacts_pb2.pyi`` into the exported ``proto/``
+                directory when x86 artifacts are part of the export set.
+        """
+        self.timesteps = self._resolve_timesteps(pai_graph, timesteps)
+
         # determine raw_neus in routing groups, other properties remain unset
         self.generate_routing_groups(pai_graph)
 
@@ -312,12 +331,14 @@ class Mapper:
                 self.groups.append(grp)
             else:
                 raise TypeError(f"Unsupported group type: {type(grp)}")
-        # raise NotImplementedError("Conv tiling is not implemented yet.")
 
         self.set_rough_dest()
 
         for grp in all_groups:
             print(grp.info())
+
+        for out_grp in self.output_groups:
+            out_grp.set_lcn(self.timesteps)
 
         self.routing_groups = [
             grp for grp in self.groups if isinstance(grp, RoutingGroup)
@@ -326,37 +347,46 @@ class Mapper:
         for rg in self.routing_groups:
             rg.allocate_neurons()
 
+        print("\nAll groups after neuron allocation:")
         for rg in all_groups:
-            print(rg.info())
+            print(rg.routing_summary())
 
         # set core placements' coord, and generate detailed dest info for each neuron
         self.routing()
 
         print("\nAfter routing:")
-        for grp in all_groups:
-            print(grp.info())
+        # for grp in all_groups:
+        #     print(grp.info())
+
+        for rg in all_groups:
+            print(rg.routing_summary(prefix="    "))
 
         self.set_detail_dest()
-        for rg in all_groups:
-            print(rg.routing_summary())
+
+        for rg in self.routing_groups:
+            self.coreplacements.extend(rg.core_placements)
 
         self.set_auto_core_config()
 
+        self.coreplacements, self.global_starts = set_global_signal(self.coreplacements)
+        print("Global signal relative offset:")
+        for thread_id, offset in self.global_starts.items():
+            print(f"    Thread {thread_id}: {offset}")
+
         # export to hardware executable format
+        if output_path is None:
+            env_output_path = os.environ.get("PAIBOX_OUTPUT_PATH")
+            if env_output_path is not None:
+                output_path = Path(env_output_path) / "frame_out"
+            else:
+                output_path = Path.cwd() / "output"
 
-        self.export(output_path=output_path)
-        self.export_merge(output_path=output_path)
-        self.export_cheader_file(output_path=output_path, base=base)
-        self.export_cheader_merge(output_path=output_path, base=base)
-
-        # for in_grp in self.input_groups:
-        #     for elem, dest in in_grp.dest_infos.items():
-        #         print(
-        #             f"Input element {elem}({elem.output_bit_num} bits) sends to dest \n\t{dest}"
-        #         )
-
-        # for out_grp in self.output_groups:
-        #     for coord, bit_map in out_grp.axon_bit_map.items():
-        #         print(f"Output from coord {coord} receives bits:")
-        #         for bit_count, elem in bit_map:
-        #             print(f"\t[{bit_count}]{elem}({elem.output_bit_num} bits)")
+        self.export_artifacts(
+            output_path,
+            literal_format,
+            target_platform,
+            word_order,
+            export_merged_frames,
+            export_proto_python,
+            debug,
+        )

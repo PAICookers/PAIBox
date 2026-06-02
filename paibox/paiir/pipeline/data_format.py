@@ -10,13 +10,21 @@ data-format groups in :class:`OfflineCoreParams`:
 
 from collections.abc import Sequence
 
+import torch
 from paicorelib import DataSign, DataWidth, ThresholdNegMode
 
 from ..ir.core_neuron import CoreNeuronV25
+from ..ir.value_code import (
+    SIGNED_VALUE_CODE_RANGES,
+    UNSIGNED_VALUE_CODE_RANGES,
+    fits_value_code_range,
+)
 
 __all__ = [
     "DataFormat",
+    "fits_value_code_range",
     "infer_output_format",
+    "infer_output_code_range",
     "infer_weight_format",
     "merge_data_formats",
 ]
@@ -24,21 +32,24 @@ __all__ = [
 
 DataFormat = tuple[DataSign, DataWidth]
 
-# Bit ranges for each DataWidth (signed)
-_SIGNED_RANGES: dict[DataWidth, tuple[int, int]] = {
-    DataWidth.WIDTH_1BIT: (-1, 0),
-    DataWidth.WIDTH_2BIT: (-2, 1),
-    DataWidth.WIDTH_4BIT: (-8, 7),
-    DataWidth.WIDTH_8BIT: (-128, 127),
-}
 
-# Bit ranges for each DataWidth (unsigned)
-_UNSIGNED_RANGES: dict[DataWidth, tuple[int, int]] = {
-    DataWidth.WIDTH_1BIT: (0, 1),
-    DataWidth.WIDTH_2BIT: (0, 3),
-    DataWidth.WIDTH_4BIT: (0, 15),
-    DataWidth.WIDTH_8BIT: (0, 255),
-}
+def _infer_narrowest_range_format(
+    value_min: int, value_max: int, sign: DataSign, label: str
+) -> tuple[DataSign, DataWidth]:
+    ranges = (
+        SIGNED_VALUE_CODE_RANGES
+        if sign == DataSign.SIGNED
+        else UNSIGNED_VALUE_CODE_RANGES
+    )
+
+    for width, (lo, hi) in ranges.items():
+        if lo <= value_min and value_max <= hi:
+            return sign, width
+
+    raise ValueError(
+        f"{label} range [{value_min}, {value_max}] exceeds {sign.name.lower()} "
+        "8-bit capacity"
+    )
 
 
 def infer_output_format(act: CoreNeuronV25) -> tuple[DataSign, DataWidth]:
@@ -50,22 +61,55 @@ def infer_output_format(act: CoreNeuronV25) -> tuple[DataSign, DataWidth]:
       outputs {-1, 0, +1} -> ``SIGNED, WIDTH_2BIT``.
     - SNN mode with ``thres_neg_mode == FLOOR``:
       outputs {0, +1} -> ``UNSIGNED, WIDTH_1BIT``.
-    - ANN mode (``lut is not None``) with ``output_sign == 1``:
-      outputs [-128, 127] -> ``SIGNED, WIDTH_8BIT``.
-    - ANN mode with ``output_sign == 0``:
-      outputs [0, 255] -> ``UNSIGNED, WIDTH_8BIT``.
+    - ANN mode (``lut is not None``) preserves the LUT-declared sign and uses
+      the narrowest width that covers the stored LUT activation codes.
+    - Float LUTs conservatively fall back to 8-bit because the deploy path uses
+      integer LUT activation tables.
     """
     if act.is_snn:
         # SNN mode
         if act.thres_neg_mode == ThresholdNegMode.FIRE:
             return DataSign.SIGNED, DataWidth.WIDTH_2BIT  # including negative spike
         return DataSign.UNSIGNED, DataWidth.WIDTH_1BIT
-    else:
-        # ANN mode
-        if act.output_sign == 1:
-            return DataSign.SIGNED, DataWidth.WIDTH_8BIT
-        else:
-            return DataSign.UNSIGNED, DataWidth.WIDTH_8BIT
+
+    # ANN mode
+    sign = DataSign.SIGNED if act.output_sign == 1 else DataSign.UNSIGNED
+    lut = act.lut
+    if lut is None or lut.is_float:
+        return sign, DataWidth.WIDTH_8BIT
+
+    value_min = int(lut.lut_values.min().item())
+    value_max = int(lut.lut_values.max().item())
+    return _infer_narrowest_range_format(value_min, value_max, sign, "LUT activation")
+
+
+def infer_output_code_range(act: CoreNeuronV25) -> tuple[int, int] | None:
+    """Infer the exact integer VALUE-code range emitted by an activation.
+
+    This is stricter than :func:`infer_output_format`:
+
+    - SNN activations return their exact spike code ranges
+    - ANN activations return ``None`` unless the LUT emits integer-like values
+      that fit on the existing 8-bit VALUE path
+    """
+    if act.is_snn:
+        if act.thres_neg_mode == ThresholdNegMode.FIRE:
+            return -1, 1
+        return 0, 1
+
+    lut = act.lut
+    if lut is None:
+        return None
+
+    values = lut.lut_values.detach().to(torch.float32)
+    if not torch.allclose(values, values.round()):
+        return None
+
+    value_min = int(values.min().item())
+    value_max = int(values.max().item())
+    if not fits_value_code_range(value_min, value_max):
+        return None
+    return value_min, value_max
 
 
 def infer_weight_format(weight_min: int, weight_max: int) -> tuple[DataSign, DataWidth]:
@@ -85,17 +129,8 @@ def infer_weight_format(weight_min: int, weight_max: int) -> tuple[DataSign, Dat
     Raises:
         ValueError: If the range exceeds 8-bit capacity.
     """
-    signed = weight_min < 0
-    sign = DataSign.SIGNED if signed else DataSign.UNSIGNED
-    ranges = _SIGNED_RANGES if signed else _UNSIGNED_RANGES
-
-    for w, (lo, hi) in ranges.items():
-        if lo <= weight_min and weight_max <= hi:
-            return sign, w
-
-    raise ValueError(
-        f"weight range [{weight_min}, {weight_max}] exceeds 8-bit capacity"
-    )
+    sign = DataSign.SIGNED if weight_min < 0 else DataSign.UNSIGNED
+    return _infer_narrowest_range_format(weight_min, weight_max, sign, "weight")
 
 
 def merge_data_formats(

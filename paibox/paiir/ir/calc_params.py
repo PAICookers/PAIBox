@@ -89,7 +89,8 @@ class OfflineCoreParams:
     Describes the operating mode, data format, and timing configuration
     of a single offline core.
 
-    Timing parameters:
+    Timing parameters are internal hardware fields. Public compile APIs use
+    ``timesteps`` and ``auto_reset`` and map those values onto these fields.
 
     - ``tick_start``: Which sync_all to start working at. ``None`` means
       auto-assigned by :func:`~paibox.paiir.pipeline.passes.assign_tick_params`.
@@ -209,7 +210,7 @@ class NeuronParams:
     thres_neg_mode: ThresholdNegMode = ThresholdNegMode.FLOOR
     thres_pos_mode: ThresholdPosMode = ThresholdPosMode.FIRE
     thres_neg: float = DEFAULT_NEG_THRESHOLD
-    thres_pos: float = 0.0
+    thres_pos: float | Tensor = 0.0
     lateral_inhi: LateralInhibitionMode = LateralInhibitionMode.DISABLE
     leak_multi_sequence: LeakMultiComparisonOrder = (
         LeakMultiComparisonOrder.AFTER_COMPARE

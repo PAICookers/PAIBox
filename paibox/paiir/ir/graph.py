@@ -507,6 +507,25 @@ class PAIIRGraph:
             return "shape=(), dims=()"
         return f"shape={tuple(layout.shape)}, dims={layout.dims}"
 
+    @staticmethod
+    def _summary_data_width_bits(width: Any) -> str:
+        width_name = getattr(width, "name", "")
+        if width_name.startswith("WIDTH_") and width_name.endswith("BIT"):
+            return width_name.removeprefix("WIDTH_").removesuffix("BIT")
+        return str(width)
+
+    def _summary_output_format(self, node: PAIIRNode) -> str | None:
+        if not isinstance(node, OfflineCoreOp):
+            return None
+
+        core_params = node.core_params
+        if not getattr(core_params, "_output_format_assigned", False):
+            return None
+
+        sign = "s" if core_params.output_sign.name == "SIGNED" else "u"
+        width_bits = self._summary_data_width_bits(core_params.output_width)
+        return sign + width_bits
+
     def get_node_output_layout(self, name: str, port: int = 0) -> TensorLayout:
         node = self.nodes[name]
         if isinstance(node, InputNode):
@@ -545,7 +564,11 @@ class PAIIRGraph:
             shape = self._summary_node_shape(node)
             if shape:
                 line += f" {self._summary_shape_without_batch(shape)}"
+            output_format = self._summary_output_format(node)
+            if output_format is not None:
+                line += f" {output_format}"
             lines.append(line)
+
             if verbose:
                 if isinstance(node, InputNode):
                     lines.append(
@@ -611,7 +634,7 @@ class PAIIRGraph:
         for correct simulation. Call before running simulation to catch
         configuration errors early.
 
-        Required parameters:
+        Required internal hardware tick parameters:
         - ``tick_start``: Must be set (not None)
         - ``tick_duration``: Must be non-negative
         - ``tick_initial``: Must be non-negative
@@ -745,9 +768,10 @@ class PAIIRGraph:
         """Execute one time step (one sync_all cycle) through the graph.
 
         Advances the internal simulation step counter by 1. Each
-        :class:`OfflineCoreOp` is active only within its
-        ``[tick_start, tick_start + tick_duration)`` window; inactive nodes
-        output zero without updating neuron state.
+        :class:`OfflineCoreOp` is active only within its internal hardware
+        tick window. ``tick_duration=0`` means no finite stop; otherwise the
+        active window is ``[tick_start, tick_start + tick_duration)``.
+        Inactive nodes output zero without updating neuron state.
 
         Execution order mirrors the chip's sync_all protocol:
 

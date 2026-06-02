@@ -2,7 +2,14 @@
 
 import pytest
 import torch
-from paicorelib import DataSign, DataWidth, OutputType, ThresholdNegMode
+from paicorelib import (
+    AddPotentialMode,
+    DataSign,
+    DataWidth,
+    OutputType,
+    SNNMode,
+    ThresholdNegMode,
+)
 from spikingjelly.activation_based import neuron as sj
 from torch import nn
 
@@ -11,14 +18,15 @@ from paibox.paiir.ir.calc_params import NeuronParams
 from paibox.paiir.ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
 from paibox.paiir.ir.graph import PAIIRGraph
 from paibox.paiir.ir.ir_base import InputNode, OutputNode
-from paibox.paiir.ir.lut_activation import LutReLU, LutSigmoid, LutTanh
+from paibox.paiir.ir.lut_activation import LutCustom, LutReLU, LutSigmoid, LutTanh
 from paibox.paiir.ir.op_node import (
     AccumulateOp,
     OfflineCoreOp,
-    ReshapeOp,
     SequentialOp,
+    ShapeStage,
     StandaloneActOp,
     StandaloneCompOp,
+    TransformOp,
 )
 from paibox.paiir.lowering.converter import torch_to_paiir
 from paibox.paiir.pipeline.data_format import (
@@ -29,9 +37,21 @@ from paibox.paiir.pipeline.data_format import (
 from paibox.paiir.pipeline.passes import (
     fuse_to_offline_cores,
     propagate_data_format,
+    propagate_signal_semantics,
     specialize_general_adds,
 )
-from tests.paiir.conftest import convert_fuse_propagate, find_nodes
+from tests.paiir.conftest import (
+    convert_fuse_propagate,
+    find_nodes,
+    make_multispike4_lut,
+)
+
+
+def _make_custom_lut(values: torch.Tensor, *, output_sign: int) -> LutCustom:
+    repeats = (256 + values.numel() - 1) // values.numel()
+    tiled = values.repeat(repeats)[:256].to(torch.int32)
+    thresholds = torch.arange(256, dtype=torch.int32)
+    return LutCustom(thresholds, tiled, output_sign=output_sign)
 
 
 class TestInferOutputFormat:
@@ -71,6 +91,50 @@ class TestInferOutputFormat:
         assert sign == expected_sign
         assert width == expected_width
 
+    @pytest.mark.parametrize(
+        "lut, expected_sign, expected_width",
+        [
+            (
+                _make_custom_lut(torch.tensor([0, 1]), output_sign=0),
+                DataSign.UNSIGNED,
+                DataWidth.WIDTH_1BIT,
+            ),
+            (
+                _make_custom_lut(torch.tensor([0, 1, 2, 3]), output_sign=0),
+                DataSign.UNSIGNED,
+                DataWidth.WIDTH_2BIT,
+            ),
+            (
+                make_multispike4_lut(),
+                DataSign.UNSIGNED,
+                DataWidth.WIDTH_4BIT,
+            ),
+            (
+                _make_custom_lut(torch.tensor([-1, 0]), output_sign=1),
+                DataSign.SIGNED,
+                DataWidth.WIDTH_1BIT,
+            ),
+            (
+                _make_custom_lut(torch.tensor([-2, -1, 0, 1]), output_sign=1),
+                DataSign.SIGNED,
+                DataWidth.WIDTH_2BIT,
+            ),
+        ],
+        ids=[
+            "lut_unsigned_binary",
+            "lut_unsigned_quaternary",
+            "lut_unsigned_five_level",
+            "lut_signed_negative_zero",
+            "lut_signed_quaternary",
+        ],
+    )
+    def test_ann_output_format_uses_lut_value_range(
+        self, lut, expected_sign, expected_width
+    ):
+        sign, width = infer_output_format(ANNNodeV25(lut=lut))
+        assert sign == expected_sign
+        assert width == expected_width
+
 
 class TestInferWeightFormat:
     @pytest.mark.parametrize(
@@ -105,7 +169,7 @@ class TestInferWeightFormat:
 
     def test_overflow_raises(self):
         """Values exceeding 8-bit range should raise."""
-        with pytest.raises(ValueError, match="exceeds 8-bit"):
+        with pytest.raises(ValueError, match="exceeds .*8-bit"):
             infer_weight_format(-200, 200)
 
 
@@ -166,7 +230,7 @@ class TestPropagateDataFormatSNN:
     """SNN networks: spike-based data flow."""
 
     def test_two_layer_snn(self):
-        """Conv-LIF -> Conv-IF: output 1BIT, second layer input 1BIT."""
+        """Conv-LIF -> Conv-IF: fixed signed-8 input, spike outputs remain 1BIT."""
 
         class Model(nn.Module):
             def __init__(self):
@@ -187,8 +251,8 @@ class TestPropagateDataFormatSNN:
         ops_sorted = sorted(ops, key=lambda o: topo.index(o.name))
         first, second = ops_sorted
 
-        assert first.core_params.input_sign == DataSign.UNSIGNED
-        assert first.core_params.input_width == DataWidth.WIDTH_1BIT
+        assert first.core_params.input_sign == DataSign.SIGNED
+        assert first.core_params.input_width == DataWidth.WIDTH_8BIT
         assert first.core_params.output_sign == DataSign.UNSIGNED
         assert first.core_params.output_width == DataWidth.WIDTH_1BIT
 
@@ -214,6 +278,7 @@ class TestPropagateDataFormatSNN:
 
         inp_name = fused.input_nodes()[0].name
         custom_fmt = {inp_name: (DataSign.SIGNED, DataWidth.WIDTH_8BIT)}
+        propagate_signal_semantics(fused, input_formats=custom_fmt)
         propagate_data_format(fused, input_formats=custom_fmt)
 
         ops = find_nodes(fused, OfflineCoreOp)
@@ -224,6 +289,22 @@ class TestPropagateDataFormatSNN:
         assert op.core_params.input_width == DataWidth.WIDTH_8BIT
         assert op.core_params.output_sign == DataSign.UNSIGNED
         assert op.core_params.output_width == DataWidth.WIDTH_1BIT
+
+    def test_default_input_format_is_fixed_signed_8bit(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = nn.Conv2d(3, 16, 3, padding=1)
+                self.ifn = sj.IFNode()
+
+            def forward(self, x):
+                return self.ifn(self.conv(x))
+
+        fused = convert_fuse_propagate(Model(), torch.randn(1, 3, 8, 8))
+        op = find_nodes(fused, OfflineCoreOp)[0]
+
+        assert op.core_params.input_sign == DataSign.SIGNED
+        assert op.core_params.input_width == DataWidth.WIDTH_8BIT
 
 
 class TestPropagateDataFormatANN:
@@ -287,6 +368,7 @@ class TestPropagateDataFormatANN:
         fused = fuse_to_offline_cores(specialize_general_adds(unfused))
 
         inp_name = fused.input_nodes()[0].name
+        propagate_signal_semantics(fused, input_formats={inp_name: input_format})
         propagate_data_format(fused, input_formats={inp_name: input_format})
 
         pool = next(
@@ -313,6 +395,46 @@ class TestPropagateDataFormatANN:
             conv.core_params.input_sign,
             conv.core_params.input_width,
         ) == input_format
+        if input_format == (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT):
+            assert pool.core_params.snn_mode == SNNMode.SNN
+            assert pool.lut_data is None
+        else:
+            assert pool.core_params.snn_mode == SNNMode.ANN
+            assert pool.lut_data is not None
+
+    def test_standalone_maxpool_uses_signed_spike_bypass_for_signed_spike_source(self):
+        class SignedSpikeMaxPool(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.spike = CoreNeuronV25(
+                    thres_pos=1.0,
+                    thres_neg=-1.0,
+                    thres_neg_mode=ThresholdNegMode.FIRE,
+                )
+                self.pool = nn.MaxPool2d(2, 2)
+
+            def forward(self, x):
+                return self.pool(self.spike(x))
+
+        unfused = torch_to_paiir(SignedSpikeMaxPool(), torch.randn(1, 1, 8, 8))
+        fused = fuse_to_offline_cores(specialize_general_adds(unfused))
+
+        propagate_signal_semantics(fused)
+        propagate_data_format(fused)
+
+        pool = next(
+            node
+            for node in fused.nodes.values()
+            if isinstance(node, StandaloneCompOp)
+            and isinstance(node.comp, nn.MaxPool2d)
+        )
+
+        assert pool.core_params.input_sign == DataSign.SIGNED
+        assert pool.core_params.input_width == DataWidth.WIDTH_2BIT
+        assert pool.core_params.snn_mode == SNNMode.SNN
+        assert pool.lut_data is None
+        assert pool.neuron_params.thres_neg_mode == ThresholdNegMode.FIRE
+        assert pool.neuron_params.thres_neg == -1.0
 
     def test_subtract_tanh(self):
         """Two linear branches with subtraction -> tanh: UNSIGNED 8BIT."""
@@ -334,14 +456,49 @@ class TestPropagateDataFormatANN:
         assert op.core_params.output_sign == DataSign.UNSIGNED
         assert op.core_params.output_width == DataWidth.WIDTH_8BIT
 
+    def test_custom_lut_width_propagates_to_successor_input(self):
+        from paibox.paiir.lowering.converter import register_neuron
+
+        class Quant4Like(nn.Module):
+            def forward(self, x):
+                return torch.round(torch.clamp(x, min=0, max=4))
+
+        register_neuron(
+            Quant4Like, converter=lambda _: ANNNodeV25(lut=make_multispike4_lut())
+        )
+
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear1 = nn.Linear(8, 8)
+                self.act = Quant4Like()
+                self.linear2 = nn.Linear(8, 4)
+                self.sigmoid = nn.Sigmoid()
+
+            def forward(self, x):
+                x = self.act(self.linear1(x))
+                return self.sigmoid(self.linear2(x))
+
+        fused = convert_fuse_propagate(Model(), torch.randn(1, 8))
+        ops = find_nodes(fused, OfflineCoreOp)
+
+        topo = fused.topo_sort()
+        ops_sorted = sorted(ops, key=lambda o: topo.index(o.name))
+        first, second = ops_sorted
+
+        assert first.core_params.output_sign == DataSign.UNSIGNED
+        assert first.core_params.output_width == DataWidth.WIDTH_4BIT
+        assert second.core_params.input_sign == DataSign.UNSIGNED
+        assert second.core_params.input_width == DataWidth.WIDTH_4BIT
+
     def test_potential_width_propagates_through_routing_nodes(self):
         graph = PAIIRGraph("potential_routing")
         inp = InputNode(shape=torch.Size((1, 1, 4, 4)))
         comp_main = StandaloneCompOp(nn.Conv2d(1, 1, 1, bias=False))
-        reshape_main = ReshapeOp(lambda _: torch.Size((1, 1, 1, 4, 4)))
+        reshape_main = TransformOp((ShapeStage(lambda _: torch.Size((1, 1, 1, 4, 4))),))
         act = StandaloneActOp(ANNNodeV25(lut=LutReLU()))
         comp_skip = StandaloneCompOp(nn.Conv2d(1, 1, 1, bias=False))
-        reshape_skip = ReshapeOp(lambda _: torch.Size((1, 1, 1, 4, 4)))
+        reshape_skip = TransformOp((ShapeStage(lambda _: torch.Size((1, 1, 1, 4, 4))),))
         add = PotentialAddOp((1, 1))
         out = OutputNode(shape=torch.Size((1, 1, 1, 4, 4)))
 
@@ -366,18 +523,47 @@ class TestPropagateDataFormatANN:
         graph.add_edge(reshape_skip.name, add.name)
         graph.add_edge(add.name, out.name)
 
+        propagate_signal_semantics(
+            graph, input_formats={inp.name: (DataSign.SIGNED, DataWidth.WIDTH_8BIT)}
+        )
         propagate_data_format(
             graph, input_formats={inp.name: (DataSign.SIGNED, DataWidth.WIDTH_8BIT)}
         )
 
+        assert comp_main.core_params.add_potential == AddPotentialMode.NORMAL
         assert comp_main.core_params.output_sign == DataSign.SIGNED
         assert comp_main.core_params.output_width == DataWidth.WIDTH_32BIT
+        assert act.core_params.add_potential == AddPotentialMode.DIRECT_ADD
         assert act.core_params.input_sign == DataSign.SIGNED
         assert act.core_params.input_width == DataWidth.WIDTH_32BIT
         assert act.core_params.output_width == DataWidth.WIDTH_8BIT
+        assert add.core_params.add_potential == AddPotentialMode.DIRECT_ADD
         assert add.core_params.input_sign == DataSign.SIGNED
         assert add.core_params.input_width == DataWidth.WIDTH_32BIT
         assert add.core_params.output_width == DataWidth.WIDTH_32BIT
+
+    def test_standalone_act_with_value_predecessor_keeps_normal_add_potential(self):
+        graph = PAIIRGraph("value_to_standalone_act")
+        inp = InputNode(shape=torch.Size((1, 4)))
+        act = StandaloneActOp(ANNNodeV25(lut=LutReLU()))
+        out = OutputNode(shape=torch.Size((1, 4)))
+
+        for node in (inp, act, out):
+            graph.add_node(node)
+
+        graph.add_edge(inp.name, act.name)
+        graph.add_edge(act.name, out.name)
+
+        propagate_signal_semantics(
+            graph, input_formats={inp.name: (DataSign.SIGNED, DataWidth.WIDTH_8BIT)}
+        )
+        propagate_data_format(
+            graph, input_formats={inp.name: (DataSign.SIGNED, DataWidth.WIDTH_8BIT)}
+        )
+
+        assert act.core_params.add_potential == AddPotentialMode.NORMAL
+        assert act.core_params.input_sign == DataSign.SIGNED
+        assert act.core_params.input_width == DataWidth.WIDTH_8BIT
 
     def test_value_output_without_activation_raises(self):
         class ValueWithoutActOp(OfflineCoreOp):
@@ -400,6 +586,9 @@ class TestPropagateDataFormatANN:
             ValueError,
             match="declares VALUE output but has no activation",
         ):
+            propagate_signal_semantics(
+                graph, input_formats={inp.name: (DataSign.SIGNED, DataWidth.WIDTH_8BIT)}
+            )
             propagate_data_format(
                 graph, input_formats={inp.name: (DataSign.SIGNED, DataWidth.WIDTH_8BIT)}
             )
@@ -427,8 +616,8 @@ class TestPropagateDataFormatResidual:
         assert len(accum) == 1
         op = accum[0]
 
-        assert op.core_params.input_sign == DataSign.UNSIGNED
-        assert op.core_params.input_width == DataWidth.WIDTH_1BIT
+        assert op.core_params.input_sign == DataSign.SIGNED
+        assert op.core_params.input_width == DataWidth.WIDTH_8BIT
         assert op.core_params.output_sign == DataSign.UNSIGNED
         assert op.core_params.output_width == DataWidth.WIDTH_1BIT
 
