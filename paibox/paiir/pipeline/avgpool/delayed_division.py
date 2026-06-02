@@ -23,31 +23,40 @@ from paicorelib import OfflineNeuRegLim
 from ...ir.core_neuron import ANNNodeV25, CoreNeuronV25
 from ...ir.graph import PAIIRGraph
 from ...ir.ir_base import OutputNode, PAIIRNode
-from ...ir.lut_activation import LutActivation, LutCustom
+from ...ir.lut_activation import LutActivation
 from ...ir.op_node import SequentialOp, StandaloneActOp, StandaloneCompOp
 from ..data_format import fits_value_code_range
 from ..graph_utils import (
     collect_effective_value_code_ranges,
     is_format_transparent_routing_node,
 )
-from .utils import build_sum_pool, get_avgpool_divisor, get_pool_window_size, is_avgpool
+from .utils import (
+    ValueCodeRange,
+    build_range_identity_lut,
+    build_sum_pool,
+    get_avgpool_divisor,
+    get_pool_window_size,
+    is_avgpool,
+)
 
 __all__ = ["rewrite_delayed_avgpool_division"]
 
 
 _INT32_MIN = torch.iinfo(torch.int32).min
 _INT32_MAX = torch.iinfo(torch.int32).max
-_INT8_MIN = torch.iinfo(torch.int8).min
-_INT8_MAX = torch.iinfo(torch.int8).max
-_UINT8_MAX = torch.iinfo(torch.uint8).max
+
+
+@dataclass(frozen=True, slots=True)
+class _DelayedAvgPoolCarrier:
+    name: str
+    code_range: ValueCodeRange
 
 
 @dataclass(frozen=True, slots=True)
 class _DelayedDivisionPlan:
-    avgpool_names: tuple[str, ...]
+    avgpool_carriers: tuple[_DelayedAvgPoolCarrier, ...]
     endpoint_name: str
     pending_divisor: int
-    carrier_signed: bool
 
 
 def rewrite_delayed_avgpool_division(graph: PAIIRGraph) -> PAIIRGraph:
@@ -80,7 +89,7 @@ def rewrite_delayed_avgpool_division(graph: PAIIRGraph) -> PAIIRGraph:
             continue
 
         _apply_delayed_division_plan(rewritten, graph, plan)
-        handled_avgpools.update(plan.avgpool_names)
+        handled_avgpools.update(carrier.name for carrier in plan.avgpool_carriers)
         changed = True
 
     return rewritten if changed else graph
@@ -110,7 +119,7 @@ def _analyze_delayed_division_chain(
 
     code_min, code_max = code_ranges[0]
     pending_divisor = 1
-    avgpool_names: list[str] = []
+    avgpool_carriers: list[_DelayedAvgPoolCarrier] = []
     current_name = start_name
 
     while True:
@@ -130,7 +139,9 @@ def _analyze_delayed_division_chain(
             if not fits_value_code_range(code_min, code_max):
                 return None
 
-            avgpool_names.append(current_name)
+            avgpool_carriers.append(
+                _DelayedAvgPoolCarrier(current_name, (code_min, code_max))
+            )
             current_name = succs[0]
             continue
 
@@ -141,7 +152,7 @@ def _analyze_delayed_division_chain(
             current_name = succs[0]
             continue
 
-        if not avgpool_names:
+        if not avgpool_carriers:
             return None
 
         if not _is_supported_endpoint_node(current):
@@ -151,10 +162,9 @@ def _analyze_delayed_division_chain(
             return None
 
         return _DelayedDivisionPlan(
-            avgpool_names=tuple(avgpool_names),
+            avgpool_carriers=tuple(avgpool_carriers),
             endpoint_name=current_name,
             pending_divisor=pending_divisor,
-            carrier_signed=code_min < 0,
         )
 
 
@@ -167,11 +177,12 @@ def _apply_delayed_division_plan(
     the graph topology stays stable. The terminal node is then deep-copied and
     rewritten in-place to absorb the accumulated divisor.
     """
-    for avgpool_name in plan.avgpool_names:
+    for carrier in plan.avgpool_carriers:
+        avgpool_name = carrier.name
         avgpool_node = graph.nodes[avgpool_name]
         assert isinstance(avgpool_node, StandaloneCompOp)
         assert is_avgpool(avgpool_node.comp)
-        replacement = _build_exact_sum_carrier(avgpool_node.comp, plan.carrier_signed)
+        replacement = _build_exact_sum_carrier(avgpool_node.comp, carrier.code_range)
         replacement.name = avgpool_name
         replacement.input_layouts = avgpool_node.input_layouts
         replacement.output_layouts = avgpool_node.output_layouts
@@ -184,23 +195,11 @@ def _apply_delayed_division_plan(
 
 
 def _build_exact_sum_carrier(
-    comp: nn.AvgPool1d | nn.AvgPool2d, signed: bool
+    comp: nn.AvgPool1d | nn.AvgPool2d, code_range: ValueCodeRange
 ) -> SequentialOp:
     """Build the exact-sum carrier that replaces one standalone AvgPool."""
     sum_pool = build_sum_pool(comp)
-    return SequentialOp(sum_pool, ANNNodeV25(_build_identity_lut(signed)))
-
-
-def _build_identity_lut(signed: bool) -> LutCustom:
-    """Build the 8-bit identity LUT used to carry exact sum-domain codes."""
-    if signed:
-        thresholds = torch.arange(_INT8_MIN, _INT8_MAX + 1, dtype=torch.int32)
-        values = torch.arange(_INT8_MIN, _INT8_MAX + 1, dtype=torch.int8)
-        return LutCustom(thresholds, values, output_sign=1, is_float=False)
-
-    thresholds = torch.arange(_UINT8_MAX + 1, dtype=torch.int32)
-    values = torch.arange(_UINT8_MAX + 1, dtype=torch.uint8)
-    return LutCustom(thresholds, values, output_sign=0, is_float=False)
+    return SequentialOp(sum_pool, ANNNodeV25(build_range_identity_lut(code_range)))
 
 
 def _is_source_transparent_node(node: PAIIRNode) -> bool:
