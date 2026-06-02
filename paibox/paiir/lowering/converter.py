@@ -118,7 +118,12 @@ else:
     from typing_extensions import deprecated
 
 
-__all__ = ["torch_to_paiir", "register_module", "register_neuron"]
+__all__ = [
+    "torch_to_paiir",
+    "register_ir_module",
+    "register_module",
+    "register_neuron",
+]
 
 _M = TypeVar("_M", bound=nn.Module)
 
@@ -1083,6 +1088,36 @@ def register_module(
         )
 
     _USER_MODULE_MAP[module_type] = _build_module_mapper(module_type, converter)
+
+
+def register_ir_module(
+    module_type: type[_M], converter: Callable[[_M], OpNode]
+) -> None:
+    """Register a custom module that lowers directly to a PAIIR IR node.
+
+    This is intended for deployment-only modules that already carry structured
+    hardware semantics, such as manually quantized fused operators. Prefer
+    ``register_module`` for ordinary custom layers that can be represented as a
+    built-in PyTorch module.
+    """
+    if module_type in _USER_MODULE_MAP:
+        raise ValueError(
+            f"Module type {module_type} is already registered. "
+            f"Overriding existing registrations is not allowed."
+        )
+
+    def wrapper(m: nn.Module) -> OpNode:
+        if not isinstance(m, module_type):
+            raise TypeError(f"expected {module_type.__name__}, got {type(m).__name__}")
+        ir_node = converter(m)
+        if not isinstance(ir_node, OpNode):
+            raise TypeError(
+                "register_ir_module converter must return an OpNode, "
+                f"got {type(ir_node).__name__}"
+            )
+        return ir_node
+
+    _USER_MODULE_MAP[module_type] = wrapper
 
 
 def torch_to_paiir(

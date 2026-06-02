@@ -26,6 +26,8 @@ from .deploy import (
     convert_ready_paiir,
 )
 
+from .paiir import register_manual_quantized_paiir
+
 from .exporter import export_manual_model_params
 
 from .custom_backend import (

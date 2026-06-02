@@ -366,6 +366,18 @@ class TestNeuronParams:
         params = op.neuron_params
         assert params.output_type == OutputType.POTENTIAL
 
+    def test_standalone_comp_fuses_bias_into_potential_leak_v(self):
+        conv = nn.Conv2d(3, 4, 1, bias=True)
+        bias = torch.tensor([1, -2, 3, -4], dtype=conv.bias.dtype)
+        with torch.no_grad():
+            conv.bias.copy_(bias)
+
+        op = StandaloneCompOp(comp=conv)
+        params = op.neuron_params
+
+        assert params.output_type == OutputType.POTENTIAL
+        assert torch.equal(params.leak_v, bias)
+
     def test_standalone_activation_neuron_params(self):
         op = StandaloneActOp(act=IFNodeV25(1))
         params = op.neuron_params

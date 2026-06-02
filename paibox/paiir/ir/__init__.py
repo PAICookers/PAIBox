@@ -53,6 +53,12 @@ from .op_node import (
     StandaloneCompOp,
     TransformOp,
 )
+from .quantized_ops import (
+    IdentityScale,
+    PotentialPassthroughNodeV25,
+    QuantizedConvAddReLU2dOp,
+    QuantizedSequentialOp,
+)
 
 __all__ = [
     "ANNNodeV25",
@@ -65,6 +71,7 @@ __all__ = [
     "Edge",
     "FormatFlow",
     "IFNodeV25",
+    "IdentityScale",
     "InputNode",
     "LIFNodeV25",
     "LayoutStage",
@@ -89,6 +96,9 @@ __all__ = [
     "PAIIRNode",
     "PadOp",
     "PotentialAddOp",
+    "PotentialPassthroughNodeV25",
+    "QuantizedConvAddReLU2dOp",
+    "QuantizedSequentialOp",
     "RoutingOp",
     "SequentialOp",
     "ShapeStage",

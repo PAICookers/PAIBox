@@ -579,6 +579,14 @@ def _try_fuse_accumulate(
     materialized = _materialize_accumulate_from_potential_add(
         graph, add_name, add_node, act, consumed, node_remap, port_remap
     )
+    if (
+        materialized is None
+        and act is not None
+        and getattr(add_node, "_allow_direct_add_activation_fusion", False)
+    ):
+        materialized = _materialize_direct_add_activation(
+            graph, add_name, add_node, act, consumed, node_remap
+        )
     if materialized is None:
         return None
 
@@ -590,6 +598,35 @@ def _try_fuse_accumulate(
         node_remap[consumed_successor] = fused.name
 
     return fused
+
+
+def _materialize_direct_add_activation(
+    graph: PAIIRGraph,
+    add_name: str,
+    add_node: PotentialAddOp,
+    act: CoreNeuronV25,
+    consumed: set[str],
+    node_remap: dict[str, str],
+) -> tuple[AccumulateOp, list[str]] | None:
+    """Fuse ``PotentialAddOp -> Activation`` into one direct-add core.
+
+    量化残差路径会先生成两个膜电平输出核，再用这个分支生成第三个核：
+    ``DIRECT_ADD`` 输入累加 + ReLU/LUT。这里不消费前驱核，只把 add 和
+    activation 合成一个接收膜电平的 ``AccumulateOp``。
+    """
+
+    pred_names = graph.predecessors(add_name)
+    if len(pred_names) != len(add_node.signs):
+        return None
+    if any(p in consumed for p in pred_names):
+        return None
+
+    fused = AccumulateOp([None] * len(add_node.signs), act, add_node.signs)
+    fused.input_layouts = add_node.input_layouts
+
+    consumed.add(add_name)
+    node_remap[add_name] = fused.name
+    return fused, pred_names
 
 
 def _materialize_accumulate_from_potential_add(
@@ -907,7 +944,7 @@ def _validate_32bit_input_contract(
     if node.core_params.input_width != DataWidth.WIDTH_32BIT:
         return
 
-    if isinstance(node, (PotentialAddOp, StandaloneActOp)):
+    if isinstance(node, (PotentialAddOp, StandaloneActOp, AccumulateOp)):
         if node.core_params.add_potential != AddPotentialMode.DIRECT_ADD:
             errors.append(
                 f"OfflineCoreOp '{name}' receives WIDTH_32BIT input but "
@@ -917,7 +954,7 @@ def _validate_32bit_input_contract(
 
     errors.append(
         f"OfflineCoreOp '{name}' ({type(node).__name__}) receives WIDTH_32BIT "
-        "membrane input, but only PotentialAddOp and StandaloneActOp are "
+        "membrane input, but only PotentialAddOp, StandaloneActOp and direct-add AccumulateOp are "
         "deployable 32-bit input consumers in the current backend contract"
     )
 
@@ -1794,7 +1831,8 @@ def _seed_node_data_formats(
     out_fmt = _infer_node_output_format(node, pred_formats)
     node.core_params.set_output_format(out_fmt)
     resolved[node_name] = out_fmt
-    node.core_params.set_weight_format(_infer_node_weight_format(node))
+    if not node.core_params._weight_format_assigned:
+        node.core_params.set_weight_format(_infer_node_weight_format(node))
 
 
 def _infer_routing_resolved_format(

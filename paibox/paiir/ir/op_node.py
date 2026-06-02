@@ -21,7 +21,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, ClassVar
 
 import torch
-from paicorelib import OutputType, PoolingMode
+from paicorelib import AddPotentialMode, DataSign, OutputType, PoolingMode
 from torch import Tensor, nn
 from torch.nn import functional as F
 
@@ -135,9 +135,16 @@ def _get_pooling_mode(comp: nn.Module) -> PoolingMode:
 
 
 def _tensor_value_range(tensor: Tensor) -> tuple[int, int]:
-    """Return integer min/max after applying the same int8 cast used by export paths."""
-    qt = tensor.detach().to(torch.int8)
+    """Return integer min/max for graph-side quantized weight values."""
+    qt = tensor.detach().round()
     return int(qt.min().item()), int(qt.max().item())
+
+
+def _format_weight_tensor(tensor: Tensor, core_params: OfflineCoreParams) -> Tensor:
+    """Cast raw weights according to this core's backend weight format."""
+    if core_params.weight_sign is DataSign.UNSIGNED:
+        return tensor.to(torch.uint8)
+    return tensor.to(torch.int8)
 
 
 @dataclass(frozen=True, slots=True)
@@ -377,7 +384,7 @@ class SequentialOp(OfflineCoreOp):
     def weights(self) -> list[Tensor] | None:
         w = _get_weight_tensor(self.comp)
         if torch.is_tensor(w):
-            return [w.to(torch.int8)]
+            return [_format_weight_tensor(w, self.core_params)]
         return None
 
     def get_weight_value_range(self) -> tuple[int, int] | None:
@@ -423,7 +430,7 @@ class AccumulateOp(OfflineCoreOp):
 
     def __init__(
         self,
-        comps: Sequence[nn.Module],
+        comps: Sequence[nn.Module | None],
         act: CoreNeuronV25 | None,
         op_signs: tuple[int, ...] | None = None,
     ) -> None:
@@ -437,17 +444,26 @@ class AccumulateOp(OfflineCoreOp):
         core_params = OfflineCoreParams()
         if act is not None:
             core_params.snn_mode = act.snn_mode
-        core_params.pooling_mode = _get_pooling_mode(comps[0])
+        core_params.pooling_mode = (
+            _get_pooling_mode(comps[0])
+            if comps[0] is not None
+            else PoolingMode.AVERAGE
+        )
+        if all(comp is None for comp in comps):
+            core_params.add_potential = AddPotentialMode.DIRECT_ADD
 
         super().__init__(core_params)
-        self.comps = nn.ModuleList(comps)
+        self.comps = list(comps)
+        for idx, comp in enumerate(self.comps):
+            if comp is not None:
+                self.add_module(f"comp_{idx}", comp)
         self.act = act
         self.signs = tuple(op_signs)
 
     def forward(self, *xs: Tensor) -> Tensor:
         acc: Tensor | None = None
         for sign, op, x in zip(self.signs, self.comps, xs):
-            term = sign * _run_comp(op, x)
+            term = sign * (x if op is None else _run_comp(op, x))
             acc = term if acc is None else acc + term
 
         assert acc is not None, "AccumulateOp requires at least one input"
@@ -459,9 +475,11 @@ class AccumulateOp(OfflineCoreOp):
     def weights(self) -> list[Tensor] | None:
         result = []
         for comp in self.comps:
+            if comp is None:
+                return None
             w = _get_weight_tensor(comp)
             if torch.is_tensor(w):
-                result.append(w.to(torch.int8))
+                result.append(_format_weight_tensor(w, self.core_params))
             else:
                 return None
         return result
@@ -469,6 +487,9 @@ class AccumulateOp(OfflineCoreOp):
     def get_weight_value_range(self) -> tuple[int, int] | None:
         ranges: list[tuple[int, int]] = []
         for comp in self.comps:
+            if comp is None:
+                ranges.append((0, 1))
+                continue
             w = _get_weight_tensor(comp)
             if not torch.is_tensor(w):
                 return None
@@ -491,6 +512,8 @@ class AccumulateOp(OfflineCoreOp):
         """Neuron configuration with fused bias from all compute ops."""
         fused_bias: Tensor | None = None
         for sign, comp in zip(self.signs, self.comps):
+            if comp is None:
+                continue
             b = _get_bias(comp)
             if b is not None:
                 term = sign * b
@@ -652,7 +675,7 @@ class StandaloneCompOp(OfflineCoreOp):
     def weights(self) -> list[Tensor] | None:
         w = _get_weight_tensor(self.comp)
         if torch.is_tensor(w):
-            return [w.to(torch.int8)]
+            return [_format_weight_tensor(w, self.core_params)]
         return None
 
     def get_weight_value_range(self) -> tuple[int, int] | None:
@@ -687,8 +710,12 @@ class StandaloneCompOp(OfflineCoreOp):
                     )
                 )
 
+        bias = _get_bias(self.comp)
         return self._with_domain_derived_output_type(
-            NeuronParams(output_type=OutputType.POTENTIAL)
+            NeuronParams(
+                leak_v=bias if bias is not None else 0.0,
+                output_type=OutputType.POTENTIAL,
+            )
         )
 
     @property

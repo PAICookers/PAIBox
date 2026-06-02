@@ -50,6 +50,7 @@ from .passes import (
     validate_compiled_graph,
     validate_deployable_graph,
 )
+from .quantized_materialize import materialize_quantized_ops
 from .rewrite_phase import RewritePass, run_fixed_point_rewrite_phase
 
 __all__ = ["compile_to_paiir", "CompileConfig"]
@@ -264,6 +265,7 @@ def compile_to_paiir(
 def _pre_fusion_rewrite_passes() -> tuple[RewritePass, ...]:
     """Return ordered topology rewrites that may interact before fusion."""
     return (
+        RewritePass("materialize_quantized_ops", materialize_quantized_ops),
         RewritePass("fold_zero_pad_into_convs", fold_zero_pad_into_convs),
         RewritePass("canonicalize_transform_chains", canonicalize_layout_chains),
         RewritePass(
