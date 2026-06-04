@@ -219,8 +219,9 @@ message CoreTick {
 message InputTensorMapping {
     string name = 1;
     Shape shape = 2;
-    TickParams tick = 3;
-    repeated InputEntry entries = 4;
+    optional uint32 bit_width = 3;
+    TickParams tick = 4;
+    repeated InputEntry entries = 5;
 }
 
 message InputEntry {
@@ -231,7 +232,6 @@ message InputEntry {
     optional uint32 addr_axon = 5;
     optional uint32 target_lcn = 6;
     optional uint32 copy_id = 7;
-    optional uint32 bit_width = 8;
     optional DataType.Code dtype = 9;
 }
 ```
@@ -240,6 +240,7 @@ message InputEntry {
 | --------------- | -------------------------------------------------------------------- |
 | `name`          | PAIIR 输入节点名。                                                   |
 | `shape.size`    | 逻辑输入张量 shape。                                                 |
+| `bit_width`     | 该输入张量所有 entries 共享的 payload 位宽。                         |
 | `tick`          | 该输入张量对应的首个实际消费计算核 tick 参数。                       |
 | `elem_idx`      | 输入张量按 C-order 展平后的元素下标。                                |
 | `core_offset`   | 输入工作帧目标 core 的相对偏移。                                     |
@@ -248,14 +249,13 @@ message InputEntry {
 | `addr_axon`     | 后端分配出的 axon 地址低段。                                         |
 | `target_lcn`    | 目标 core 的 LCN 编号，对应 `paicorelib.LCN_EX` 枚举值。             |
 | `copy_id`       | tiling/folding 产生的逻辑 copy 编号，不等同于 `CopyCount`。          |
-| `bit_width`     | 该逻辑输入元素的 payload 位宽。                                      |
 | `dtype`         | 首个实际消费计算核解释该输入元素时使用的数据类型，包含位宽和符号性。 |
 
 应用侧编码输入工作帧时，应按 `shape.size` 准备输入张量，并以 C-order 展平后使用 `elem_idx` 取值。
 
 注意：`InputTensorMapping.tick` 是计算核工作窗口；`InputEntry.tick_relative` 是输入工作帧地址的一部分。二者语义不同，生成工作帧时仍使用 `tick_relative/addr_axon/target_lcn` 计算 timestep 和 axon。
 
-`bit_width` 是兼容字段，便于只需要位宽的工具快速读取；新应用应优先用 `dtype` 决定输入值域和 signedness。导出阶段会保证 `dtype` 与 `bit_width` 一致。
+`InputTensorMapping.bit_width` 是输入 payload 位宽的读取入口，字段顺序刻意放在 `tick` 和 `entries` 前，便于 JSON 中先看到张量级标量。应用应使用 mapping 级 `bit_width` 和 entry 级 `dtype` 决定输入值域与 signedness。
 
 编码流程：
 
@@ -369,14 +369,14 @@ message OutputTensorMapping {
     string name = 1;
     Shape shape = 2;
     optional OutputKind kind = 3;
-    TickParams tick = 4;
-    repeated OutputEntry entries = 5;
+    optional uint32 bit_width = 4;
+    TickParams tick = 5;
+    repeated OutputEntry entries = 6;
 }
 
 message OutputEntry {
     optional uint32 elem_idx = 1;
     optional uint32 copy_id = 2;
-    optional uint32 bit_width = 3;
     optional uint32 axon_bit_idx = 4;
     optional DataType.Code dtype = 5;
 }
@@ -388,14 +388,14 @@ message OutputEntry {
 | `name`                       | PAIIR 输出源/生产者节点名，不是虚拟 `OutputNode` 名。                     |
 | `shape.size`                 | 逻辑输出张量 shape。                                                      |
 | `kind`                       | 输出节点语义。`DATA` 表示普通激活值/脉冲数据，`VOLTAGE` 表示膜电平。      |
+| `bit_width`                  | 该输出张量所有 entries 共享的 payload 位宽；`VOLTAGE` 固定为 32 bit。     |
 | `tick`                       | 该输出张量的最终实际生产者计算核 tick 参数。                              |
 | `elem_idx`                   | 输出张量按 C-order 展平后的元素下标。                                     |
 | `copy_id`                    | tiling/folding 产生的逻辑 copy 编号。                                     |
-| `bit_width`                  | 输出元素 payload 位宽。`DATA` 通常不超过 8 bit；`VOLTAGE` 固定为 32 bit。 |
 | `axon_bit_idx`               | 平坦 output axon bit index。`DATA` 为数据地址；`VOLTAGE` 为膜电平基地址。 |
 | `dtype`                      | `DATA` 输出的数据类型，包含位宽和符号性；`VOLTAGE` 不设置该字段。         |
 
-CPU 接收端仍应先根据返回工作帧的帧头区分 I/II 型。`kind` 的作用是让应用侧在运行前从 `config.pb` 预生成静态解码表，并保留调试语义。不要用 `bit_width` 反推出输出语义；应以 `OutputTensorMapping.kind` 为准。`DATA` 输出用 entry 级 `dtype` 解释 signedness；`VOLTAGE` 输出固定按 `int32` 膜电平解释。
+CPU 接收端仍应先根据返回工作帧的帧头区分 I/II 型。`kind` 的作用是让应用侧在运行前从 `config.pb` 预生成静态解码表，并保留调试语义。不要用 `bit_width` 反推出输出语义；应以 `OutputTensorMapping.kind` 为准。`OutputTensorMapping.bit_width` 是位宽读取入口，字段顺序刻意放在 `tick` 和 `entries` 前，便于 JSON 中先看到张量级标量；`DATA` 输出用 entry 级 `dtype` 解释 signedness；`VOLTAGE` 输出固定按 `int32` 膜电平解释。
 
 `output_mappings.target_lcn` 选择策略与上游 backendv2 保持一致：后端先分配实际输出 axon 地址，再根据最大 axon bit 反推可容纳这些地址的最小 LCN。应用传入的 `timesteps` 不直接扩大 `target_lcn`；若所选 LCN 的 timestep 位宽不足以一次性区分全部运行时步，导出的 `RuntimeParams.decode_mode` 会变为 `STEP`。
 
@@ -452,13 +452,14 @@ def build_output_tables(artifacts: CompileArtifacts):
         target_lcn = int(thread.output_mappings.target_lcn)
         for mapping in thread.output_mappings.items:
             shape = tuple(mapping.shape.size)
+            bit_width = int(mapping.bit_width)
             data_by_axon = {}
             voltage_by_base = {}
             for entry in mapping.entries:
                 item = (
                     int(entry.elem_idx),
                     int(entry.copy_id),
-                    int(entry.bit_width),
+                    bit_width,
                     int(entry.dtype) if entry.HasField("dtype") else 0,
                 )
                 if mapping.kind == mapping.DATA:
@@ -530,9 +531,10 @@ def collect_i32_le(payloads: list[int]) -> int:
 | `tick_depth`       | `tickDepth`      |
 | `sync_steps`       | `syncSteps`      |
 | `decode_mode`      | `decodeMode`     |
+| `bit_width`        | `bitWidth`       |
 | `elem_idx`         | `elemIdx`        |
 | `addr_axon`        | `addrAxon`       |
 | `axon_bit_idx`     | `axonBitIdx`     |
 | `target_lcn`       | `targetLcn`      |
 
-应用程序读取 `config.pb` 时使用 proto 字段名；人工查看 `config.json` 时使用 JSON 字段名。部分 message 会把较短的标量元数据字段放在较长的 repeated 明细字段之前，便于人工查看 JSON；应用侧仍应按字段名读取，不应依赖文本顺序。
+应用程序读取 `config.pb` 时使用 proto 字段名；人工查看 `config.json` 时使用 JSON 字段名。`InputTensorMapping.bit_width` 和 `OutputTensorMapping.bit_width` 是 mapping 级标量，字段顺序放在 `tick` 与 `entries` 前，便于人工查看 JSON；应用侧仍应按字段名读取，不应依赖文本顺序。
