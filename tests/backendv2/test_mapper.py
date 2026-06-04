@@ -164,8 +164,7 @@ def _assert_mapping_bit_width(mapping, expected: int) -> None:
     assert mapping.HasField("bit_width")
     assert mapping.bit_width == expected
     assert all(
-        "bit_width" not in entry.DESCRIPTOR.fields_by_name
-        for entry in mapping.entries
+        "bit_width" not in entry.DESCRIPTOR.fields_by_name for entry in mapping.entries
     )
 
 
@@ -387,9 +386,7 @@ def test_export_proto_marks_data_outputs_and_target_lcn(
     assert entries
     assert output_mapping.HasField("bit_width")
     assert output_mapping.bit_width <= 8
-    assert all(
-        "bit_width" not in entry.DESCRIPTOR.fields_by_name for entry in entries
-    )
+    assert all("bit_width" not in entry.DESCRIPTOR.fields_by_name for entry in entries)
     assert all(entry.HasField("dtype") for entry in entries)
     assert {entry.dtype for entry in entries}.issubset({DataType.UINT8, DataType.INT8})
 
