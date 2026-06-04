@@ -47,8 +47,6 @@ message InputEntry {
     optional uint32 target_lcn = 6;
     /* Logical copy id introduced by tiling/folding; unrelated to Copy_XY / Copy_X / Copy_Y. */
     optional uint32 copy_id = 7;
-    /* Payload bit width of the exported logical element. */
-    optional uint32 bit_width = 8;
     /* Data type interpreted by the first real consumer compute core. */
     optional DataType.Code dtype = 9;
 }
@@ -56,8 +54,6 @@ message InputEntry {
 message OutputEntry {
     optional uint32 elem_idx = 1;
     optional uint32 copy_id = 2;
-    /* Payload bit width. VOLTAGE is fixed to 32-bit membrane voltage. */
-    optional uint32 bit_width = 3;
     /* DATA: output axon bit index. VOLTAGE: membrane voltage base index. */
     optional uint32 axon_bit_idx = 4;
     /* DATA output type. VOLTAGE outputs are always int32 and leave this unset. */
@@ -71,9 +67,11 @@ message Shape {
 message InputTensorMapping {
     string name = 1;
     Shape shape = 2;
+    /* Payload bit width shared by every entry in this input tensor. */
+    optional uint32 bit_width = 3;
     /* Compute-core tick parameters for this graph input tensor. */
-    TickParams tick = 3;
-    repeated InputEntry entries = 4;
+    TickParams tick = 4;
+    repeated InputEntry entries = 5;
 }
 
 message OutputTensorMapping {
@@ -85,9 +83,11 @@ message OutputTensorMapping {
     string name = 1;
     Shape shape = 2;
     optional OutputKind kind = 3;
+    /* Payload bit width shared by every entry in this output tensor. */
+    optional uint32 bit_width = 4;
     /* Compute-core tick parameters for this graph output tensor. */
-    TickParams tick = 4;
-    repeated OutputEntry entries = 5;
+    TickParams tick = 5;
+    repeated OutputEntry entries = 6;
 }
 
 message InputTensorMappings {

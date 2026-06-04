@@ -10,7 +10,6 @@ from paicorelib import (
     LCN_EX,
     DataSign,
     DataWidth,
-    OfflineFrameGenV2,
     find_coordxy_shortest_path,
 )
 from torch import nn
@@ -155,11 +154,24 @@ def _tick_tuple(tick) -> tuple[int, int, int]:
     return (tick.tick_start, tick.tick_duration, tick.tick_initial)
 
 
-def _assert_entries_have_dtype(entries, dtype: int, bit_width: int) -> None:
+def _assert_entries_have_dtype(entries, dtype: int) -> None:
     assert entries
     assert all(entry.HasField("dtype") for entry in entries)
     assert {entry.dtype for entry in entries} == {dtype}
-    assert {entry.bit_width for entry in entries} == {bit_width}
+
+
+def _assert_mapping_bit_width(mapping, expected: int) -> None:
+    assert mapping.HasField("bit_width")
+    assert mapping.bit_width == expected
+    assert all(
+        "bit_width" not in entry.DESCRIPTOR.fields_by_name for entry in mapping.entries
+    )
+
+
+def _assert_json_field_order(mapping_json: dict[str, object]) -> None:
+    keys = list(mapping_json)
+    assert keys.index("bitWidth") < keys.index("tick")
+    assert keys.index("bitWidth") < keys.index("entries")
 
 
 def _expected_core_major_frames(mapper: Mapper) -> np.ndarray:
@@ -181,10 +193,9 @@ def _expected_core_major_words(mapper: Mapper, word_order: str) -> list[int]:
 
 
 def _expected_data_lcn(num_outputs: int) -> LCN_EX:
-    for lcn_value, _ in enumerate(OfflineFrameGenV2.LCN_TO_TS_AXON_WIDTHS):
-        lcn = LCN_EX(lcn_value)
-        if num_outputs <= FANIN_BASE * (1 << lcn.value):
-            return lcn
+    for lcn_value in range(8):
+        if num_outputs <= FANIN_BASE * (1 << lcn_value):
+            return LCN_EX(lcn_value)
     raise AssertionError(f"{num_outputs} outputs exceed LCN_128X capacity")
 
 
@@ -310,7 +321,12 @@ def test_export_proto_real_workflow_keeps_pb_and_json(
     assert payload["schemaVersion"] == get_schema_version()
     assert payload["configFrames"]["wordOrder"] == expected_json_value
     assert len(payload["configFrames"]["words"]) > 0
-    assert len(payload["ioMapping"]["threads"]) == 1
+    threads = payload["ioMapping"]["threads"]
+    assert len(threads) == 1
+    for mapping in threads[0]["inputMappings"]["items"]:
+        _assert_json_field_order(mapping)
+    for mapping in threads[0]["outputMappings"]["items"]:
+        _assert_json_field_order(mapping)
 
 
 def test_export_merged_frames_use_core_major_order(ensure_backendv2_debug_dir):
@@ -368,7 +384,9 @@ def test_export_proto_marks_data_outputs_and_target_lcn(
 
     entries = list(output_mapping.entries)
     assert entries
-    assert all(entry.bit_width <= 8 for entry in entries)
+    assert output_mapping.HasField("bit_width")
+    assert output_mapping.bit_width <= 8
+    assert all("bit_width" not in entry.DESCRIPTOR.fields_by_name for entry in entries)
     assert all(entry.HasField("dtype") for entry in entries)
     assert {entry.dtype for entry in entries}.issubset({DataType.UINT8, DataType.INT8})
 
@@ -402,7 +420,7 @@ def test_export_proto_marks_voltage_outputs_and_base_addresses(
 
     entries = list(output_mapping.entries)
     assert entries
-    assert all(entry.bit_width == 32 for entry in entries)
+    _assert_mapping_bit_width(output_mapping, 32)
     assert all(not entry.HasField("dtype") for entry in entries)
 
     bases = [entry.axon_bit_idx for entry in entries[:10]]
@@ -586,7 +604,8 @@ def test_export_proto_exports_input_dtype_from_consumer_format(
 
     assert input_mappings
     for mapping in input_mappings:
-        _assert_entries_have_dtype(list(mapping.entries), DataType.UINT1, 1)
+        _assert_mapping_bit_width(mapping, 1)
+        _assert_entries_have_dtype(list(mapping.entries), DataType.UINT1)
 
 
 @pytest.mark.parametrize(
