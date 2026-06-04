@@ -3,13 +3,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from google.protobuf.json_format import MessageToJson
-from paicorelib import (
-    CoordZXYOffset,
-    DataSign,
-    DataWidth,
-    OfflineFrameGenV2,
-    find_coordxy_shortest_path,
-)
+from paicorelib import CoordZXYOffset, DataSign, DataWidth, find_coordxy_shortest_path
 
 from paibox.paiir.ir.signal_domain import SignalDomain
 
@@ -24,6 +18,7 @@ from ..proto.compile_artifacts_pb2 import (
     InputTensorMapping,
     OutputEntry,
     OutputTensorMapping,
+    OutputTensorMappings,
     RuntimeParams,
     TickParams,
 )
@@ -70,14 +65,47 @@ def _dtype_from_format(fmt: DataFormat, context: str) -> DataType.Code:
 def _set_entry_dtype(
     entry: InputEntry | OutputEntry, fmt: DataFormat, bit_width: int, context: str
 ) -> None:
+    """Set entry dtype and verify it matches the mapping-level bit width."""
     expected_bit_width = _bit_width_from_data_width(fmt[1])
     if bit_width != expected_bit_width:
         sign, width = fmt
         raise ValueError(
-            f"{context} bit width mismatch: entry has {bit_width}, "
+            f"{context} bit width mismatch: mapping has {bit_width}, "
             f"format {sign.name}/{width.name} implies {expected_bit_width}."
         )
     entry.dtype = _dtype_from_format(fmt, context)
+
+
+def _set_mapping_bit_width(
+    mapping: InputTensorMapping | OutputTensorMapping,
+    mapping_kind: str,
+    mapping_name: str,
+    bit_width: int,
+) -> None:
+    """Set tensor-level bit width and reject mixed-width entries."""
+    if mapping.HasField("bit_width"):
+        if mapping.bit_width != bit_width:
+            raise ValueError(
+                f"{mapping_kind} mapping '{mapping_name}' contains mixed bit widths: "
+                f"{mapping.bit_width} and {bit_width}."
+            )
+    else:
+        mapping.bit_width = bit_width
+
+
+def _set_thread_output_lcn(
+    output_mappings: OutputTensorMappings, output_group: OutputGroup, thread_id: int
+) -> None:
+    """Set thread-level output LCN and reject conflicting output groups."""
+    target_lcn = output_group.lcn.value
+    if output_mappings.HasField("target_lcn"):
+        if output_mappings.target_lcn != target_lcn:
+            raise ValueError(
+                f"thread {thread_id} contains output groups with mixed target_lcn: "
+                f"{output_mappings.target_lcn} and {target_lcn}."
+            )
+    else:
+        output_mappings.target_lcn = target_lcn
 
 
 def _output_kind_from_elem(elem: SourceElem) -> OutputTensorMapping.OutputKind:
@@ -250,7 +278,7 @@ def _thread_decode_mode(
         )
 
     out_grp = output_groups[0]
-    ts_width, _ = OfflineFrameGenV2.LCN_TO_TS_AXON_WIDTHS[out_grp.lcn.value]
+    ts_width = 8 - int(out_grp.lcn.value)
     max_stream_timesteps = 1 << ts_width
     return (
         RuntimeParams.STREAM
@@ -339,10 +367,12 @@ def export_compile_artifacts(
                         f"{type(dest_group).__name__}, expected RoutingGroup."
                     )
                 input_ticks_by_name[input_name].update(_routing_group_ticks(dest_group))
+                _set_mapping_bit_width(
+                    input_mapping, "input", input_name, elem.output_bit_num
+                )
                 input_entry = input_mapping.entries.add()
                 input_entry.elem_idx = elem.index.idx
                 input_entry.copy_id = elem.index.copy_id
-                input_entry.bit_width = elem.output_bit_num
                 _set_entry_dtype(
                     input_entry,
                     _require_single_data_format(
@@ -374,7 +404,7 @@ def export_compile_artifacts(
         output_mappings_by_name: dict[str, OutputTensorMapping] = {}
         output_ticks_by_name: dict[str, set[TickTriple]] = {}
         for out_grp in thread_output_groups:
-            thread_mapping.output_mappings.target_lcn = out_grp.lcn.value
+            _set_thread_output_lcn(thread_mapping.output_mappings, out_grp, thread_id)
             for axon_bit_idx, elem in sorted(
                 out_grp.axon_bit_allocator.axon_infos, key=lambda item: item[0]
             ):
@@ -392,10 +422,12 @@ def export_compile_artifacts(
                 output_ticks_by_name[output_name].add(
                     _tick_tuple_from_source_elem(elem, groups)
                 )
+                _set_mapping_bit_width(
+                    output_mapping, "output", output_name, elem.output_bit_num
+                )
                 output_entry = output_mapping.entries.add()
                 output_entry.elem_idx = elem.index.idx
                 output_entry.copy_id = elem.index.copy_id
-                output_entry.bit_width = elem.output_bit_num
                 output_entry.axon_bit_idx = axon_bit_idx
                 output_kind = _set_output_mapping_kind(
                     output_mapping, output_name, elem

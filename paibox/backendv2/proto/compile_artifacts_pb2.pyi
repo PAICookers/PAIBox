@@ -87,7 +87,6 @@ class InputEntry(_message.Message):
         "addr_axon",
         "target_lcn",
         "copy_id",
-        "bit_width",
         "dtype",
     )
     ELEM_IDX_FIELD_NUMBER: _ClassVar[int]
@@ -97,7 +96,6 @@ class InputEntry(_message.Message):
     ADDR_AXON_FIELD_NUMBER: _ClassVar[int]
     TARGET_LCN_FIELD_NUMBER: _ClassVar[int]
     COPY_ID_FIELD_NUMBER: _ClassVar[int]
-    BIT_WIDTH_FIELD_NUMBER: _ClassVar[int]
     DTYPE_FIELD_NUMBER: _ClassVar[int]
     elem_idx: int
     core_offset: CoreOffset
@@ -106,7 +104,6 @@ class InputEntry(_message.Message):
     addr_axon: int
     target_lcn: int
     copy_id: int
-    bit_width: int
     dtype: DataType.Code
     def __init__(
         self,
@@ -117,27 +114,23 @@ class InputEntry(_message.Message):
         addr_axon: _Optional[int] = ...,
         target_lcn: _Optional[int] = ...,
         copy_id: _Optional[int] = ...,
-        bit_width: _Optional[int] = ...,
         dtype: _Optional[_Union[DataType.Code, str]] = ...,
     ) -> None: ...
 
 class OutputEntry(_message.Message):
-    __slots__ = ("elem_idx", "copy_id", "bit_width", "axon_bit_idx", "dtype")
+    __slots__ = ("elem_idx", "copy_id", "axon_bit_idx", "dtype")
     ELEM_IDX_FIELD_NUMBER: _ClassVar[int]
     COPY_ID_FIELD_NUMBER: _ClassVar[int]
-    BIT_WIDTH_FIELD_NUMBER: _ClassVar[int]
     AXON_BIT_IDX_FIELD_NUMBER: _ClassVar[int]
     DTYPE_FIELD_NUMBER: _ClassVar[int]
     elem_idx: int
     copy_id: int
-    bit_width: int
     axon_bit_idx: int
     dtype: DataType.Code
     def __init__(
         self,
         elem_idx: _Optional[int] = ...,
         copy_id: _Optional[int] = ...,
-        bit_width: _Optional[int] = ...,
         axon_bit_idx: _Optional[int] = ...,
         dtype: _Optional[_Union[DataType.Code, str]] = ...,
     ) -> None: ...
@@ -149,25 +142,28 @@ class Shape(_message.Message):
     def __init__(self, size: _Optional[_Iterable[int]] = ...) -> None: ...
 
 class InputTensorMapping(_message.Message):
-    __slots__ = ("name", "shape", "tick", "entries")
+    __slots__ = ("name", "shape", "bit_width", "tick", "entries")
     NAME_FIELD_NUMBER: _ClassVar[int]
     SHAPE_FIELD_NUMBER: _ClassVar[int]
+    BIT_WIDTH_FIELD_NUMBER: _ClassVar[int]
     TICK_FIELD_NUMBER: _ClassVar[int]
     ENTRIES_FIELD_NUMBER: _ClassVar[int]
     name: str
     shape: Shape
+    bit_width: int
     tick: TickParams
     entries: _containers.RepeatedCompositeFieldContainer[InputEntry]
     def __init__(
         self,
         name: _Optional[str] = ...,
         shape: _Optional[_Union[Shape, _Mapping]] = ...,
+        bit_width: _Optional[int] = ...,
         tick: _Optional[_Union[TickParams, _Mapping]] = ...,
         entries: _Optional[_Iterable[_Union[InputEntry, _Mapping]]] = ...,
     ) -> None: ...
 
 class OutputTensorMapping(_message.Message):
-    __slots__ = ("name", "shape", "kind", "tick", "entries")
+    __slots__ = ("name", "shape", "kind", "bit_width", "tick", "entries")
 
     class OutputKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
         __slots__ = ()
@@ -179,11 +175,13 @@ class OutputTensorMapping(_message.Message):
     NAME_FIELD_NUMBER: _ClassVar[int]
     SHAPE_FIELD_NUMBER: _ClassVar[int]
     KIND_FIELD_NUMBER: _ClassVar[int]
+    BIT_WIDTH_FIELD_NUMBER: _ClassVar[int]
     TICK_FIELD_NUMBER: _ClassVar[int]
     ENTRIES_FIELD_NUMBER: _ClassVar[int]
     name: str
     shape: Shape
     kind: OutputTensorMapping.OutputKind
+    bit_width: int
     tick: TickParams
     entries: _containers.RepeatedCompositeFieldContainer[OutputEntry]
     def __init__(
@@ -191,6 +189,7 @@ class OutputTensorMapping(_message.Message):
         name: _Optional[str] = ...,
         shape: _Optional[_Union[Shape, _Mapping]] = ...,
         kind: _Optional[_Union[OutputTensorMapping.OutputKind, str]] = ...,
+        bit_width: _Optional[int] = ...,
         tick: _Optional[_Union[TickParams, _Mapping]] = ...,
         entries: _Optional[_Iterable[_Union[OutputEntry, _Mapping]]] = ...,
     ) -> None: ...
