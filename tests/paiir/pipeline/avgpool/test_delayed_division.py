@@ -1,10 +1,13 @@
 import pytest
 import torch
+from paicorelib import DataSign, DataWidth
+from spikingjelly.activation_based import neuron
 from torch import nn
 
 from paibox.paiir import ANNNodeV25, IFNodeV25, LIFNodeV25, compile_to_paiir
 from paibox.paiir.ir.lut_activation import LutCustom
 from paibox.paiir.ir.op_node import SequentialOp, StandaloneCompOp
+from paibox.paiir.ir.signal_domain import SignalDomain
 from paibox.paiir.lowering.converter import register_neuron
 from paibox.paiir.nn import SumPool2d
 
@@ -29,6 +32,26 @@ class ClampUint4(nn.Module):
 class IdentityUint8(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return torch.clamp(torch.floor(x), 0, 255)
+
+
+class SpikeAvgPoolConvIF(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.conv1 = nn.Conv2d(1, 1, 1, bias=False)
+        self.spike = neuron.IFNode(v_threshold=1.0)
+        self.pool = nn.AvgPool2d(2)
+        self.conv2 = nn.Conv2d(1, 1, 1, bias=False)
+        self.out_if = IFNodeV25(v_threshold=2.0)
+
+        with torch.no_grad():
+            self.conv1.weight.fill_(1)
+            self.conv2.weight.fill_(1)
+
+    def forward(self, x):
+        x = self.spike(self.conv1(x))
+        x = self.pool(x)
+        x = self.conv2(x)
+        return self.out_if(x)
 
 
 @pytest.fixture(autouse=True)
@@ -204,6 +227,14 @@ def _find_sumpool_nodes(graph) -> list[SequentialOp]:
     ]
 
 
+def _find_successor(graph, node: SequentialOp) -> SequentialOp:
+    succ_names = graph.successors(node.name)
+    assert len(succ_names) == 1
+    succ = graph.nodes[succ_names[0]]
+    assert isinstance(succ, SequentialOp)
+    return succ
+
+
 def _find_standalone_pool_nodes(
     graph, pool_type: type[nn.Module]
 ) -> list[StandaloneCompOp]:
@@ -235,8 +266,17 @@ def test_default_delayed_division_rewrites_low_range_avgpool_chain() -> None:
     sumpools = _find_sumpool_nodes(graph)
 
     assert len(sumpools) == 1
-    assert sumpools[0].act.lut is not None
-    assert sumpools[0].act.lut.thresholds[1].item() == 1
+    sumpool = sumpools[0]
+    assert sumpool.act.lut is not None
+    assert sumpool.act.lut.thresholds[1].item() == 1
+    assert sumpool.signal_semantics.output_domain is SignalDomain.VALUE
+    assert sumpool.signal_semantics.known_code_range == (0, 135)
+    assert sumpool.core_params.output_sign == DataSign.UNSIGNED
+    assert sumpool.core_params.output_width == DataWidth.WIDTH_8BIT
+
+    successor = _find_successor(graph, sumpool)
+    assert successor.core_params.input_sign == DataSign.UNSIGNED
+    assert successor.core_params.input_width == DataWidth.WIDTH_8BIT
     _run_and_compare(LowRangeAvgPoolConvLUT(), sample)
 
 
@@ -319,8 +359,40 @@ def test_delayed_division_supports_avgpool_chain_into_if_with_leak_v() -> None:
     )
 
     graph = _compile_graph(LowRangeAvgPoolAvgPoolConvIF(), sample)
-    assert len(_find_sumpool_nodes(graph)) == 2
+    sumpools = _find_sumpool_nodes(graph)
+    assert len(sumpools) == 2
+    assert [node.signal_semantics.known_code_range for node in sumpools] == [
+        (0, 60),
+        (0, 240),
+    ]
+    assert all(
+        node.core_params.output_width == DataWidth.WIDTH_8BIT for node in sumpools
+    )
+    successor = _find_successor(graph, sumpools[-1])
+    assert successor.act.thres_pos == 64.0
+    assert torch.allclose(successor.comp.bias, torch.tensor([16.0]))
     _run_and_compare(LowRangeAvgPoolAvgPoolConvIF(), sample)
+
+
+def test_delayed_division_uses_narrow_range_lut_for_spike_avgpool2d() -> None:
+    sample = torch.ones((1, 1, 4, 4), dtype=torch.int32)
+
+    graph = _compile_graph(SpikeAvgPoolConvIF(), sample)
+    sumpools = _find_sumpool_nodes(graph)
+
+    assert len(sumpools) == 1
+    sumpool = sumpools[0]
+    assert sumpool.signal_semantics.output_domain is SignalDomain.VALUE
+    assert sumpool.signal_semantics.known_code_range == (0, 4)
+    assert sumpool.core_params.output_sign == DataSign.UNSIGNED
+    assert sumpool.core_params.output_width == DataWidth.WIDTH_4BIT
+    assert sumpool.act.lut is not None
+    assert int(sumpool.act.lut.lut_values.max().item()) == 4
+
+    successor = _find_successor(graph, sumpool)
+    assert successor.core_params.input_sign == DataSign.UNSIGNED
+    assert successor.core_params.input_width == DataWidth.WIDTH_4BIT
+    _run_and_compare(SpikeAvgPoolConvIF(), sample)
 
 
 def test_delayed_division_supports_avgpool_chain_into_lif() -> None:

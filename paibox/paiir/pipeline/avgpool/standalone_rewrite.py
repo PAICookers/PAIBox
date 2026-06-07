@@ -27,7 +27,13 @@ from ..graph_utils import (
     is_format_transparent_routing_node,
     is_standalone_maxpool,
 )
-from .utils import build_sum_pool, get_avgpool_divisor, get_pool_window_size, is_avgpool
+from .utils import (
+    build_range_identity_lut,
+    build_sum_pool,
+    get_avgpool_divisor,
+    get_pool_window_size,
+    is_avgpool,
+)
 
 __all__ = ["rewrite_standalone_avgpools"]
 
@@ -172,7 +178,7 @@ def _build_output_sum_approx_avgpool(
         return None
 
     sum_pool = build_sum_pool(node.comp)
-    act = ANNNodeV25(_build_range_identity_lut(code_range))
+    act = ANNNodeV25(build_range_identity_lut(code_range))
     replacement = SequentialOp(sum_pool, act)
     replacement.name = node_name
 
@@ -281,20 +287,6 @@ def _build_binary_majority_avgpool(comp: nn.AvgPool1d | nn.AvgPool2d) -> Sequent
         thres_neg_mode=ThresholdNegMode.FLOOR, leak_v=-(threshold - 1), thres_neg=0
     )
     return SequentialOp(sum_pool, act)
-
-
-def _build_range_identity_lut(code_range: tuple[int, int]) -> LutCustom:
-    """Build a 256-entry identity LUT whose output codes stay inside *code_range*."""
-    code_min, code_max = code_range
-    codes = torch.arange(code_min, code_max + 1, dtype=torch.int32)
-    pad_count = 256 - codes.numel()
-    if pad_count < 0:
-        raise ValueError(f"identity LUT code range too large: {code_range}")
-    if pad_count:
-        pad = torch.full((pad_count,), code_max, dtype=torch.int32)
-        codes = torch.cat((codes, pad))
-
-    return LutCustom(codes, codes, output_sign=1 if code_min < 0 else 0, is_float=False)
 
 
 def _warn_output_majority_fallback(
