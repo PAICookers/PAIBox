@@ -6,10 +6,12 @@ import numpy as np
 from paicorelib import (
     FRAME_DTYPE,
     CoordXY,
+    CSCAccelerateMode,
     DataWidth,
     FrameArrayType,
     OfflineCoreRegV2,
     OfflineFrameGenV2,
+    WeightCompressType,
     find_coordxy_shortest_path,
 )
 
@@ -22,8 +24,6 @@ from .core_config import (
     to_core_reg,
 )
 from .neuron import NeuronPlacement, OfflineNeuronPlacement
-
-# from .routing import RoutingGroup
 from .weight import Weight
 
 
@@ -151,12 +151,33 @@ class OfflineCorePlacementV2(CorePlacement):
             weight_start_address.append(
                 weight_start_address[-1] + weight.n_sram_required
             )
+
+        csc_sparse_full_neus: list[OfflineNeuronPlacement] = []
+        has_nonzero_init_v = False
         for i, neu in enumerate(self.neus):
             weight_idx = self.neu_weight_map[i]
             neu.neu_attrs_part1.weight_address_start = weight_start_address[weight_idx]
             neu.neu_attrs_part1.weight_address_end = (
                 weight_start_address[weight_idx + 1] - 1
             )
+            if (
+                self.default_core_config.csc_accelerate == CSCAccelerateMode.ENABLE
+                and neu.neu_attrs_part2 is not None
+                and neu.neu_attrs_part2.weight_compress == WeightCompressType.SPARSE
+            ):
+                csc_sparse_full_neus.append(neu)
+                if neu.neu_attrs_part2.vjt_initial != 0:
+                    has_nonzero_init_v = True
+
+        if has_nonzero_init_v:
+            self.default_core_config.csc_accelerate = CSCAccelerateMode.DISABLE
+            return
+
+        for neu in csc_sparse_full_neus:
+            if neu.neu_attrs_part2 is not None:
+                neu.neu_attrs_part2.vjt_initial = (
+                    neu.neu_attrs_part1.weight_address_start
+                )
 
     def set_auto_core_config(self) -> None:
         neuron_number = 0

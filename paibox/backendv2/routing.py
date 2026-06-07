@@ -9,6 +9,7 @@ from paicorelib import (
     LCN_EX,
     AERPacketZXYCopy,
     CoordXY,
+    CSCAccelerateMode,
     FoldType,
     NeuronType,
     OfflineNeuDestInfoV2,
@@ -348,6 +349,7 @@ class RoutingGroup(
 
         # self.core_blocks: list[CoreBlock] = []
         self.last_full_attrs: OfflineNeuFullAttrsV2Part2 | None = None
+        self.last_full_stored_weight_index: int | None = None
 
         self.n_core_required: int = -1
         self.core_placements: list[CorePlacement] = []
@@ -435,6 +437,7 @@ class RoutingGroup(
                     frontend_core_conf, backend_core_conf
                 )
                 self.last_full_attrs = None  # 换 core 了，之前的 neuron attrs 不算了
+                self.last_full_stored_weight_index = None
                 stored_base_weight.clear()  # 换 core 了，之前存储的 base weight 不算了
             # print(
             #     f"Storing base weight {weight_info.index} in core {id(current_core)} with compression {weight_compress} cost {weight_sram_req} SRAM lines."
@@ -448,9 +451,20 @@ class RoutingGroup(
         # 这个 neu 的 base weight 已经存储过了，直接复用
         stored_weight_index, weight_compress = stored_base_weight[weight_info.index]
         attrs_part2.weight_compress = weight_compress
-        neuron_type = (
-            NeuronType.HALF if attrs_part2 == self.last_full_attrs else NeuronType.FULL
-        )
+        if can_use_half_neuron := (attrs_part2 == self.last_full_attrs):
+            if (
+                current_core.default_core_config.csc_accelerate
+                == CSCAccelerateMode.ENABLE
+                and weight_compress == WeightCompressType.SPARSE
+                and stored_weight_index != self.last_full_stored_weight_index
+            ):
+                # Half neurons still carry their own weight address range in part1.
+                # The unsafe shared field is part2.vjt_initial: with CSC accelerate
+                # it mirrors weight_address_start, so different stored sparse weights
+                # need different full-neuron part2 records.
+                can_use_half_neuron = False
+
+        neuron_type = NeuronType.HALF if can_use_half_neuron else NeuronType.FULL
         output_type = neu.output_type()
 
         weight_skew = weight_info.offset * self.input_bit_num
@@ -478,6 +492,7 @@ class RoutingGroup(
             # print(f"allocate a new core")
             current_core = OfflineCorePlacementV2(frontend_core_conf, backend_core_conf)
             self.last_full_attrs = None  # 换 core 了，之前的 neuron attrs 不算了
+            self.last_full_stored_weight_index = None
             stored_base_weight.clear()  # 换 core 了，之前存储的 base weight 不算了
             return self.try_store_neuron(
                 neu,
@@ -491,6 +506,8 @@ class RoutingGroup(
         else:
             if neuron_type == NeuronType.FULL:
                 self.last_full_attrs = attrs_part2
+                self.last_full_stored_weight_index = stored_weight_index
+
             current_core.neus.append(neu_placement)
             # current_core.weights.append(selected_weight)  # weight 已经存储过了，不需要重复存储
             idx = len(current_core.neus) - 1
@@ -726,6 +743,7 @@ class RoutingGroup(
 
         # current_core = OfflineCorePlacementV2(frontend_core_conf, backend_core_conf)
         self.last_full_attrs = None
+        self.last_full_stored_weight_index = None
         description = f"{prefix}place unfolded neurons"
         for neu, weight_info in track(
             zip(reordered_neus, reordered_infos),
@@ -798,6 +816,7 @@ class RoutingGroup(
             print(f"{prefix}allocating core_block[{i}] ({len(group_items)} neurons)...")
             frontend_core_conf, backend_core_conf = key
             self.last_full_attrs = None
+            self.last_full_stored_weight_index = None
             self.place_neurons_optimal(
                 frontend_core_conf,
                 backend_core_conf,
