@@ -8,12 +8,17 @@ import pytest
 import torch
 from paicorelib import (
     LCN_EX,
+    CSCAccelerateMode,
     DataSign,
     DataWidth,
+    NeuronType,
+    WeightCompressType,
     find_coordxy_shortest_path,
 )
 from torch import nn
 
+from paibox.backendv2 import routing as routing_mod
+from paibox.backendv2.coreplacement import OfflineCorePlacementV2
 from paibox.backendv2.export.utils import export_framearray_to_int32
 from paibox.backendv2.mapper import Mapper
 from paibox.backendv2.op_node import SourceElem
@@ -90,6 +95,93 @@ class ConvPotential(nn.Module):
 
     def forward(self, x):
         return self.conv(x)
+
+
+class DefaultMixedSparseDenseLinear(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.linear = nn.Linear(160, 3, bias=False)
+        with torch.no_grad():
+            self.linear.weight.zero_()
+            self.linear.weight[0, [16, 40, 80]] = torch.tensor(
+                [1, 2, 3], dtype=torch.float32
+            )
+            self.linear.weight[1, [0, 128]] = torch.tensor([1, 2], dtype=torch.float32)
+            self.linear.weight[2, [1, 3, 5, 7, 9]] = 1
+
+    def forward(self, x):
+        return self.linear(x)
+
+
+class DefaultSparseHalfReuseLinear(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.linear = nn.Linear(160, 2, bias=False)
+        with torch.no_grad():
+            self.linear.weight.zero_()
+            self.linear.weight[0, [16, 40, 80]] = torch.tensor(
+                [1, 2, 3], dtype=torch.float32
+            )
+            self.linear.weight[1, [17, 41, 81]] = torch.tensor(
+                [1, 2, 3], dtype=torch.float32
+            )
+
+    def forward(self, x):
+        return self.linear(x)
+
+
+class Uint8HighIndexDenseCandidateLinear(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.linear = nn.Linear(192, 2, bias=False)
+        with torch.no_grad():
+            self.linear.weight.zero_()
+            self.linear.weight[0, [144, 146]] = torch.tensor(
+                [1, 1], dtype=torch.float32
+            )
+            self.linear.weight[1, [160, 162]] = torch.tensor(
+                [1, 1], dtype=torch.float32
+            )
+
+    def forward(self, x):
+        return self.linear(x)
+
+
+class Uint8LongSpanSparseLinear(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.linear = nn.Linear(192, 1, bias=False)
+        with torch.no_grad():
+            self.linear.weight.zero_()
+            self.linear.weight[0, [7, 136]] = torch.tensor([1, 1], dtype=torch.float32)
+
+    def forward(self, x):
+        return self.linear(x)
+
+
+class Uint8DifferentSparseBasesLinear(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.linear = nn.Linear(192, 2, bias=False)
+        with torch.no_grad():
+            self.linear.weight.zero_()
+            self.linear.weight[0, [0, 191]] = torch.tensor([1, 1], dtype=torch.float32)
+            self.linear.weight[1, [1, 190]] = torch.tensor([1, 1], dtype=torch.float32)
+
+    def forward(self, x):
+        return self.linear(x)
+
+
+class Uint1HighIndexSparseCscLinear(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.linear = nn.Linear(192, 1, bias=False)
+        with torch.no_grad():
+            self.linear.weight.zero_()
+            self.linear.weight[0, [64, 191]] = torch.tensor([7, 5], dtype=torch.float32)
+
+    def forward(self, x):
+        return self.linear(x)
 
 
 class _FakeOutputElem:
@@ -210,6 +302,277 @@ def _assert_output_group_allocator_matches_inputs(out_grp: OutputGroup) -> None:
         out_grp.input_list
     )
     assert out_grp.input_mapping == out_grp.axon_bit_allocator.axon_by_elem
+
+
+def _shared_sparse_linear_neuron_placements(mapper: Mapper):
+    return [
+        neu_placement
+        for core_placement in mapper.coreplacements
+        for neu_placement in core_placement.neus
+    ]
+
+def test_mapper_default_auto_strategy_mixes_sparse_and_dense_csc(tmp_path):
+    graph = compile_to_paiir(
+        DefaultMixedSparseDenseLinear().eval(),
+        torch.zeros(1, 160),
+        input_formats={"InputNode_0": (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)},
+        timesteps=1,
+        auto_reset=True,
+        strict=True,
+    )
+    mapper = Mapper()
+    mapper.compile(graph, tmp_path, target_platform="x86", debug=False)
+
+    core = mapper.coreplacements[0]
+    placements = _shared_sparse_linear_neuron_placements(mapper)
+
+    assert {c.frontend_core_config.input_width for c in mapper.coreplacements} == {
+        DataWidth.WIDTH_1BIT
+    }
+    assert {c.default_core_config.csc_accelerate for c in mapper.coreplacements} == {
+        CSCAccelerateMode.ENABLE
+    }
+    assert [weight.compress for weight in core.weights] == [True, True, False]
+    assert np.flatnonzero(core.weights[0].raw_weights).tolist() == [0, 24, 64]
+    assert np.flatnonzero(core.weights[1].raw_weights).tolist() == [0, 128]
+    assert core.weights[2].processed_weights == [1, 0, 1, 0, 1, 0, 1, 0, 1]
+    assert [placement.neu_attrs_part1.weight_skew for placement in placements] == [
+        16,
+        0,
+        1,
+    ]
+    assert [placement.neu_attrs_part2 is None for placement in placements] == [
+        False,
+        False,
+        False,
+    ]
+    assert [placement.neu_attrs_part2.weight_compress for placement in placements] == [
+        WeightCompressType.SPARSE,
+        WeightCompressType.SPARSE,
+        WeightCompressType.DENSE,
+    ]
+    assert placements[2].neu_attrs_part1.weight_address_start == (
+        core.weights[0].n_sram_required
+        + core.weights[1].n_sram_required
+        + sum(neu.n_sram_required for neu in core.neus)
+    )
+    assert placements[0].neu_attrs_part2.vjt_initial == (
+        placements[0].neu_attrs_part1.weight_address_start
+    )
+    assert placements[1].neu_attrs_part2.vjt_initial == (
+        placements[1].neu_attrs_part1.weight_address_start
+    )
+    assert placements[2].neu_attrs_part2.vjt_initial == 0
+
+
+def test_mapper_default_sparse_csc_half_reuse_is_true_sparse_csc(tmp_path):
+    graph = compile_to_paiir(
+        DefaultSparseHalfReuseLinear().eval(),
+        torch.zeros(1, 160),
+        input_formats={"InputNode_0": (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)},
+        timesteps=1,
+        auto_reset=True,
+        strict=True,
+    )
+    mapper = Mapper()
+    mapper.compile(graph, tmp_path, target_platform="x86", debug=False)
+
+    core = mapper.coreplacements[0]
+    placements = _shared_sparse_linear_neuron_placements(mapper)
+
+    assert {c.frontend_core_config.input_width for c in mapper.coreplacements} == {
+        DataWidth.WIDTH_1BIT
+    }
+    assert {c.default_core_config.csc_accelerate for c in mapper.coreplacements} == {
+        CSCAccelerateMode.ENABLE
+    }
+    assert len(core.weights) == 1
+    assert core.weights[0].compress
+    assert np.flatnonzero(core.weights[0].raw_weights).tolist() == [0, 24, 64]
+    assert [placement.neuron_type for placement in placements] == [
+        NeuronType.FULL,
+        NeuronType.HALF,
+    ]
+    assert [placement.neu_attrs_part1.weight_skew for placement in placements] == [
+        16,
+        17,
+    ]
+    assert [placement.neu_attrs_part2 is None for placement in placements] == [
+        False,
+        True,
+    ]
+    assert placements[0].neu_attrs_part2.weight_compress == WeightCompressType.SPARSE
+    assert placements[0].neu_attrs_part2.vjt_initial == (
+        placements[0].neu_attrs_part1.weight_address_start
+    )
+    assert placements[1].neu_attrs_part1.weight_address_start == (
+        placements[0].neu_attrs_part1.weight_address_start
+    )
+    assert placements[1].neu_attrs_part1.weight_address_end == (
+        placements[0].neu_attrs_part1.weight_address_end
+    )
+
+
+def test_mapper_default_uint8_high_index_shifted_base_tie_uses_dense(tmp_path):
+    graph = compile_to_paiir(
+        Uint8HighIndexDenseCandidateLinear().eval(),
+        torch.zeros(1, 192),
+        input_formats={"InputNode_0": (DataSign.UNSIGNED, DataWidth.WIDTH_8BIT)},
+        timesteps=1,
+        auto_reset=True,
+        strict=True,
+    )
+    mapper = Mapper()
+    mapper.compile(graph, tmp_path, target_platform="x86", debug=False)
+
+    core = mapper.coreplacements[0]
+    placements = _shared_sparse_linear_neuron_placements(mapper)
+
+    assert core.frontend_core_config.input_width == DataWidth.WIDTH_8BIT
+    assert core.default_core_config.csc_accelerate == CSCAccelerateMode.ENABLE
+    assert len(core.weights) == 1
+    assert not core.weights[0].compress
+    assert core.weights[0].processed_weights == [1, 0, 1]
+    assert [placement.neuron_type for placement in placements] == [
+        NeuronType.FULL,
+        NeuronType.HALF,
+    ]
+    assert [placement.neu_attrs_part1.weight_skew for placement in placements] == [
+        144 * 8,
+        160 * 8,
+    ]
+    assert placements[0].neu_attrs_part2.weight_compress == WeightCompressType.DENSE
+    assert placements[0].neu_attrs_part2.vjt_initial == 0
+    assert placements[1].neu_attrs_part2 is None
+
+
+def test_mapper_default_uint8_long_span_weight_stays_sparse_when_smaller(tmp_path):
+    graph = compile_to_paiir(
+        Uint8LongSpanSparseLinear().eval(),
+        torch.zeros(1, 192),
+        input_formats={"InputNode_0": (DataSign.UNSIGNED, DataWidth.WIDTH_8BIT)},
+        timesteps=1,
+        auto_reset=True,
+        strict=True,
+    )
+    mapper = Mapper()
+    mapper.compile(graph, tmp_path, target_platform="x86", debug=False)
+
+    core = mapper.coreplacements[0]
+    placements = _shared_sparse_linear_neuron_placements(mapper)
+
+    assert len(core.weights) == 1
+    assert core.weights[0].compress
+    assert placements[0].neu_attrs_part2.weight_compress == WeightCompressType.SPARSE
+    assert placements[0].neu_attrs_part2.vjt_initial == (
+        placements[0].neu_attrs_part1.weight_address_start
+    )
+
+def test_mapper_sparse_csc_uses_full_neurons_for_different_weight_addresses(tmp_path):
+    graph = compile_to_paiir(
+        Uint8DifferentSparseBasesLinear().eval(),
+        torch.zeros(1, 192),
+        input_formats={"InputNode_0": (DataSign.UNSIGNED, DataWidth.WIDTH_8BIT)},
+        timesteps=1,
+        auto_reset=True,
+        strict=True,
+    )
+    mapper = Mapper()
+    mapper.compile(graph, tmp_path, target_platform="x86", debug=False)
+
+    core = mapper.coreplacements[0]
+    placements = _shared_sparse_linear_neuron_placements(mapper)
+
+    assert len(core.weights) == 2
+    assert [weight.compress for weight in core.weights] == [True, True]
+    assert [placement.neuron_type for placement in placements] == [
+        NeuronType.FULL,
+        NeuronType.FULL,
+    ]
+    assert [placement.neu_attrs_part2.weight_compress for placement in placements] == [
+        WeightCompressType.SPARSE,
+        WeightCompressType.SPARSE,
+    ]
+    assert placements[0].neu_attrs_part1.weight_address_start != (
+        placements[1].neu_attrs_part1.weight_address_start
+    )
+    assert placements[0].neu_attrs_part2.vjt_initial == (
+        placements[0].neu_attrs_part1.weight_address_start
+    )
+    assert placements[1].neu_attrs_part2.vjt_initial == (
+        placements[1].neu_attrs_part1.weight_address_start
+    )
+
+
+def test_mapper_sparse_csc_allows_half_for_different_weight_addresses_without_accel(
+    tmp_path, monkeypatch
+):
+    class NoCscAccelOfflineCorePlacementV2(OfflineCorePlacementV2):
+        def __init__(self, *args, **kwargs) -> None:
+            super().__init__(*args, **kwargs)
+            self.default_core_config.csc_accelerate = CSCAccelerateMode.DISABLE
+
+    monkeypatch.setattr(
+        routing_mod, "OfflineCorePlacementV2", NoCscAccelOfflineCorePlacementV2
+    )
+    graph = compile_to_paiir(
+        Uint8DifferentSparseBasesLinear().eval(),
+        torch.zeros(1, 192),
+        input_formats={"InputNode_0": (DataSign.UNSIGNED, DataWidth.WIDTH_8BIT)},
+        timesteps=1,
+        auto_reset=True,
+        strict=True,
+    )
+    mapper = Mapper()
+    mapper.compile(graph, tmp_path, target_platform="x86", debug=False)
+
+    core = mapper.coreplacements[0]
+    placements = _shared_sparse_linear_neuron_placements(mapper)
+
+    assert core.default_core_config.csc_accelerate == CSCAccelerateMode.DISABLE
+    assert len(core.weights) == 2
+    assert [weight.compress for weight in core.weights] == [True, True]
+    assert [placement.neuron_type for placement in placements] == [
+        NeuronType.FULL,
+        NeuronType.HALF,
+    ]
+    assert placements[0].neu_attrs_part2.weight_compress == WeightCompressType.SPARSE
+    assert placements[0].neu_attrs_part2.vjt_initial == 0
+    assert placements[1].neu_attrs_part2 is None
+    assert placements[0].neu_attrs_part1.weight_address_start != (
+        placements[1].neu_attrs_part1.weight_address_start
+    )
+
+
+def test_mapper_uint1_high_index_sparse_csc_uses_shifted_base_row(tmp_path):
+    graph = compile_to_paiir(
+        Uint1HighIndexSparseCscLinear().eval(),
+        torch.zeros(1, 192),
+        input_formats={"InputNode_0": (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)},
+        timesteps=1,
+        auto_reset=True,
+        strict=True,
+    )
+    mapper = Mapper()
+    mapper.compile(graph, tmp_path, target_platform="x86", debug=False)
+
+    core = mapper.coreplacements[0]
+    placements = _shared_sparse_linear_neuron_placements(mapper)
+
+    assert core.frontend_core_config.input_width == DataWidth.WIDTH_1BIT
+    assert core.default_core_config.csc_accelerate == CSCAccelerateMode.ENABLE
+    assert len(core.weights) == 1
+    assert core.weights[0].compress
+    assert len(core.weights[0].processed_weights) == 128
+    assert core.weights[0].processed_weights[0] == 7
+    assert core.weights[0].processed_weights[127] == 5
+    assert len(placements) == 1
+    assert placements[0].neuron_type == NeuronType.FULL
+    assert placements[0].neu_attrs_part1.weight_skew == 64
+    assert placements[0].neu_attrs_part2.weight_compress == WeightCompressType.SPARSE
+    assert placements[0].neu_attrs_part2.vjt_initial == (
+        placements[0].neu_attrs_part1.weight_address_start
+    )
 
 
 CoreTickKey = tuple[int, int, int, tuple[str, ...], tuple[int, int, int]]

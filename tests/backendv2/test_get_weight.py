@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 import torch
+from paicorelib import AddPotentialMode, DataWidth, WeightCompressType
 from torch import nn
 from torch.nn import functional as F
 
@@ -12,7 +13,9 @@ from paibox.backendv2.get_weight import (
     adaptive_avgpool2d_weight_matrix,
     adaptive_maxpool1d_weight_matrix,
     adaptive_maxpool2d_weight_matrix,
+    choose_weight_strategy,
     expanded_path_weight_matrix,
+    group_shift_weights_optimized,
 )
 from paibox.backendv2.op_node import CoreOpNode, InNode
 from paibox.paiir.ir.ir_base import InputNode
@@ -218,3 +221,129 @@ def test_expanded_path_weight_matrix_handles_adaptive_pool(case: ExpandedPathCas
 
     assert matrix.shape == case.expected_shape
     assert _active_cols(matrix[case.probe_row]) == case.expected_cols
+
+
+def test_group_shift_weights_default_still_reuses_shifted_base_rows():
+    raw_weights = [
+        np.array([0, 0, 3, 0, 5, 0], dtype=np.int16),
+        np.array([0, 3, 0, 5, 0, 0], dtype=np.int16),
+    ]
+
+    infos, base_weights = group_shift_weights_optimized(raw_weights)
+
+    assert [info.offset for info in infos] == [2, 1]
+    assert [info.index for info in infos] == [0, 0]
+    assert len(base_weights) == 1
+    np.testing.assert_array_equal(
+        base_weights[0],
+        np.array([3, 0, 5, 0, 0, 0], dtype=np.int16),
+    )
+
+
+def test_choose_weight_strategy_sparse_keeps_original_row():
+    weight = np.zeros(192, dtype=np.int16)
+    weight[[17, 18, 31]] = [3, 4, 5]
+
+    selected, compress = choose_weight_strategy(
+        weight,
+        DataWidth.WIDTH_8BIT,
+        DataWidth.WIDTH_8BIT,
+        AddPotentialMode.NORMAL,
+    )
+
+    assert selected.compress
+    np.testing.assert_array_equal(selected.raw_weights, weight.tolist())
+    assert compress == WeightCompressType.SPARSE
+
+
+@pytest.mark.parametrize(
+    ("input_width", "last_dense_candidate_index", "expected_compress"),
+    [
+        (DataWidth.WIDTH_1BIT, 127, WeightCompressType.SPARSE),
+        (DataWidth.WIDTH_2BIT, 63, WeightCompressType.SPARSE),
+        (DataWidth.WIDTH_4BIT, 31, WeightCompressType.SPARSE),
+        (DataWidth.WIDTH_8BIT, 15, WeightCompressType.DENSE),
+    ],
+    ids=["input-1bit", "input-2bit", "input-4bit", "input-8bit"],
+)
+def test_choose_weight_strategy_dense_candidate_depends_on_sram_savings(
+    input_width,
+    last_dense_candidate_index,
+    expected_compress,
+):
+    weight = np.zeros(last_dense_candidate_index + 1, dtype=np.int16)
+    weight[[0, last_dense_candidate_index]] = [1, 2]
+
+    selected, compress = choose_weight_strategy(
+        weight,
+        DataWidth.WIDTH_8BIT,
+        input_width,
+        AddPotentialMode.NORMAL,
+    )
+
+    assert compress == expected_compress
+    assert selected.compress is (expected_compress == WeightCompressType.SPARSE)
+
+
+def test_choose_weight_strategy_dense_tie_remains_dense():
+    weight = np.array([1, 2, 3, 4, 5], dtype=np.int16)
+
+    selected, compress = choose_weight_strategy(
+        weight,
+        DataWidth.WIDTH_8BIT,
+        DataWidth.WIDTH_8BIT,
+        AddPotentialMode.NORMAL,
+    )
+
+    assert not selected.compress
+    assert selected.raw_weights == [1, 2, 3, 4, 5]
+    assert compress == WeightCompressType.DENSE
+
+
+def test_choose_weight_strategy_single_tap_uses_sparse_when_sram_smaller():
+    weight = np.zeros(129, dtype=np.int16)
+    weight[128] = 1
+
+    selected, compress = choose_weight_strategy(
+        weight,
+        DataWidth.WIDTH_1BIT,
+        DataWidth.WIDTH_8BIT,
+        AddPotentialMode.NORMAL,
+    )
+
+    assert selected.compress
+    assert selected.raw_weights == weight.tolist()
+    assert compress == WeightCompressType.SPARSE
+    assert selected.to_package().size == 2
+
+
+def test_choose_weight_strategy_uint8_high_index_uses_sparse_csc_original_row():
+    weight = np.zeros(192, dtype=np.int16)
+    weight[[144, 146]] = [1, 2]
+
+    selected, compress = choose_weight_strategy(
+        weight,
+        DataWidth.WIDTH_8BIT,
+        DataWidth.WIDTH_8BIT,
+        AddPotentialMode.NORMAL,
+    )
+
+    assert selected.compress
+    assert selected.raw_weights == weight.tolist()
+    assert compress == WeightCompressType.SPARSE
+
+
+def test_choose_weight_strategy_uint8_long_span_row_still_uses_sparse_if_smaller():
+    weight = np.zeros(192, dtype=np.int16)
+    weight[[7, 136]] = [1, 2]
+
+    selected, compress = choose_weight_strategy(
+        weight,
+        DataWidth.WIDTH_8BIT,
+        DataWidth.WIDTH_8BIT,
+        AddPotentialMode.NORMAL,
+    )
+
+    assert selected.compress
+    assert selected.raw_weights == weight.tolist()
+    assert compress == WeightCompressType.SPARSE
