@@ -311,6 +311,7 @@ def _shared_sparse_linear_neuron_placements(mapper: Mapper):
         for neu_placement in core_placement.neus
     ]
 
+
 def test_mapper_default_auto_strategy_mixes_sparse_and_dense_csc(tmp_path):
     graph = compile_to_paiir(
         DefaultMixedSparseDenseLinear().eval(),
@@ -467,6 +468,7 @@ def test_mapper_default_uint8_long_span_weight_stays_sparse_when_smaller(tmp_pat
     assert placements[0].neu_attrs_part2.vjt_initial == (
         placements[0].neu_attrs_part1.weight_address_start
     )
+
 
 def test_mapper_sparse_csc_uses_full_neurons_for_different_weight_addresses(tmp_path):
     graph = compile_to_paiir(
