@@ -57,7 +57,6 @@ from .quantized_ops import (
     IdentityScale,
     PotentialPassthroughNodeV25,
     QuantizedConvAddReLU2dOp,
-    QuantizedSequentialOp,
 )
 
 __all__ = [
@@ -98,7 +97,6 @@ __all__ = [
     "PotentialAddOp",
     "PotentialPassthroughNodeV25",
     "QuantizedConvAddReLU2dOp",
-    "QuantizedSequentialOp",
     "RoutingOp",
     "SequentialOp",
     "ShapeStage",

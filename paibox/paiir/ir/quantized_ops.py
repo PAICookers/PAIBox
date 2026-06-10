@@ -3,8 +3,8 @@
 These nodes are an adapter layer between project-specific quantized PyTorch
 modules and the backend-ready PAIIR offline-core subset. They should not reach
 backendv2 directly. The compile pipeline materializes them into existing
-``SequentialOp`` / ``StandaloneCompOp`` / ``PotentialAddOp`` /
-``StandaloneActOp`` nodes before fusion and validation.
+``StandaloneCompOp`` / ``PotentialAddOp`` / ``StandaloneActOp`` nodes before
+fusion and validation.
 """
 
 import torch
@@ -25,7 +25,6 @@ __all__ = [
     "IdentityScale",
     "PotentialPassthroughNodeV25",
     "QuantizedConvAddReLU2dOp",
-    "QuantizedSequentialOp",
 ]
 
 
@@ -84,30 +83,6 @@ class PotentialPassthroughNodeV25(CoreNeuronV25):
         params = super().to_neuron_params(bias)
         params.output_type = OutputType.POTENTIAL
         return params
-
-
-class QuantizedSequentialOp(OpNode):
-    """Quantized single-path compute followed by deploy activation.
-
-    Typical examples are quantized ``ConvReLU2d``, ``Conv2d + LutLinear``,
-    ``LinearReLU`` and similar single-input blocks. The materialize pass lowers
-    this node to ``SequentialOp(comp, act)`` so backendv2 sees the normal PAIIR
-    core shape.
-    """
-
-    def __init__(self, comp: nn.Module, act: CoreNeuronV25) -> None:
-        super().__init__()
-        self.comp = comp
-        self.act = act
-
-    def forward(self, x: Tensor) -> Tensor:
-        return self.act(_run_comp(self.comp, x))
-
-    def extra_repr(self) -> str:
-        return (
-            f"{super().extra_repr()}, comp={type(self.comp).__name__}, "
-            f"act={type(self.act).__name__}"
-        )
 
 
 class QuantizedConvAddReLU2dOp(OpNode):

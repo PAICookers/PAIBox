@@ -12,7 +12,6 @@ from ..ir.op_node import SequentialOp, StandaloneActOp, StandaloneCompOp
 from ..ir.quantized_ops import (
     PotentialPassthroughNodeV25,
     QuantizedConvAddReLU2dOp,
-    QuantizedSequentialOp,
 )
 
 __all__ = ["materialize_quantized_ops"]
@@ -79,16 +78,6 @@ def _replace_edges(
     for name in replacement_nodes:
         if name not in graph.nodes:
             raise RuntimeError(f"replacement node '{name}' was not added")
-
-
-def _materialize_quantized_sequential(
-    graph: PAIIRGraph, name: str, node: QuantizedSequentialOp
-) -> bool:
-    replacement = SequentialOp(copy.deepcopy(node.comp), node.act.clone())
-    replacement.input_layouts = node.input_layouts
-    replacement.output_layouts = node.output_layouts
-    graph.replace_node(name, replacement)
-    return True
 
 
 def _materialize_quantized_conv_add_relu(
@@ -189,9 +178,6 @@ def materialize_quantized_ops(graph: PAIIRGraph) -> PAIIRGraph:
         if name not in rewritten.nodes:
             continue
         node = rewritten.nodes[name]
-        if isinstance(node, QuantizedSequentialOp):
-            changed |= _materialize_quantized_sequential(rewritten, name, node)
-            continue
         if isinstance(node, QuantizedConvAddReLU2dOp):
             changed |= _materialize_quantized_conv_add_relu(rewritten, name, node)
 

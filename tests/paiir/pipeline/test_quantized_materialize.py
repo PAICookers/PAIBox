@@ -14,7 +14,6 @@ from paibox.paiir.ir import (
     AccumulateOp,
     PotentialPassthroughNodeV25,
     QuantizedConvAddReLU2dOp,
-    QuantizedSequentialOp,
     SequentialOp,
     StandaloneCompOp,
 )
@@ -33,7 +32,7 @@ def _layout(shape):
 class ManualResidualModel(nn.Module):
     def __init__(self):
         super().__init__()
-        from simples_quantize.quantize_tools.ops import ManualConvAddReLU2d
+        from paibox.quantize_tools.ops import ManualConvAddReLU2d
 
         conv = nn.Conv2d(3, 3, 1, bias=False)
         with torch.no_grad():
@@ -48,44 +47,16 @@ class ManualResidualModel(nn.Module):
                 )
             )
         self.res = ManualConvAddReLU2d(
-            original_conv2=conv,
-            y_in_scale=0.25,
-            y_in_zp=0,
-            w_scale=0.5,
-            w_zp=0,
-            conv2_out_scale=0.125,
-            out_scale=0.25,
-            out_zp=0,
-            x_scale=0.125,
-            x_zp=0,
+            conv=conv,
+            y_qparams=(0.25, 0),
+            x_qparams=(0.125, 0),
+            weight_qparams=(0.5, 0),
+            out_qparams=(0.25, 0),
             activation_symmetric=True,
         )
 
     def forward(self, y, x):
         return self.res(y, x)
-
-
-def test_quantized_sequential_materializes_to_sequential_op():
-    graph = PAIIRGraph("quant_seq")
-    inp = InputNode(torch.Size((1, 3, 4, 4)))
-    conv = nn.Conv2d(3, 2, 1)
-    qop = QuantizedSequentialOp(conv, ANNNodeV25(LutReLU()))
-    qop.input_layouts = (_layout((1, 3, 4, 4)),)
-    qop.output_layouts = (_layout((1, 2, 4, 4)),)
-    out = OutputNode(torch.Size((1, 2, 4, 4)))
-
-    graph.add_node(inp)
-    graph.add_node(qop)
-    graph.add_node(out)
-    graph.add_edge(inp.name, qop.name)
-    graph.add_edge(qop.name, out.name)
-
-    lowered = materialize_quantized_ops(graph)
-
-    assert not find_nodes(lowered, QuantizedSequentialOp)
-    seq_nodes = find_nodes(lowered, SequentialOp)
-    assert len(seq_nodes) == 1
-    assert isinstance(seq_nodes[0].comp, nn.Conv2d)
 
 
 def test_quantized_conv_add_relu_materializes_to_backend_ready_fragment():
@@ -185,7 +156,7 @@ def test_quantized_conv_add_relu_allows_uint8_shortcut_gain_255():
 
 
 def test_manual_quantized_conv_add_relu_compile_path():
-    from simples_quantize.quantize_tools.paiir import register_manual_quantized_paiir
+    from paibox.quantize_tools.paiir import register_manual_quantized_paiir
 
     register_manual_quantized_paiir()
     graph = compile_to_paiir(
@@ -215,7 +186,7 @@ def test_manual_quantized_conv_add_relu_compile_path():
 
 
 def test_manual_quantized_conv_add_relu_backendv2_smoke(tmp_path):
-    from simples_quantize.quantize_tools.paiir import register_manual_quantized_paiir
+    from paibox.quantize_tools.paiir import register_manual_quantized_paiir
 
     register_manual_quantized_paiir()
     graph = compile_to_paiir(

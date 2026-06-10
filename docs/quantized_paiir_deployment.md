@@ -1,6 +1,6 @@
 # 量化模型 PAIIR 部署路径说明
 
-本文档整理本次针对 `simples_quantize/quantize_tools` 与 `paibox/paiir` 的对接改动，目标是说明：
+本文档整理本次针对 `paibox/quantize_tools` 与 `paibox/paiir` 的对接改动，目标是说明：
 
 1. 这次到底改了哪些地方
 2. 现在量化模型应该怎样部署
@@ -16,10 +16,10 @@
 
 在 `quantize_tools` 里，经过 FX 图改写与校准后，模型会被替换成一批 `Manual*` 量化模块，例如：
 
-- `ManualQuantConvReLU2d`
-- `ManualQuantConv2d`
-- `ManualQuantLinearReLU`
-- `ManualQuantLinear`
+- `ManualConvReLU2d`
+- `ManualConv2d`
+- `ManualLinearReLU`
+- `ManualLinear`
 - `ManualConvAddReLU2d`
 
 这些模块已经携带了部署所需的量化信息，例如：
@@ -82,7 +82,7 @@ FX/Prepared Model
 
 新增一个 pre-fusion rewrite pass，把 `Quantized*` IR 转成现有 PAIIR 基础节点。
 
-#### `simples_quantize/quantize_tools/paiir.py`
+#### `paibox/quantize_tools/paiir.py`
 
 新增 `quantize_tools` 到 PAIIR 的注册与映射入口，提供：
 
@@ -182,7 +182,7 @@ FX/Prepared Model
 - `paibox/paiir/__init__.py`
 - `paibox/paiir/lowering/__init__.py`
 - `paibox/paiir/ir/__init__.py`
-- `simples_quantize/quantize_tools/__init__.py`
+- `paibox/quantize_tools/__init__.py`
 
 ---
 
@@ -193,7 +193,7 @@ FX/Prepared Model
 现在推荐的量化部署流程如下：
 
 ```python
-from simples_quantize.quantize_tools import (
+from paibox.quantize_tools import (
     convert_fx_to_manual,
     register_manual_quantized_paiir,
 )
@@ -241,7 +241,7 @@ mapper.compile(graph, output_path=..., target_platform="x86", debug=False)
 
 入口在：
 
-- `simples_quantize/quantize_tools/paiir.py`
+- `paibox/quantize_tools/paiir.py`
 
 它做了两件事：
 
@@ -250,12 +250,12 @@ mapper.compile(graph, output_path=..., target_platform="x86", debug=False)
 
 当前注册关系如下：
 
-| Manual 模块 | lower 到的 IR |
-| --- | --- |
-| `ManualQuantConvReLU2d` | `QuantizedSequentialOp` |
-| `ManualQuantConv2d` | `QuantizedSequentialOp` |
-| `ManualQuantLinearReLU` | `QuantizedSequentialOp` |
-| `ManualQuantLinear` | `QuantizedSequentialOp` |
+| Manual 模块           | lower 到的 IR              |
+| --------------------- | -------------------------- |
+| `ManualConvReLU2d`    | `QuantizedSequentialOp`    |
+| `ManualConv2d`        | `QuantizedSequentialOp`    |
+| `ManualLinearReLU`    | `QuantizedSequentialOp`    |
+| `ManualLinear`        | `QuantizedSequentialOp`    |
 | `ManualConvAddReLU2d` | `QuantizedConvAddReLU2dOp` |
 
 ### 4.2 为什么要标记成 leaf module
@@ -280,10 +280,10 @@ mapper.compile(graph, output_path=..., target_platform="x86", debug=False)
 
 这类算子包括：
 
-- `ManualQuantConvReLU2d`
-- `ManualQuantConv2d`
-- `ManualQuantLinearReLU`
-- `ManualQuantLinear`
+- `ManualConvReLU2d`
+- `ManualConv2d`
+- `ManualLinearReLU`
+- `ManualLinear`
 
 它们的共同特点是：
 
@@ -308,7 +308,7 @@ mapper.compile(graph, output_path=..., target_platform="x86", debug=False)
 
 ### 5.2 参数绑定 `_bind_quantized_params(...)`
 
-在 `simples_quantize/quantize_tools/paiir.py` 中，`_bind_quantized_params(...)` 会把 Manual 模块里的量化参数拷贝到 canonical PyTorch 模块上。
+在 `paibox/quantize_tools/paiir.py` 中，`_bind_quantized_params(...)` 会把 Manual 模块里的量化参数拷贝到 canonical PyTorch 模块上。
 
 关键点：
 
@@ -780,10 +780,10 @@ backend 没有被迫理解 `ManualConvAddReLU2d` 或 `QuantizedConvAddReLU2dOp` 
 
 ### 13.1 已支持并走统一 PAIIR 路径
 
-- `ManualQuantConvReLU2d`
-- `ManualQuantConv2d`
-- `ManualQuantLinearReLU`
-- `ManualQuantLinear`
+- `ManualConvReLU2d`
+- `ManualConv2d`
+- `ManualLinearReLU`
+- `ManualLinear`
 - `ManualConvAddReLU2d`
 
 ### 13.2 支持方式
@@ -792,10 +792,10 @@ backend 没有被迫理解 `ManualConvAddReLU2d` 或 `QuantizedConvAddReLU2dOp` 
 
 #### 第一类：直接单核
 
-- `ManualQuantConvReLU2d`
-- `ManualQuantConv2d`
-- `ManualQuantLinearReLU`
-- `ManualQuantLinear`
+- `ManualConvReLU2d`
+- `ManualConv2d`
+- `ManualLinearReLU`
+- `ManualLinear`
 
 路径：
 
@@ -877,7 +877,7 @@ ManualConvAddReLU2d
 
 ## 15. 对 `deploy.py` 的定位建议
 
-建议把 `simples_quantize/quantize_tools/deploy.py` 定位成：
+建议把 `paibox/quantize_tools/deploy.py` 定位成：
 
 - 历史实现
 - 参考实现
@@ -885,7 +885,7 @@ ManualConvAddReLU2d
 
 而把新能力持续加在：
 
-- `simples_quantize/quantize_tools/paiir.py`
+- `paibox/quantize_tools/paiir.py`
 - `paibox/paiir/ir/quantized_ops.py`
 - `paibox/paiir/pipeline/quantized_materialize.py`
 
@@ -953,7 +953,7 @@ ManualConvAddReLU2d
 - `docs/quantized_paiir_deployment.md`
 - `paibox/paiir/ir/quantized_ops.py`
 - `paibox/paiir/pipeline/quantized_materialize.py`
-- `simples_quantize/quantize_tools/paiir.py`
+- `paibox/quantize_tools/paiir.py`
 - `tests/paiir/pipeline/test_quantized_materialize.py`
 
 ### 修改
@@ -967,7 +967,7 @@ ManualConvAddReLU2d
 - `paibox/paiir/lowering/converter.py`
 - `paibox/paiir/pipeline/compile.py`
 - `paibox/paiir/pipeline/passes.py`
-- `simples_quantize/quantize_tools/__init__.py`
+- `paibox/quantize_tools/__init__.py`
 
 ---
 

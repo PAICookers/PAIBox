@@ -161,6 +161,13 @@ debug
 .idea/
 
 output/
+output/quantize/
+
+# Quantization example datasets, checkpoints, and generated artifacts
+examples/data/MNIST/
+examples/data/cifar-10-batches-py/
+examples/quantize/**/outputs*/
+examples/quantize/**/exported_*/
 
 # Local task/session notes
 tasks/

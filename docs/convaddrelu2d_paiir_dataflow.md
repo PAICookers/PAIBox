@@ -86,7 +86,7 @@ core config / neuron attrs / LUT / weights / routing frames
 转换入口在：
 
 ```text
-simples_quantize/quantize_tools/converter.py
+paibox/quantize_tools/converter.py
 ```
 
 `FxGraphConverter._handle_convaddrelu2d` 会识别：
@@ -148,7 +148,7 @@ out = ReLU_LUT(sum_acc)
 这里 `M, n` 来自：
 
 ```text
-simples_quantize/quantize_tools/utils.py::approximate_scale_ratio
+paibox/quantize_tools/utils.py::approximate_scale_ratio
 ```
 
 ## 4. ManualConvAddReLU2d 到 QuantizedConvAddReLU2dOp
@@ -156,7 +156,7 @@ simples_quantize/quantize_tools/utils.py::approximate_scale_ratio
 注册入口在：
 
 ```text
-simples_quantize/quantize_tools/paiir.py
+paibox/quantize_tools/paiir.py
 ```
 
 `register_manual_quantized_paiir()` 会做两件事：

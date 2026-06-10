@@ -1,19 +1,20 @@
-﻿"""
+"""
 SimpleVGG (CIFAR-10) 自动对称量化脚本
 
 功能:
     1. 加载基于 FP32 训练好的最优 SimpleVGG 模型
     2. 配置对称量化 (Symmetric Quantization) 策略
     3. 利用 FX Graph 自动插桩 (Observer) 并使用训练集/验证集数据进行校准
-    4. 将 FX 模型转换为完全手动的量化算子 (ManualQuantConv2d / ManualQuantLinear)
+    4. 将 FX 模型转换为完全手动的量化算子 (ManualConv2d / ManualLinear)
     5. 测试量化后的模型精度并导出参数
 """
 
 from models import MNIST_FC
 from train import build_dataloaders, evaluate, DATA_DIR
 from paibox.paiir.lowering.converter import propagate_shapes
-from simples.quantize_tools import (
-    convert_fx_to_manual,
+from paibox.quantize_tools import (
+    build_manual_prepare_custom_config,
+    convert_prepared_fx_to_manual,
     export_manual_model_params,
 )
 import os
@@ -96,9 +97,11 @@ def main():
     # MNIST 数据样例
     example_inputs = torch.randn(1, 1, 28, 28).to(device)
     fp32_model = fuse_fx(fp32_model)
+    backend_config = get_qnnpack_backend_config()
     prepared_model = quantize_fx.prepare_fx(
         fp32_model, qconfig_mapping, (example_inputs,
-                                      ), backend_config=get_qnnpack_backend_config()
+                                      ), backend_config=backend_config,
+        prepare_custom_config=build_manual_prepare_custom_config(),
     )
     print("准备好的 FX 模型图结构 (带 Observer):")
     prepared_model.graph.print_tabular()
@@ -117,8 +120,8 @@ def main():
     # 4. 转换模型
     print("\n[4] 正在将带 Observer 的 FX 模型转化为完全离线的自动 ManualQuant 模型...")
     use_lut = True  # 是否开启基于查表的 ReLU，False 表示继续使用标准后端运算
-    manual_model = convert_fx_to_manual(
-        prepared_model, use_lut=use_lut, activation_symmetric=True)
+    manual_model = convert_prepared_fx_to_manual(
+        prepared_model, backend_config=backend_config)
 
     # 因为自定义替换掉了一些 op，需要把 Tensor 本身的形状信息在图中重新传播一次，以方便之后可能的拆分映射
     propagate_shapes(manual_model, example_inputs)
