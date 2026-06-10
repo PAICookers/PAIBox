@@ -73,6 +73,37 @@ def build_calibration_loader(
     )
 
 
+def build_test_loader(
+    data_dir: Path,
+    *,
+    batch_size: int,
+    num_workers: int,
+    download: bool,
+) -> DataLoader:
+    transform = transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.Normalize(
+                (0.4914, 0.4822, 0.4465),
+                (0.2023, 0.1994, 0.2010),
+            ),
+        ]
+    )
+    dataset = torchvision.datasets.CIFAR10(
+        root=data_dir,
+        train=False,
+        download=download,
+        transform=transform,
+    )
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
+
 def load_fp32_model(checkpoint_path: Path) -> ResNetCIFAR10:
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
@@ -97,6 +128,46 @@ def calibrate(model: nn.Module, loader: DataLoader, device: torch.device, batche
             model(images.to(device))
 
 
+def compare_model_accuracy(
+    fp32_model: nn.Module,
+    hardware_sim_model: nn.Module,
+    loader: DataLoader,
+    device: torch.device,
+    batches: int,
+) -> tuple[float, float, float, int]:
+    fp32_model.eval()
+    hardware_sim_model.eval()
+
+    fp32_correct = 0
+    hardware_correct = 0
+    agreement = 0
+    total = 0
+
+    with torch.no_grad():
+        for i, (images, labels) in enumerate(loader):
+            if batches > 0 and i >= batches:
+                break
+
+            images = images.to(device)
+            labels = labels.to(device)
+
+            fp32_pred = fp32_model(images).argmax(dim=1)
+            hardware_pred = hardware_sim_model(images).argmax(dim=1)
+
+            fp32_correct += fp32_pred.eq(labels).sum().item()
+            hardware_correct += hardware_pred.eq(labels).sum().item()
+            agreement += fp32_pred.eq(hardware_pred).sum().item()
+            total += labels.numel()
+
+    if total == 0:
+        raise ValueError("accuracy comparison received no samples")
+
+    fp32_acc = 100.0 * fp32_correct / total
+    hardware_acc = 100.0 * hardware_correct / total
+    agreement_acc = 100.0 * agreement / total
+    return fp32_acc, hardware_acc, agreement_acc, total
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Quantize and deploy ResNetCIFAR10 through PAIIR/backendv2."
@@ -105,6 +176,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--calib-batches", type=int, default=10)
+    parser.add_argument(
+        "--accuracy-batches",
+        type=int,
+        default=10,
+        help="Number of test batches for FP32 vs hardware-sim accuracy comparison; <=0 runs all.",
+    )
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--download", action="store_true")
@@ -164,6 +241,26 @@ def main() -> None:
     params_dir = output_dir / "exported_params"
     params_dir.mkdir(parents=True, exist_ok=True)
     export_manual_model_params(quantized_model, params_dir)
+
+    print("[5.5] Comparing FP32 and hardware-sim model accuracy")
+    test_loader = build_test_loader(
+        args.data_dir,
+        batch_size=args.batch_size,
+        num_workers=args.num_workers,
+        download=args.download,
+    )
+    fp32_acc, hardware_acc, agreement_acc, eval_samples = compare_model_accuracy(
+        fp32_model,
+        quantized_model,
+        test_loader,
+        device,
+        args.accuracy_batches,
+    )
+    print(f"      Samples: {eval_samples}")
+    print(f"      FP32 accuracy: {fp32_acc:.2f}%")
+    print(f"      Hardware-sim accuracy: {hardware_acc:.2f}%")
+    print(f"      Accuracy delta: {hardware_acc - fp32_acc:+.2f}%")
+    print(f"      Prediction agreement: {agreement_acc:.2f}%")
 
     print("[6] Compiling to PAIIR")
     register_manual_quantized_paiir()
