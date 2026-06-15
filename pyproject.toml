@@ -38,12 +38,12 @@ packages = [{ include = "paibox" }]
 
 [dependency-groups]
 dev = [
-    "pytest>=8.0",
+    "pytest>=9.0",
     "pytest-cov>=7.0",
     "pytest-md>=0.2",
     "pytest-xdist>=3.7.0",
     "orjson>=3.11.6",
-    "paicorelib>=2.0.0b3 ; platform_machine != 'armv7l'",
+    "paicorelib>=2.0.0b5 ; platform_machine != 'armv7l'",
     "torch>=2.0.0,<2.2.0 ; python_full_version < '3.12'",
     "torch>=2.2.0 ; python_full_version >= '3.12'",
     "spikingjelly>=0.0.0.0.12",
@@ -69,7 +69,7 @@ torch = [
 ]
 
 [tool.pytest.ini_options]
-minversion = "8.0.0"
+minversion = "9.0"
 testpaths = ["tests"]
 addopts = ["--cov=paibox", "--cov-branch"] #, "--cov-report=term", "-nauto"]
 
@@ -95,6 +95,7 @@ default = true
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
 
 
 [build-system]
