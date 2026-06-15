@@ -563,7 +563,7 @@ class RoutingGroup(
                 fold_info = get_fold_info(weight_offsets, axon_addr_offsets)
                 if fold_info is None:
                     continue
-                ranges, fold_axon_skews, fold_weight_skews = fold_info
+                ranges, fold_weight_skews, fold_axon_skews = fold_info
                 print(
                     f"{prefix}Find fold {len(sub_neurons)} neurons with base weight {index} "
                     f"to dest group {dest_group.name}:"
@@ -589,6 +589,16 @@ class RoutingGroup(
                 if skip_fold:
                     continue
 
+                attrs_part2s = [neu.attrs_part2() for neu in sub_neurons]
+                if any(
+                    attrs_part2 != attrs_part2s[0] for attrs_part2 in attrs_part2s[1:]
+                ):
+                    print(
+                        f"{prefix}Fold candidates with base weight {index} have "
+                        "different full-neuron Part2 attrs, skipping fold."
+                    )
+                    continue
+
                 if index not in weight_strategy_cache:
                     current_weight_width = frontend_core_conf.weight_width
                     base_weight = base_weights[index]
@@ -602,7 +612,7 @@ class RoutingGroup(
                 selected_weight, weight_compress = weight_strategy_cache[index]
                 weight_sram_req = selected_weight.n_sram_required
 
-                attrs_part2 = sub_neurons[0].attrs_part2()
+                attrs_part2 = attrs_part2s[0]
                 attrs_part2.weight_compress = weight_compress
                 neuron_type = NeuronType.FULL
                 output_type = sub_neurons[0].output_type()
@@ -861,9 +871,9 @@ class RoutingGroup(
                 )
                 neu_placement.dest_info = dest_info
 
-    def set_auto_core_config(self):
-        for core_placement in self.core_placements:
-            core_placement.set_auto_core_config()
+    def set_auto_core_config(self, test_dest_core: CoordXY) -> None:
+        for cp in self.core_placements:
+            cp.set_auto_core_config(test_dest_core)
 
     @property
     def multicast_config(self) -> AERPacketZXYCopy:
@@ -1159,6 +1169,11 @@ class OutputGroup(Group, DestGroup[SourceElem, SourceNode]):
     @property
     def base_coord(self) -> CoordXY:
         return self._base_coord
+
+    @base_coord.setter
+    def base_coord(self, coord: CoordXY) -> None:
+        """Retarget final DATA collection without changing compute placement."""
+        self._base_coord = coord
 
 
 def toposort_for_rg(

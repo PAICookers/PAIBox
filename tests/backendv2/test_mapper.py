@@ -8,6 +8,7 @@ import pytest
 import torch
 from paicorelib import (
     LCN_EX,
+    CoordXY,
     CSCAccelerateMode,
     DataSign,
     DataWidth,
@@ -22,6 +23,7 @@ from paibox.backendv2.coreplacement import OfflineCorePlacementV2
 from paibox.backendv2.export.utils import export_framearray_to_int32
 from paibox.backendv2.mapper import Mapper
 from paibox.backendv2.op_node import SourceElem
+from paibox.backendv2.output_cpu_ingress import OutputRouteEndpoint
 from paibox.backendv2.proto import get_schema_version
 from paibox.backendv2.proto.compile_artifacts_pb2 import (
     CompileArtifacts,
@@ -31,11 +33,63 @@ from paibox.backendv2.proto.compile_artifacts_pb2 import (
     RuntimeParams,
 )
 from paibox.backendv2.routing import FANIN_BASE, OutputGroup
-from paibox.paiir import compile_to_paiir
+from paibox.paiir import ANNNodeV25, LutCustom, compile_to_paiir, register_neuron
 from tests.paiir.conftest import ANNClassifier, SimpleCNN, SNNTwoLayer, make_img_3ch_8x8
 from tests.utils import is_ci_env
 
 DEBUG_EXPORT_ROOT = Path(__file__).with_name("debug") / "mapper_proto_export"
+
+
+class FloatOutputIdentityLutCustom(LutCustom):
+    def forward(self, x):
+        return super().forward(x).to(torch.float32)
+
+
+class RepeatedWeightDifferentBiasLinearLut(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        thresholds = torch.arange(256, dtype=torch.int32)
+        values = torch.arange(256, dtype=torch.uint8)
+        self.linear1 = nn.Linear(4, 4, bias=True)
+        self.lut1 = FloatOutputIdentityLutCustom(
+            thresholds, values, output_sign=0, is_float=False
+        )
+        self.linear2 = nn.Linear(4, 2, bias=True)
+        self.lut2 = FloatOutputIdentityLutCustom(
+            thresholds, values, output_sign=0, is_float=False
+        )
+        with torch.no_grad():
+            repeated_row = torch.tensor([1, -1, 1, -1], dtype=torch.float32)
+            self.linear1.weight.copy_(repeated_row.repeat(4, 1))
+            self.linear1.bias.copy_(
+                torch.tensor([120, 121, 122, 123], dtype=torch.float32)
+            )
+            self.linear2.weight.copy_(
+                torch.tensor([[1, 1, -1, -1], [-1, 1, -1, 1]], dtype=torch.float32)
+            )
+            self.linear2.bias.copy_(torch.tensor([128, 130], dtype=torch.float32))
+
+    def forward(self, x):
+        x = self.lut1(self.linear1(x))
+        return self.lut2(self.linear2(x))
+
+
+def _register_float_output_identity_lut_custom() -> None:
+    try:
+        register_neuron(
+            FloatOutputIdentityLutCustom,
+            converter=lambda lut: ANNNodeV25(
+                LutCustom(
+                    lut.thresholds.detach().clone(),
+                    lut.lut_values.detach().clone(),
+                    output_sign=lut.output_sign,
+                    is_float=lut.is_float,
+                )
+            ),
+        )
+    except ValueError as exc:
+        if "already registered" not in str(exc):
+            raise
 
 
 def _assert_debug_frame_text(path: Path) -> None:
@@ -312,6 +366,31 @@ def _shared_sparse_linear_neuron_placements(mapper: Mapper):
     ]
 
 
+def test_mapper_finalizes_output_cpu_ingress_plan_without_full_compile(monkeypatch):
+    mapper = Mapper()
+    endpoints = [
+        OutputRouteEndpoint(CoordXY(0, 2), CoordXY(0, 0)),
+        OutputRouteEndpoint(CoordXY(5, 2), CoordXY(0, 0)),
+    ]
+    applied_targets: list[CoordXY] = []
+
+    monkeypatch.setattr(mapper, "_collect_output_route_endpoints", lambda: endpoints)
+    monkeypatch.setattr(mapper, "_global_root_coord", lambda: CoordXY(2, 2))
+
+    def record_output_target(plan) -> None:
+        if plan.output_target is not None:
+            applied_targets.append(plan.output_target)
+
+    monkeypatch.setattr(mapper, "_apply_output_target", record_output_target)
+
+    plan = mapper.finalize_output_cpu_ingress_plan()
+
+    assert mapper.output_cpu_ingress_plan == plan
+    assert plan.output_target == CoordXY(4, 0)
+    assert plan.control_target == CoordXY(4, 0)
+    assert applied_targets == [CoordXY(4, 0)]
+
+
 def test_mapper_default_auto_strategy_mixes_sparse_and_dense_csc(tmp_path):
     graph = compile_to_paiir(
         DefaultMixedSparseDenseLinear().eval(),
@@ -412,6 +491,40 @@ def test_mapper_default_sparse_csc_half_reuse_is_true_sparse_csc(tmp_path):
     assert placements[1].neu_attrs_part1.weight_address_end == (
         placements[0].neu_attrs_part1.weight_address_end
     )
+
+
+def test_mapper_does_not_fold_neurons_with_different_part2_attrs(tmp_path):
+    _register_float_output_identity_lut_custom()
+    graph = compile_to_paiir(
+        RepeatedWeightDifferentBiasLinearLut().eval(),
+        torch.tensor([[3, 4, 5, 6]], dtype=torch.float32),
+        input_formats={"InputNode_0": (DataSign.UNSIGNED, DataWidth.WIDTH_8BIT)},
+        timesteps=1,
+        auto_reset=True,
+        strict=True,
+    )
+    mapper = Mapper()
+    mapper.compile(graph, tmp_path, target_platform="x86", debug=False)
+
+    placements = _shared_sparse_linear_neuron_placements(mapper)
+    first_layer = [
+        placement
+        for placement in placements
+        if len(placement.raw_neus) == 1
+        and placement.raw_neus[0].target.name == "SequentialOp_0"
+    ]
+    first_layer = sorted(
+        first_layer, key=lambda placement: placement.raw_neus[0].index.idx
+    )
+
+    assert len(first_layer) == 4
+    assert all(placement.folded_neu_attrs_part1 is None for placement in first_layer)
+    assert [placement.neu_attrs_part2.leak_v for placement in first_layer] == [
+        120,
+        121,
+        122,
+        123,
+    ]
 
 
 def test_mapper_default_uint8_high_index_shifted_base_tie_uses_dense(tmp_path):

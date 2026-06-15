@@ -1,11 +1,12 @@
 import os
 from pathlib import Path
 
-from paicorelib import CoordZXYOffset
+from paicorelib import CoordXY, CoordZXYOffset
 
 from paibox.paiir import PAIIRGraph
 from paibox.paiir.ir import OfflineCoreOp
 
+from .core_config import TEST_DEST_CORE
 from .coreplacement import CorePlacement
 from .export.cheader import export_cheader_files, export_cheader_merged
 from .export.npy import export_frame_npy
@@ -21,6 +22,11 @@ from .export.utils import (
 from .global_signal import set_global_signal
 from .group_tile import tile_groups
 from .op_node import AllNode, InputElem, Neuron, RemapElem, SourceElem, build_nodes
+from .output_cpu_ingress import (
+    OutputCpuIngressPlan,
+    OutputRouteEndpoint,
+    select_output_cpu_ingress_plan,
+)
 from .rg_build import build_groups
 from .route_solver import route_solve
 from .routing import InputGroup, OutputGroup, RemapGroup, RoutingGroup, toposort_for_rg
@@ -36,6 +42,7 @@ class Mapper:
         self.coreplacements: list[CorePlacement] = []
         self.global_starts: dict[int, CoordZXYOffset] = {}
         self.timesteps: int = 1
+        self.output_cpu_ingress_plan: OutputCpuIngressPlan | None = None
 
     def _resolve_timesteps(self, pai_graph: PAIIRGraph, timesteps: int | None) -> int:
         """Resolve the application runtime length used by output metadata.
@@ -200,9 +207,55 @@ class Mapper:
         for in_grp in self.input_groups:
             in_grp.set_detail_dest()
 
-    def set_auto_core_config(self) -> None:
+    def set_auto_core_config(self, test_dest_core: CoordXY) -> None:
         for rg in self.routing_groups:
-            rg.set_auto_core_config()
+            rg.set_auto_core_config(test_dest_core)
+
+        # Empty global-signal relay cores are appended to self.coreplacements
+        # after routing-group allocation, so set their auto config separately.
+        owned_cp_ids = {
+            id(cp) for rg in self.routing_groups for cp in rg.core_placements
+        }
+        for cp in self.coreplacements:
+            if id(cp) not in owned_cp_ids:
+                cp.set_auto_core_config(test_dest_core)
+
+    def _collect_output_route_endpoints(self) -> list[OutputRouteEndpoint]:
+        endpoints: list[OutputRouteEndpoint] = []
+        seen: set[tuple[int, int, int, int]] = set()
+        for rg in self.routing_groups:
+            for cp in rg.core_placements:
+                for neu_placement in cp.neus:
+                    dest_group = rg.get_dest(neu_placement.raw_neus[0])
+                    if not isinstance(dest_group, OutputGroup):
+                        continue
+                    key = (id(cp), id(dest_group), cp.coord.x, cp.coord.y)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    endpoints.append(
+                        OutputRouteEndpoint(cp.coord, dest_group.base_coord)
+                    )
+        return endpoints
+
+    def _global_root_coord(self) -> CoordXY:
+        if not self.global_starts:
+            return TEST_DEST_CORE
+        root_offset = self.global_starts.get(0, next(iter(self.global_starts.values())))
+        return CoordXY(0, 0) + root_offset.to_xy()
+
+    def _apply_output_target(self, plan: OutputCpuIngressPlan) -> None:
+        if plan.output_target is not None:
+            for output_group in self.output_groups:
+                output_group.base_coord = plan.output_target
+
+    def finalize_output_cpu_ingress_plan(self) -> OutputCpuIngressPlan:
+        """Select final output/control targets before neuron dests are encoded."""
+        endpoints = self._collect_output_route_endpoints()
+        plan = select_output_cpu_ingress_plan(self._global_root_coord(), endpoints)
+        self.output_cpu_ingress_plan = plan
+        self._apply_output_target(plan)
+        return plan
 
     def export_artifacts(
         self,
@@ -361,17 +414,19 @@ class Mapper:
         for rg in all_groups:
             print(rg.routing_summary(prefix="    "))
 
-        self.set_detail_dest()
-
         for rg in self.routing_groups:
             self.coreplacements.extend(rg.core_placements)
-
-        self.set_auto_core_config()
 
         self.coreplacements, self.global_starts = set_global_signal(self.coreplacements)
         print("Global signal relative offset:")
         for thread_id, offset in self.global_starts.items():
             print(f"    Thread {thread_id}: {offset}")
+
+        output_route_plan = self.finalize_output_cpu_ingress_plan()
+
+        # Detail destinations must observe any OutputGroup retarget selected above.
+        self.set_detail_dest()
+        self.set_auto_core_config(output_route_plan.control_target)
 
         # export to hardware executable format
         if output_path is None:

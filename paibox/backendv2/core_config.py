@@ -21,9 +21,12 @@ TEST_DEST_CORE = CoordXY(0, 0)
 # default core configs that not used temporarily, all cores share the same default configs
 @dataclass
 class Default_Core_Config:
-    busy_cycle: int = 2
-    delay_cycle: int = 2
-    width_cycle: int = 2
+    # Hardware timing margin for complete-frame emission after busy is low.
+    # Route selection should still align DATA and control-frame CPU ingress sides;
+    # do not rely on this margin as the primary ordering fix.
+    busy_cycle: int = 20
+    delay_cycle: int = 20
+    width_cycle: int = 10
     thread_number: int = 0
     csc_accelerate: CSCAccelerateMode = CSCAccelerateMode.ENABLE
 

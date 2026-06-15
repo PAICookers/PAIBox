@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from abc import abstractmethod
 
 import numpy as np
@@ -16,7 +14,6 @@ from paicorelib import (
 )
 
 from .core_config import (
-    TEST_DEST_CORE,
     Auto_Core_Config,
     Backend_Core_Config,
     Default_Core_Config,
@@ -73,7 +70,7 @@ class CorePlacement:
         pass
 
     @abstractmethod
-    def set_auto_core_config(self) -> None:
+    def set_auto_core_config(self, test_dest_core: CoordXY) -> None:
         pass
 
     @property
@@ -179,12 +176,10 @@ class OfflineCorePlacementV2(CorePlacement):
                     neu.neu_attrs_part1.weight_address_start
                 )
 
-    def set_auto_core_config(self) -> None:
-        neuron_number = 0
-        for neu in self.neus:
-            neuron_number += neu.n_sram_required
+    def set_auto_core_config(self, test_dest_core: CoordXY) -> None:
+        neuron_number = sum(neu.n_sram_required for neu in self.neus)
+        pkt_offset, _ = find_coordxy_shortest_path(test_dest_core, self.coord)
         self.auto_core_config.neuron_number = neuron_number
-        pkt_offset, _ = find_coordxy_shortest_path(TEST_DEST_CORE, self.coord)
         self.auto_core_config.test_core_xy = pkt_offset.z
         self.auto_core_config.test_core_x = pkt_offset.x
         self.auto_core_config.test_core_y = pkt_offset.y
