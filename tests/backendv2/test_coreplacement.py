@@ -1,4 +1,6 @@
 from paicorelib import (
+    CoordXY,
+    CoordZXYOffset,
     CSCAccelerateMode,
     DataWidth,
     FoldType,
@@ -17,7 +19,11 @@ from paicorelib import (
 )
 from paicorelib.neuron_defs import ResetMode
 
-from paibox.backendv2.coreplacement import OfflineCorePlacementV2
+from paibox.backendv2.coreplacement import (
+    EmptyOfflineCorePlacementV2,
+    EmptyOnlineCorePlacementV2,
+    OfflineCorePlacementV2,
+)
 from paibox.backendv2.neuron import OfflineNeuronPlacement
 from paibox.backendv2.weight import Weight
 
@@ -80,7 +86,7 @@ def _weight(compress_type: WeightCompressType) -> Weight:
 
 def _core_with_single_neuron(
     neuron: OfflineNeuronPlacement,
-    weight: Weight,
+    weight: Weight
 ) -> OfflineCorePlacementV2:
     core = OfflineCorePlacementV2()
     core.neus = [neuron]
@@ -136,3 +142,32 @@ def test_set_weight_address_does_not_touch_half_neuron_part2_semantics():
 
     assert core.default_core_config.csc_accelerate == CSCAccelerateMode.ENABLE
     assert neuron.neu_attrs_part2 is None
+
+
+def test_empty_offline_core_exports_only_frame1():
+    core = EmptyOfflineCorePlacementV2()
+    core._coord = CoordXY(1, 2)
+    core.set_auto_core_config(CoordZXYOffset(-1, 0, -1))
+
+    frame1, frame2, frame3 = core.to_frame()
+
+    assert frame1 is not None
+    assert frame2 is None
+    assert frame3 is None
+
+
+def test_empty_online_core_exports_minimal_online_frame1():
+    core = EmptyOnlineCorePlacementV2()
+    core._coord = CoordXY(1, 2)
+    core.set_auto_core_config(CoordZXYOffset(-1, 0, -1))
+
+    assert (
+        core.auto_core_config.test_core_xy,
+        core.auto_core_config.test_core_x,
+        core.auto_core_config.test_core_y,
+    ) == (-1, 0, -1)
+
+    frame1, frame2, frame3 = core.to_frame()
+    assert frame1 is not None
+    assert frame2 is None
+    assert frame3 is None

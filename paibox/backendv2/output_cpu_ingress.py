@@ -1,12 +1,17 @@
-from dataclasses import dataclass
-from typing import Literal
-
 from paicorelib import CoordXY, CoordZXYOffset, find_coordxy_shortest_path
 
 from .core_config import TEST_DEST_CORE
-from .route_solver import G_X_MAX, G_X_MIN
-
-CpuIngressSide = tuple[Literal["x", "y", "xy", "local"], int]
+from .output_route_offsets import (
+    RouteSide,
+    candidate_offsets,
+    route_len,
+    terminal_route_side,
+)
+from .output_routes import (
+    OutputCpuIngressPlan,
+    OutputRouteDecision,
+    OutputRouteEndpoint,
+)
 
 
 class CpuIngressError(RuntimeError):
@@ -14,131 +19,90 @@ class CpuIngressError(RuntimeError):
 
 
 class CpuIngressNoFeasiblePlanError(CpuIngressError):
-    """Raised when no output/control targets can share one CPU ingress side."""
+    """Raised when no output/control offsets can share one CPU ingress side."""
 
 
-@dataclass(frozen=True)
-class OutputRouteEndpoint:
-    producer_coord: CoordXY
-    target_coord: CoordXY
+def terminal_data_ingress_side(offset: CoordZXYOffset) -> RouteSide:
+    """Return the CPU ingress side used by output DATA packets."""
+    return terminal_route_side(offset)
 
 
-@dataclass(frozen=True)
-class OutputCpuIngressPlan:
-    output_target: CoordXY | None
-    control_target: CoordXY
-    ingress_side: CpuIngressSide
+def terminal_control_ingress_side(offset: CoordZXYOffset) -> RouteSide:
+    """Return the CPU ingress side used by completion/test packets."""
+    return terminal_route_side(offset)
 
 
-def terminal_cpu_ingress_side(offset: CoordZXYOffset) -> CpuIngressSide:
-    """Return the destination-side ingress used by a routed ZXY packet.
-
-    The v2.5 packet walker consumes route fields in Z, then X, then Y order.
-    The last non-zero leg is therefore the side from which the packet reaches
-    its destination port.
-    """
-    if offset.y != 0:
-        return ("y", 1 if offset.y > 0 else -1)
-    if offset.x != 0:
-        return ("x", 1 if offset.x > 0 else -1)
-    if offset.z != 0:
-        return ("xy", 1 if offset.z > 0 else -1)
-    return ("local", 0)
+def _offsets_by_ingress(
+    start_coord: CoordXY, target_coord: CoordXY
+) -> dict[RouteSide, CoordZXYOffset]:
+    by_side: dict[RouteSide, CoordZXYOffset] = {}
+    for offset in candidate_offsets(start_coord, target_coord):
+        by_side.setdefault(terminal_route_side(offset), offset)
+    return by_side
 
 
-def _cpu_io_target_candidates(preferred: list[CoordXY]) -> list[CoordXY]:
-    """Return deterministic candidate cores on the CPU-facing chip side."""
-    candidates: list[CoordXY] = []
-    seen: set[tuple[int, int]] = set()
-
-    def add(coord: CoordXY) -> None:
-        key = (coord.x, coord.y)
-        if key not in seen:
-            seen.add(key)
-            candidates.append(coord)
-
-    for coord in preferred:
-        add(coord)
-
-    # Offline compute cores are placed at y >= 2. The y=0/1 rows are the
-    # CPU-facing side available for DATA and control/test-frame collection.
-    for y in (0, 1):
-        for x in range(G_X_MIN, G_X_MAX + 1):
-            add(CoordXY(x, y))
-
-    return candidates
-
-
-def _route_ingress_sides(
-    endpoints: list[OutputRouteEndpoint], override_target: CoordXY | None = None
-) -> set[CpuIngressSide]:
-    ingress_sides: set[CpuIngressSide] = set()
-    for endpoint in endpoints:
-        target = (
-            override_target if override_target is not None else endpoint.target_coord
-        )
-        offset, _ = find_coordxy_shortest_path(target, endpoint.producer_coord)
-        ingress_sides.add(terminal_cpu_ingress_side(offset))
-    return ingress_sides
-
-
-def _choose_control_target_for_ingress_side(
-    root_coord: CoordXY, ingress_side: CpuIngressSide, preferred: list[CoordXY]
-) -> CoordXY | None:
-    for target in _cpu_io_target_candidates(preferred):
-        offset, _ = find_coordxy_shortest_path(target, root_coord)
-        if terminal_cpu_ingress_side(offset) == ingress_side:
-            return target
-    return None
+def _route_detail(
+    producer_coord: CoordXY, target_coord: CoordXY, offset: CoordZXYOffset
+) -> str:
+    return (
+        f"producer=({producer_coord.x},{producer_coord.y}) "
+        f"target=({target_coord.x},{target_coord.y}) "
+        f"offset=({offset.z},{offset.x},{offset.y}) "
+        f"ingress_side={terminal_route_side(offset)}"
+    )
 
 
 def select_output_cpu_ingress_plan(
     root_coord: CoordXY, endpoints: list[OutputRouteEndpoint]
 ) -> OutputCpuIngressPlan:
-    """Choose output DATA & completion targets with matching CPU ingress.
-
-    The CPU can observe a completion frame before all DATA frames if the two
-    streams enter the CPU-facing side from different ports. Prefer keeping the
-    existing output target and changing only the completion/test target. Retarget
-    output collection only when DATA producers do not already share one ingress.
-    """
+    """Choose route offsets that align DATA and completion at CPU ingress."""
     if not endpoints:
-        return OutputCpuIngressPlan(None, TEST_DEST_CORE, ("local", 0))
-
-    current_targets = [endpoint.target_coord for endpoint in endpoints]
-    current_ingress_sides = _route_ingress_sides(endpoints)
-    if len(current_ingress_sides) == 1:
-        ingress_side = next(iter(current_ingress_sides))
-        control_target = _choose_control_target_for_ingress_side(
-            root_coord, ingress_side, current_targets
+        control_offset = find_coordxy_shortest_path(TEST_DEST_CORE, root_coord)[0]
+        return OutputCpuIngressPlan(
+            (), control_offset, terminal_control_ingress_side(control_offset)
         )
-        if control_target is not None:
-            return OutputCpuIngressPlan(None, control_target, ingress_side)
 
-    for output_target in _cpu_io_target_candidates(current_targets):
-        ingress_sides = _route_ingress_sides(endpoints, override_target=output_target)
-        if len(ingress_sides) != 1:
-            continue
+    control_offsets = _offsets_by_ingress(root_coord, TEST_DEST_CORE)
+    output_offsets = [
+        _offsets_by_ingress(endpoint.producer_coord, endpoint.target_coord)
+        for endpoint in endpoints
+    ]
 
-        ingress_side = next(iter(ingress_sides))
-        control_target = _choose_control_target_for_ingress_side(
-            root_coord, ingress_side, [output_target]
-        )
-        if control_target is not None:
-            return OutputCpuIngressPlan(output_target, control_target, ingress_side)
+    common_sides = set(control_offsets)
+    for offsets in output_offsets:
+        common_sides &= set(offsets)
 
-    details = []
-    for endpoint in endpoints:
-        offset, _ = find_coordxy_shortest_path(
-            endpoint.target_coord, endpoint.producer_coord
+    if common_sides:
+        ingress_side = min(
+            common_sides,
+            key=lambda side: (
+                sum(route_len(offsets[side]) for offsets in output_offsets)
+                + route_len(control_offsets[side]),
+                str(side),
+            ),
         )
-        details.append(
-            f"producer=({endpoint.producer_coord.x},{endpoint.producer_coord.y}) "
-            f"target=({endpoint.target_coord.x},{endpoint.target_coord.y}) "
-            f"offset=({offset.z},{offset.x},{offset.y}) "
-            f"ingress_side={terminal_cpu_ingress_side(offset)}"
+        return OutputCpuIngressPlan(
+            tuple(
+                OutputRouteDecision(
+                    endpoint.producer_coord,
+                    endpoint.target_coord,
+                    offsets[ingress_side],
+                )
+                for endpoint, offsets in zip(endpoints, output_offsets, strict=True)
+            ),
+            control_offsets[ingress_side],
+            ingress_side,
         )
+
+    details: list[str] = []
+    for endpoint, offsets in zip(endpoints, output_offsets, strict=True):
+        for offset in offsets.values():
+            details.append(
+                _route_detail(endpoint.producer_coord, endpoint.target_coord, offset)
+            )
+    for offset in control_offsets.values():
+        details.append(_route_detail(root_coord, TEST_DEST_CORE, offset))
     raise CpuIngressNoFeasiblePlanError(
-        "Cannot find a CPU-side target that aligns output DATA and completion "
-        "control frames to the same ingress side:\n" + "\n".join(details)
+        "Cannot find fixed-CPU route offsets that align output DATA and "
+        "completion control frames to the same ingress side:\n" + "\n".join(details)
     )

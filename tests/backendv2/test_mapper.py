@@ -9,6 +9,7 @@ import torch
 from paicorelib import (
     LCN_EX,
     CoordXY,
+    CoordZXYOffset,
     CSCAccelerateMode,
     DataSign,
     DataWidth,
@@ -23,7 +24,7 @@ from paibox.backendv2.coreplacement import OfflineCorePlacementV2
 from paibox.backendv2.export.utils import export_framearray_to_int32
 from paibox.backendv2.mapper import Mapper
 from paibox.backendv2.op_node import SourceElem
-from paibox.backendv2.output_cpu_ingress import OutputRouteEndpoint
+from paibox.backendv2.output_completion import OutputProducer
 from paibox.backendv2.proto import get_schema_version
 from paibox.backendv2.proto.compile_artifacts_pb2 import (
     CompileArtifacts,
@@ -366,29 +367,52 @@ def _shared_sparse_linear_neuron_placements(mapper: Mapper):
     ]
 
 
-def test_mapper_finalizes_output_cpu_ingress_plan_without_full_compile(monkeypatch):
+def test_mapper_builds_output_completion_plan_without_full_compile(monkeypatch):
     mapper = Mapper()
-    endpoints = [
-        OutputRouteEndpoint(CoordXY(0, 2), CoordXY(0, 0)),
-        OutputRouteEndpoint(CoordXY(5, 2), CoordXY(0, 0)),
-    ]
-    applied_targets: list[CoordXY] = []
+    producer_coords = [CoordXY(4, 2), CoordXY(2, 4)]
+    mapper.coreplacements = []
+    for coord in producer_coords:
+        core = OfflineCorePlacementV2()
+        core._coord = coord
+        mapper.coreplacements.append(core)
 
-    monkeypatch.setattr(mapper, "_collect_output_route_endpoints", lambda: endpoints)
-    monkeypatch.setattr(mapper, "_global_root_coord", lambda: CoordXY(2, 2))
+    monkeypatch.setattr(
+        mapper,
+        "_collect_output_producers",
+        lambda: [OutputProducer(coord, CoordXY(0, 0), 1) for coord in producer_coords],
+    )
 
-    def record_output_target(plan) -> None:
-        if plan.output_target is not None:
-            applied_targets.append(plan.output_target)
+    plan = mapper.build_output_completion_plan()
 
-    monkeypatch.setattr(mapper, "_apply_output_target", record_output_target)
+    assert plan.global_signal_root == CoordXY(0, 2)
+    assert plan.root_kind == "empty_offline"
+    assert plan.data_penalty == 2
+    assert {route.target_coord for route in plan.output_routes} == {CoordXY(0, 0)}
 
-    plan = mapper.finalize_output_cpu_ingress_plan()
 
-    assert mapper.output_cpu_ingress_plan == plan
-    assert plan.output_target == CoordXY(4, 0)
-    assert plan.control_target == CoordXY(4, 0)
-    assert applied_targets == [CoordXY(4, 0)]
+def test_mapper_does_not_broadcast_root_control_offset_to_all_cores():
+    mapper = Mapper()
+    root_cp = OfflineCorePlacementV2()
+    other_cp = OfflineCorePlacementV2()
+    root_cp._coord = CoordXY(5, 5)
+    other_cp._coord = CoordXY(6, 5)
+    mapper.coreplacements = [root_cp, other_cp]
+
+    root_control_offset = CoordZXYOffset(-4, -1, -1)
+    mapper.set_auto_core_config(root_cp.coord, root_control_offset)
+
+    other_offset, _ = find_coordxy_shortest_path(CoordXY(0, 0), other_cp.coord)
+    assert (
+        root_cp.auto_core_config.test_core_xy,
+        root_cp.auto_core_config.test_core_x,
+        root_cp.auto_core_config.test_core_y,
+    ) == root_control_offset.to_tuple()
+    assert (
+        other_cp.auto_core_config.test_core_xy,
+        other_cp.auto_core_config.test_core_x,
+        other_cp.auto_core_config.test_core_y,
+    ) == other_offset.to_tuple()
+    assert other_offset != root_control_offset
 
 
 def test_mapper_default_auto_strategy_mixes_sparse_and_dense_csc(tmp_path):

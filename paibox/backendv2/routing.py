@@ -9,6 +9,7 @@ from paicorelib import (
     LCN_EX,
     AERPacketZXYCopy,
     CoordXY,
+    CoordZXYOffset,
     CSCAccelerateMode,
     FoldType,
     NeuronType,
@@ -183,7 +184,12 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
         return f"{self.__class__.__name__}: \n" + self.info(prefix="  ") + "\n"
 
     def get_detail_dest(
-        self, elems: list[SOURCE_ELEM], self_coord: CoordXY = CoordXY(0, 0)
+        self,
+        elems: list[SOURCE_ELEM],
+        self_coord: CoordXY = CoordXY(0, 0),
+        output_route_offsets: (
+            dict[tuple[CoordXY, CoordXY], CoordZXYOffset] | None
+        ) = None,
     ) -> OfflineNeuDestInfoV2:
         dest_routing_group = self.get_dest(elems[0])
         axon_elem = self.get_axon(elems[0])
@@ -209,9 +215,15 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
 
         tick_relative, addr_axon = divmod(axon_bit_count, FANIN_BASE)
 
-        coord_offset, _ = find_coordxy_shortest_path(
-            target=dest_coord, start=self_coord
-        )
+        if output_route_offsets is not None and isinstance(
+            dest_routing_group, OutputGroup
+        ):
+            coord_offset = output_route_offsets.get((self_coord, dest_coord))
+        else:
+            coord_offset = None
+
+        if coord_offset is None:
+            coord_offset, _ = find_coordxy_shortest_path(dest_coord, start=self_coord)
 
         return OfflineNeuDestInfoV2(
             tick_relative=tick_relative,
@@ -856,7 +868,9 @@ class RoutingGroup(
         self._base_coord = coords[0]
         self._multicast_config = copy_config
 
-    def set_detail_dest(self):
+    def set_detail_dest(
+        self, output_route_offsets: dict[tuple[CoordXY, CoordXY], CoordZXYOffset]
+    ) -> None:
         for core_placement in track(
             self.core_placements,
             description=f"Setting Detail Destinations for {self.name}",
@@ -867,13 +881,14 @@ class RoutingGroup(
                 # for folded neuron placement, it may contain multiple raw_neus
                 # but we only need to set dest_info for the first raw_neu
                 dest_info = self.get_detail_dest(
-                    neu_placement.raw_neus, self_coord=core_placement.coord
+                    neu_placement.raw_neus, core_placement.coord, output_route_offsets
                 )
                 neu_placement.dest_info = dest_info
 
     def set_auto_core_config(self, test_dest_core: CoordXY) -> None:
         for cp in self.core_placements:
-            cp.set_auto_core_config(test_dest_core)
+            test_offset, _ = find_coordxy_shortest_path(test_dest_core, cp.coord)
+            cp.set_auto_core_config(test_offset)
 
     @property
     def multicast_config(self) -> AERPacketZXYCopy:
@@ -1169,11 +1184,6 @@ class OutputGroup(Group, DestGroup[SourceElem, SourceNode]):
     @property
     def base_coord(self) -> CoordXY:
         return self._base_coord
-
-    @base_coord.setter
-    def base_coord(self, coord: CoordXY) -> None:
-        """Retarget final DATA collection without changing compute placement."""
-        self._base_coord = coord
 
 
 def toposort_for_rg(
