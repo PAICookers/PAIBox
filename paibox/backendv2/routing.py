@@ -943,9 +943,7 @@ class RoutingGroup(
             summary_str += (
                 f"{prefix}    Total SRAM Required: {core_placement.n_sram_required}\n"
             )
-            summary_str += (
-                f"{prefix}    Total Compute Pressure: {core_placement.get_compute_pressure()}\n"
-            )
+            summary_str += f"{prefix}    Total Compute Pressure: {core_placement.get_compute_pressure()}\n"
         return summary_str
 
 

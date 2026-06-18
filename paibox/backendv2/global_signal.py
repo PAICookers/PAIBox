@@ -236,7 +236,7 @@ def print_solution(
     print("added empty cores:", added)
     print("send directions:")
     for p, ds in moves.items():
-        print(f"  {p} -> " f"{[GLOBAL_SIGNAL_DIRECTION_NAME[d] + f':{d}' for d in ds]}")
+        print(f"  {p} -> {[GLOBAL_SIGNAL_DIRECTION_NAME[d] + f':{d}' for d in ds]}")
 
 
 def set_global_signal(
