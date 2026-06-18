@@ -33,7 +33,9 @@ from .core_config import (
     to_core_reg,
 )
 from .neuron import NeuronPlacement, OfflineNeuronPlacement
-from .weight import Weight
+from .weight import N_WEIGHTS_PER_SRAM, Weight
+
+SRAM_RECORD_BITS = 128
 
 
 class CorePlacement:
@@ -98,6 +100,25 @@ class CorePlacement:
     @abstractmethod
     def weight_sram_required(self) -> int:
         pass
+
+    def get_compute_pressure(self) -> int:
+        pressure = 0
+        for i, neu in enumerate(self.neus):
+            fold_number = len(neu.raw_neus)
+            weight = self.weights[self.neu_weight_map[i]]
+            input_bits = 1 << min(int(weight.input_width), 3)
+            weight_bits = 1 << min(int(weight.weight_width), 3)
+            sram_record_count = weight.n_sram_required
+            if weight.compress:
+                slots_with_padding = sram_record_count * N_WEIGHTS_PER_SRAM.get(
+                    weight.weight_width, 5
+                )
+            else:
+                slots_with_padding = sram_record_count * (
+                    SRAM_RECORD_BITS // weight_bits
+                )
+            pressure += fold_number * input_bits * weight_bits * slots_with_padding
+        return pressure
 
 
 class OfflineCorePlacementV2(CorePlacement):

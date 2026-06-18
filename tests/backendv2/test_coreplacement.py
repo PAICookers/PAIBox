@@ -85,8 +85,7 @@ def _weight(compress_type: WeightCompressType) -> Weight:
 
 
 def _core_with_single_neuron(
-    neuron: OfflineNeuronPlacement,
-    weight: Weight
+    neuron: OfflineNeuronPlacement, weight: Weight
 ) -> OfflineCorePlacementV2:
     core = OfflineCorePlacementV2()
     core.neus = [neuron]
