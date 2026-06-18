@@ -84,6 +84,7 @@ from ..ir.op_node import (
     TransformOp,
 )
 from ..ir.reshape_semantics import RESHAPE_LEAF_MODULE_TYPES
+from ..nn import SumPool1d, SumPool2d
 from .conv_lowering import (
     build_conv_ir_node,
     extract_functional_conv_spec,
@@ -471,6 +472,8 @@ def _build_compute_module_map() -> ModuleMapper:
         nn.AvgPool2d,
         nn.AdaptiveAvgPool1d,
         nn.AdaptiveAvgPool2d,
+        SumPool1d,
+        SumPool2d,
     ]
     return dict.fromkeys(modules, _map_comp)
 

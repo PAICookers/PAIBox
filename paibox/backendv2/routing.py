@@ -9,6 +9,7 @@ from paicorelib import (
     LCN_EX,
     AERPacketZXYCopy,
     CoordXY,
+    CoordZXYOffset,
     CSCAccelerateMode,
     FoldType,
     NeuronType,
@@ -183,7 +184,12 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
         return f"{self.__class__.__name__}: \n" + self.info(prefix="  ") + "\n"
 
     def get_detail_dest(
-        self, elems: list[SOURCE_ELEM], self_coord: CoordXY = CoordXY(0, 0)
+        self,
+        elems: list[SOURCE_ELEM],
+        self_coord: CoordXY = CoordXY(0, 0),
+        output_route_offsets: (
+            dict[tuple[CoordXY, CoordXY], CoordZXYOffset] | None
+        ) = None,
     ) -> OfflineNeuDestInfoV2:
         dest_routing_group = self.get_dest(elems[0])
         axon_elem = self.get_axon(elems[0])
@@ -209,9 +215,15 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
 
         tick_relative, addr_axon = divmod(axon_bit_count, FANIN_BASE)
 
-        coord_offset, _ = find_coordxy_shortest_path(
-            target=dest_coord, start=self_coord
-        )
+        if output_route_offsets is not None and isinstance(
+            dest_routing_group, OutputGroup
+        ):
+            coord_offset = output_route_offsets.get((self_coord, dest_coord))
+        else:
+            coord_offset = None
+
+        if coord_offset is None:
+            coord_offset, _ = find_coordxy_shortest_path(dest_coord, start=self_coord)
 
         return OfflineNeuDestInfoV2(
             tick_relative=tick_relative,
@@ -563,7 +575,7 @@ class RoutingGroup(
                 fold_info = get_fold_info(weight_offsets, axon_addr_offsets)
                 if fold_info is None:
                     continue
-                ranges, fold_axon_skews, fold_weight_skews = fold_info
+                ranges, fold_weight_skews, fold_axon_skews = fold_info
                 print(
                     f"{prefix}Find fold {len(sub_neurons)} neurons with base weight {index} "
                     f"to dest group {dest_group.name}:"
@@ -589,6 +601,16 @@ class RoutingGroup(
                 if skip_fold:
                     continue
 
+                attrs_part2s = [neu.attrs_part2() for neu in sub_neurons]
+                if any(
+                    attrs_part2 != attrs_part2s[0] for attrs_part2 in attrs_part2s[1:]
+                ):
+                    print(
+                        f"{prefix}Fold candidates with base weight {index} have "
+                        "different full-neuron Part2 attrs, skipping fold."
+                    )
+                    continue
+
                 if index not in weight_strategy_cache:
                     current_weight_width = frontend_core_conf.weight_width
                     base_weight = base_weights[index]
@@ -602,7 +624,7 @@ class RoutingGroup(
                 selected_weight, weight_compress = weight_strategy_cache[index]
                 weight_sram_req = selected_weight.n_sram_required
 
-                attrs_part2 = sub_neurons[0].attrs_part2()
+                attrs_part2 = attrs_part2s[0]
                 attrs_part2.weight_compress = weight_compress
                 neuron_type = NeuronType.FULL
                 output_type = sub_neurons[0].output_type()
@@ -846,7 +868,9 @@ class RoutingGroup(
         self._base_coord = coords[0]
         self._multicast_config = copy_config
 
-    def set_detail_dest(self):
+    def set_detail_dest(
+        self, output_route_offsets: dict[tuple[CoordXY, CoordXY], CoordZXYOffset]
+    ) -> None:
         for core_placement in track(
             self.core_placements,
             description=f"Setting Detail Destinations for {self.name}",
@@ -857,13 +881,14 @@ class RoutingGroup(
                 # for folded neuron placement, it may contain multiple raw_neus
                 # but we only need to set dest_info for the first raw_neu
                 dest_info = self.get_detail_dest(
-                    neu_placement.raw_neus, self_coord=core_placement.coord
+                    neu_placement.raw_neus, core_placement.coord, output_route_offsets
                 )
                 neu_placement.dest_info = dest_info
 
-    def set_auto_core_config(self):
-        for core_placement in self.core_placements:
-            core_placement.set_auto_core_config()
+    def set_auto_core_config(self, test_dest_core: CoordXY) -> None:
+        for cp in self.core_placements:
+            test_offset, _ = find_coordxy_shortest_path(test_dest_core, cp.coord)
+            cp.set_auto_core_config(test_offset)
 
     @property
     def multicast_config(self) -> AERPacketZXYCopy:

@@ -1,17 +1,26 @@
-from __future__ import annotations
-
 from abc import abstractmethod
 
 import numpy as np
 from paicorelib import (
     FRAME_DTYPE,
+    LCN_EX,
+    AddPotentialMode,
     CoordXY,
+    CoordZXYOffset,
     CSCAccelerateMode,
     DataWidth,
     FrameArrayType,
     OfflineCoreRegV2,
     OfflineFrameGenV2,
+    OnlineCoreRegV2,
+    OnlineCoreType,
+    OnlineCoreWorkMode,
+    OnlineDataWidth,
+    OnlineFrameGenV2,
+    OnlineSNNMode,
+    PoolingMode,
     WeightCompressType,
+    ZeroOutputMode,
     find_coordxy_shortest_path,
 )
 
@@ -48,8 +57,7 @@ class CorePlacement:
 
     @property
     @abstractmethod
-    def core_config(self) -> OfflineCoreRegV2:
-        pass
+    def core_config(self) -> OfflineCoreRegV2 | OnlineCoreRegV2: ...
 
     @property
     @abstractmethod
@@ -73,7 +81,7 @@ class CorePlacement:
         pass
 
     @abstractmethod
-    def set_auto_core_config(self) -> None:
+    def set_auto_core_config(self, test_offset: CoordZXYOffset | None = None) -> None:
         pass
 
     @property
@@ -179,15 +187,16 @@ class OfflineCorePlacementV2(CorePlacement):
                     neu.neu_attrs_part1.weight_address_start
                 )
 
-    def set_auto_core_config(self) -> None:
-        neuron_number = 0
-        for neu in self.neus:
-            neuron_number += neu.n_sram_required
-        self.auto_core_config.neuron_number = neuron_number
-        pkt_offset, _ = find_coordxy_shortest_path(TEST_DEST_CORE, self.coord)
-        self.auto_core_config.test_core_xy = pkt_offset.z
-        self.auto_core_config.test_core_x = pkt_offset.x
-        self.auto_core_config.test_core_y = pkt_offset.y
+    def set_auto_core_config(self, test_offset: CoordZXYOffset | None = None) -> None:
+        if test_offset is None:
+            test_offset, _ = find_coordxy_shortest_path(TEST_DEST_CORE, self.coord)
+
+        self.auto_core_config.neuron_number = sum(
+            neu.n_sram_required for neu in self.neus
+        )
+        self.auto_core_config.test_core_xy = test_offset.z
+        self.auto_core_config.test_core_x = test_offset.x
+        self.auto_core_config.test_core_y = test_offset.y
 
     def to_frame(
         self,
@@ -238,4 +247,102 @@ class EmptyOfflineCorePlacementV2(OfflineCorePlacementV2):
 
         # frame_type_1: core config
         frame_type1 = OfflineFrameGenV2.gen_config_frame1(pkt_offset, self.core_config)
+        return frame_type1, None, None
+
+
+class EmptyOnlineCorePlacementV2(CorePlacement):
+    """Minimal empty online core used only as a global signal relay.
+
+    backendv2 does not yet carry a complete online-core configuration policy.
+    The class exposes coord and auto core config state so the planner can reason
+    about this fallback, and exports only the online core config frame1 needed
+    for global signal send/receive and control routing.
+    """
+
+    def _unsupported_empty_online_property(self, name: str) -> NotImplementedError:
+        return NotImplementedError(
+            f"EmptyOnlineCorePlacementV2.{name} is not implemented. "
+            "This placement is only a global signal relay with online frame1 export."
+        )
+
+    @property
+    def n_sram_required(self) -> int:
+        raise self._unsupported_empty_online_property("n_sram_required")
+
+    @property
+    def weight_sram_required(self) -> int:
+        raise self._unsupported_empty_online_property("weight_sram_required")
+
+    @property
+    def neuron_sram_required(self) -> int:
+        raise self._unsupported_empty_online_property("neuron_sram_required")
+
+    @property
+    def core_config(self) -> OnlineCoreRegV2:
+        return OnlineCoreRegV2(
+            name=f"empty_online_core_reg_at_({self.coord.x},{self.coord.y})",
+            snn_ann=OnlineSNNMode.SNN_LIF,
+            max_pooling=PoolingMode.AVERAGE,
+            add_potential=AddPotentialMode.NORMAL,
+            zero_output=ZeroOutputMode.DISABLE,
+            work_mode=OnlineCoreWorkMode.FORWARD_INFERENCE,
+            input_core=OnlineCoreType.ONLINE,
+            input_width=OnlineDataWidth.TYPE_1BIT,
+            output_core=OnlineCoreType.ONLINE,
+            output_width=OnlineDataWidth.TYPE_1BIT,
+            lcn_at=LCN_EX.LCN_1X,
+            lcn_mp=LCN_EX.LCN_1X,
+            lcn_lg=LCN_EX.LCN_1X,
+            target_lcn_at=LCN_EX.LCN_1X,
+            target_lcn_mp=LCN_EX.LCN_1X,
+            target_lcn_lg=LCN_EX.LCN_1X,
+            axon_skew=0,
+            neuron_number=0,
+            update_number=0,
+            csc_accelerate=CSCAccelerateMode.DISABLE,
+            scale_in=1.0,
+            bias_in=0.0,
+            scale_out=1.0,
+            bias_out=0.0,
+            learning_rate=0.0,
+            update_core_xy=0,
+            update_core_x=0,
+            update_core_y=0,
+            test_core_xy=self.auto_core_config.test_core_xy,
+            test_core_x=self.auto_core_config.test_core_x,
+            test_core_y=self.auto_core_config.test_core_y,
+            global_send=self.auto_core_config.global_send,
+            global_receive=self.auto_core_config.global_receive,
+            thread_number=0,
+            busy_cycle=20,
+            delay_cycle=20,
+            width_cycle=10,
+            tick_start=0,
+            tick_duration=0,
+            tick_initial=0,
+        )
+
+    @property
+    def output_width(self) -> DataWidth:
+        raise self._unsupported_empty_online_property("output_width")
+
+    def set_weight_address(self) -> None:
+        return None
+
+    def set_auto_core_config(self, test_offset: CoordZXYOffset | None = None) -> None:
+        if test_offset is None:
+            test_offset, _ = find_coordxy_shortest_path(TEST_DEST_CORE, self.coord)
+
+        self.auto_core_config.neuron_number = 0
+        self.auto_core_config.test_core_xy = test_offset.z
+        self.auto_core_config.test_core_x = test_offset.x
+        self.auto_core_config.test_core_y = test_offset.y
+
+    def to_frame(
+        self,
+    ) -> tuple[FrameArrayType, FrameArrayType | None, FrameArrayType | None]:
+        pkt_offset, _ = find_coordxy_shortest_path(self.coord)
+
+        # frame_type_1: minimal online core config for global signal relay.
+        frame_type1 = OnlineFrameGenV2.gen_config_frame1(pkt_offset, self.core_config)
         return frame_type1, None, None

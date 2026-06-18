@@ -1696,19 +1696,22 @@ reference = "tsinghua"
 
 [[package]]
 name = "paicorelib"
-version = "2.0.0b3"
+version = "2.0.0b5"
 description = "Library of PAICORE"
 optional = false
 python-versions = ">=3.10"
 groups = ["dev"]
 markers = "platform_machine != \"armv7l\""
 files = [
-    {file = "paicorelib-2.0.0b3-py3-none-any.whl", hash = "sha256:37e1ea893700970cc8b74a02a757f32f671cccf21da82b11724e784fa39e3e01"},
-    {file = "paicorelib-2.0.0b3.tar.gz", hash = "sha256:187c6dce6d62d38fbc6afc34d285915364c70a0056607eab31f0d529c0d72c55"},
+    {file = "paicorelib-2.0.0b5-py3-none-any.whl", hash = "sha256:fb9566b45779675cd679c1b5d47e83380ecc18e034d02c209e962137184bd2b3"},
+    {file = "paicorelib-2.0.0b5.tar.gz", hash = "sha256:4d5fc59654b9167c71a309a6f100f3c59b49bacf490498af930f180b03f3b15b"},
 ]
 
 [package.dependencies]
-numpy = {version = ">=2.1.0,<3.0.0", markers = "platform_machine != \"armv7l\""}
+numpy = [
+    {version = ">=2.1.0,<3.0.0", markers = "python_full_version < \"3.14.0\" and platform_machine != \"armv7l\""},
+    {version = ">=2.3.5,<3.0.0", markers = "python_full_version >= \"3.14.0\" and platform_machine != \"armv7l\""},
+]
 pydantic = ">=2.10.0,<3.0.0"
 
 [package.source]
@@ -3113,4 +3116,4 @@ reference = "tsinghua"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10"
-content-hash = "ebf2a538cbab555dff179ee2a4f92d71cac9038727c365ba6a12c5da0cdd6e7e"
+content-hash = "08838854f51f1dccb5d7986df045ce6a2e227e743a662deeff228106a1c44bd9"

@@ -106,6 +106,12 @@ def process_exceed(ranges, weight_skews, axon_addr_skews):
 
 
 def get_fold_info(weight_offsets: list[int], axon_addr_offsets: list[int]):
+    """Return fold ranges with weight-skew and axon-skew sequences.
+
+    The public contract is `(ranges, weight_skews, axon_addr_skews)`. Keep every
+    branch in this order because routing writes the two skew families into
+    different folded-neuron config fields.
+    """
     # weight_offsets_diff = np.diff(weight_offsets)
     # axon_addr_offsets_diff = np.diff(axon_addr_offsets)
     weight_info = get_skew_info(weight_offsets)
@@ -119,8 +125,7 @@ def get_fold_info(weight_offsets: list[int], axon_addr_offsets: list[int]):
     if len(weight_ranges) == len(axon_addr_ranges):
         if weight_ranges == axon_addr_ranges:
             ranges = weight_ranges
-            process_result = process_exceed(ranges, weight_skews, axon_addr_skews)
-            return process_result
+            return process_exceed(ranges, weight_skews, axon_addr_skews)
         else:
             return None
     elif len(weight_ranges) == 1 or len(axon_addr_ranges) == 1:
@@ -135,22 +140,22 @@ def get_fold_info(weight_offsets: list[int], axon_addr_offsets: list[int]):
         if weight_ranges[0] == axon_addr_ranges[0]:
             ranges = weight_ranges
             axon_addr_skews = axon_addr_skews + [axon_addr_skews[-1]]
-            return ranges, axon_addr_skews, weight_skews
+            return ranges, weight_skews, axon_addr_skews
         elif weight_ranges[-1] == axon_addr_ranges[-1]:
             ranges = weight_ranges
             axon_addr_skews = [axon_addr_skews[0]] + axon_addr_skews
-            return ranges, axon_addr_skews, weight_skews
+            return ranges, weight_skews, axon_addr_skews
         else:
             return None
     elif len(weight_ranges) == 2 and len(axon_addr_ranges) == 3:
         if weight_ranges[0] == axon_addr_ranges[0]:
             ranges = axon_addr_ranges
             weight_skews = weight_skews + [weight_skews[-1]]
-            return ranges, axon_addr_skews, weight_skews
+            return ranges, weight_skews, axon_addr_skews
         elif weight_ranges[-1] == axon_addr_ranges[-1]:
             ranges = axon_addr_ranges
             weight_skews = [weight_skews[0]] + weight_skews
-            return ranges, axon_addr_skews, weight_skews
+            return ranges, weight_skews, axon_addr_skews
         else:
             return None
     else:

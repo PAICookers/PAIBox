@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from paicorelib import CoordZXYOffset
+from paicorelib import CoordXY, CoordZXYOffset
 
 from paibox.paiir import PAIIRGraph
 from paibox.paiir.ir import OfflineCoreOp
@@ -21,8 +21,14 @@ from .export.utils import (
 from .global_signal import set_global_signal
 from .group_tile import tile_groups
 from .op_node import AllNode, InputElem, Neuron, RemapElem, SourceElem, build_nodes
+from .output_completion import (
+    OutputCompletionPlan,
+    OutputProducer,
+    select_output_completion_plan,
+)
+from .output_routes import OutputCpuIngressPlan
 from .rg_build import build_groups
-from .route_solver import route_solve
+from .route_solver import HIVE, route_solve
 from .routing import InputGroup, OutputGroup, RemapGroup, RoutingGroup, toposort_for_rg
 
 
@@ -35,6 +41,7 @@ class Mapper:
         self.input_groups: list[InputGroup] = []
         self.coreplacements: list[CorePlacement] = []
         self.global_starts: dict[int, CoordZXYOffset] = {}
+        self.output_completion_plan: OutputCompletionPlan | None = None
         self.timesteps: int = 1
 
     def _resolve_timesteps(self, pai_graph: PAIIRGraph, timesteps: int | None) -> int:
@@ -144,29 +151,10 @@ class Mapper:
                         break
                 if not dest_found:
                     useless_elems.append(elem)
-            dest_strs: list[str] = []
-            if len(useless_elems) > 6:
-                print_elems = useless_elems[:3] + useless_elems[-3:]
-            else:
-                print_elems = useless_elems
-            for elem in print_elems:
-                dest_strs.append(str(elem))
-            if len(useless_elems) > 6:
-                dest_strs = dest_strs[:3] + ["..."] + dest_strs[-3:]
-            if len(useless_elems) > 0:
-                print(
-                    f"\nfound {len(useless_elems)} elements not used in group {src_grp.name}:"
-                )
-                print("    " + "\n    ".join(dest_strs))
-
             src_grp.update_raw_elems()
 
     def routing(self) -> None:
         self.routing_groups, next_rg_group = toposort_for_rg(self.groups)
-        print("\nTrying to solve routing")
-        for rg in self.routing_groups:
-            print(f"\tRouting Group {rg.name} requires {rg.n_core_required} cores.")
-
         areas = [rg.n_core_required for rg in self.routing_groups]
         print(f"\ttotal cores needed: {sum(areas)}")
         if sum(areas) > 63:
@@ -181,28 +169,74 @@ class Mapper:
             output_area_ids=[],
         )
 
-        print("\nRouting result:")
-        for rg, copy_config, rg_coords in zip(
-            self.routing_groups, copy_configs, coords
-        ):
-            print(f"\t{rg.name}({rg.n_core_required} cores):")
-            print(f"\t\tcopy: {copy_config}")
-            print(f"\t\tcoord: {rg_coords}")
-
         for rg, copy_config, rg_coords in zip(
             self.routing_groups, copy_configs, coords
         ):
             rg.assign_coord(rg_coords, copy_config)
 
-    def set_detail_dest(self) -> None:
+    def set_detail_dest(self, output_route_plan: OutputCpuIngressPlan) -> None:
+        # Output collection still targets the CPU. The plan only overrides the
+        # Z/X/Y decomposition so DATA and completion use the same CPU port.
+        output_route_offsets = output_route_plan.output_route_offsets()
         for rg in self.routing_groups:
-            rg.set_detail_dest()
+            rg.set_detail_dest(output_route_offsets)
         for in_grp in self.input_groups:
             in_grp.set_detail_dest()
 
-    def set_auto_core_config(self) -> None:
+    def set_auto_core_config(
+        self, control_root_coord: CoordXY, control_offset: CoordZXYOffset
+    ) -> None:
+        seen_cp_ids: set[int] = set()
+        for cp in self.coreplacements:
+            if id(cp) in seen_cp_ids:
+                continue
+            seen_cp_ids.add(id(cp))
+
+            if cp.coord == control_root_coord:
+                cp.set_auto_core_config(control_offset)
+            else:
+                cp.set_auto_core_config()
+
+    def _collect_output_producers(self) -> list[OutputProducer]:
+        producer_weights: dict[tuple[CoordXY, CoordXY], int] = {}
         for rg in self.routing_groups:
-            rg.set_auto_core_config()
+            for cp in rg.core_placements:
+                for neu_placement in cp.neus:
+                    dest_group = rg.get_dest(neu_placement.raw_neus[0])
+                    if not isinstance(dest_group, OutputGroup):
+                        continue
+                    key = (cp.coord, dest_group.base_coord)
+                    producer_weights[key] = producer_weights.get(key, 0) + len(
+                        neu_placement.raw_neus
+                    )
+
+        return [
+            OutputProducer(coord, target_coord, weight)
+            for (coord, target_coord), weight in sorted(
+                producer_weights.items(),
+                key=lambda item: (
+                    item[0][0].x,
+                    item[0][0].y,
+                    item[0][1].x,
+                    item[0][1].y,
+                ),
+            )
+        ]
+
+    def build_output_completion_plan(self) -> OutputCompletionPlan:
+        """Select DATA routes and a global signal root before dest encoding."""
+        used_core_coords = {cp.coord for cp in self.coreplacements}
+        empty_offline_coords = {
+            CoordXY(x, y) for x, y in HIVE if CoordXY(x, y) not in used_core_coords
+        }
+        return select_output_completion_plan(
+            self._collect_output_producers(),
+            used_core_coords,
+            empty_offline_coords,
+            set(),
+            allow_empty_online=False,
+            empty_online_frame_supported=False,
+        )
 
     def export_artifacts(
         self,
@@ -305,17 +339,11 @@ class Mapper:
         all_groups.extend(self.input_groups)
         all_groups.extend(self.groups)
         all_groups.extend(self.output_groups)
-        for grp in all_groups:
-            print(grp)
 
         # determine which rg each neuron sends to
         # dests and input_list set
         # other properties remain unset
         all_groups = tile_groups(all_groups)
-
-        print("\nAll groups after tiling:")
-        for grp in all_groups:
-            print(grp.info("   "))
 
         self.input_groups = []
         self.groups = []
@@ -334,9 +362,6 @@ class Mapper:
 
         self.set_rough_dest()
 
-        for grp in all_groups:
-            print(grp.info())
-
         for out_grp in self.output_groups:
             out_grp.set_lcn(self.timesteps)
 
@@ -347,31 +372,29 @@ class Mapper:
         for rg in self.routing_groups:
             rg.allocate_neurons()
 
-        print("\nAll groups after neuron allocation:")
-        for rg in all_groups:
-            print(rg.routing_summary())
-
         # set core placements' coord, and generate detailed dest info for each neuron
         self.routing()
-
-        print("\nAfter routing:")
-        # for grp in all_groups:
-        #     print(grp.info())
-
-        for rg in all_groups:
-            print(rg.routing_summary(prefix="    "))
-
-        self.set_detail_dest()
 
         for rg in self.routing_groups:
             self.coreplacements.extend(rg.core_placements)
 
-        self.set_auto_core_config()
+        self.output_completion_plan = self.build_output_completion_plan()
 
-        self.coreplacements, self.global_starts = set_global_signal(self.coreplacements)
-        print("Global signal relative offset:")
-        for thread_id, offset in self.global_starts.items():
-            print(f"    Thread {thread_id}: {offset}")
+        self.coreplacements, self.global_starts = set_global_signal(
+            self.coreplacements,
+            self.output_completion_plan.global_signal_root,
+            self.output_completion_plan.relay_core_kinds(),
+        )
+
+        output_route_plan = self.output_completion_plan.to_cpu_ingress_plan()
+
+        # The global-signal root uses the selected control offset. Other cores
+        # keep their own local route to the same fixed CPU destination.
+        self.set_detail_dest(output_route_plan)
+        self.set_auto_core_config(
+            self.output_completion_plan.global_signal_root,
+            output_route_plan.control_offset,
+        )
 
         # export to hardware executable format
         if output_path is None:
