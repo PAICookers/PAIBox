@@ -6,7 +6,7 @@ from paicorelib import CoordXY, CoordZXYOffset
 from paibox.paiir import PAIIRGraph
 from paibox.paiir.ir import OfflineCoreOp
 
-from .coreplacement import CorePlacement
+from .coreplacement import CorePlacement, OfflineCorePlacementV2
 from .export.cheader import export_cheader_files, export_cheader_merged
 from .export.npy import export_frame_npy
 from .export.proto import export_compile_artifacts
@@ -36,6 +36,7 @@ class Mapper:
     def __init__(self) -> None:
         self.groups: list[RoutingGroup | RemapGroup] = []
         self.routing_groups: list[RoutingGroup] = []
+        self.next_rg_group: dict[int, list[int]] = {}
         self.nodes: list[AllNode] = []
         self.output_groups: list[OutputGroup] = []
         self.input_groups: list[InputGroup] = []
@@ -153,8 +154,11 @@ class Mapper:
                     useless_elems.append(elem)
             src_grp.update_raw_elems()
 
-    def routing(self) -> None:
-        self.routing_groups, next_rg_group = toposort_for_rg(self.groups)
+    def routing(self, assign=False) -> None:
+        print("\nTrying to solve routing")
+        for rg in self.routing_groups:
+            print(f"\tRouting Group {rg.name} requires {rg.n_core_required} cores.")
+
         areas = [rg.n_core_required for rg in self.routing_groups]
         print(f"\ttotal cores needed: {sum(areas)}")
         if sum(areas) > 63:
@@ -163,16 +167,112 @@ class Mapper:
             )
         copy_configs, coords = route_solve(
             areas=areas,
-            next_area_id=next_rg_group,
+            next_area_id=self.next_rg_group,
             io_target=(0, 0),
             input_area_ids=[],
             output_area_ids=[],
         )
+        if assign:
+            print("\nRouting result:")
+            for rg, copy_config, rg_coords in zip(
+                self.routing_groups, copy_configs, coords
+            ):
+                print(f"\t{rg.name}({rg.n_core_required} cores):")
+                print(f"\t\tcopy: {copy_config}")
+                print(f"\t\tcoord: {rg_coords}")
 
-        for rg, copy_config, rg_coords in zip(
-            self.routing_groups, copy_configs, coords
-        ):
-            rg.assign_coord(rg_coords, copy_config)
+            for rg, copy_config, rg_coords in zip(
+                self.routing_groups, copy_configs, coords
+            ):
+                rg.assign_coord(rg_coords, copy_config)
+
+    def check_routing(self) -> bool:
+        try:
+            self.routing()
+            return True
+        except RuntimeError as e:
+            print(f"Error occurred while checking routing: {e}")
+            return False
+
+    def unroll_pressure(self) -> None:
+        offline_core_num = 63
+        used_core_num = sum(rg.n_core_required for rg in self.routing_groups)
+        free_core_num = offline_core_num - used_core_num
+
+        while free_core_num > 0:
+            core_with_max_pressure: (
+                tuple[RoutingGroup, int, OfflineCorePlacementV2] | None
+            ) = None
+            max_pressure = 0
+            for rg in self.routing_groups:
+                for i, core in enumerate(rg.core_placements):
+                    if not isinstance(core, OfflineCorePlacementV2):
+                        continue
+                    pressure = core.get_compute_pressure()
+                    if pressure > max_pressure:
+                        max_pressure = pressure
+                        core_with_max_pressure = (rg, i, core)
+
+            if core_with_max_pressure is not None and max_pressure > 0:
+                rg, core_idx, core = core_with_max_pressure
+                print(
+                    f"Core with max pressure: {rg.name}[{core_idx}] with pressure {max_pressure}"
+                )
+                first_core = OfflineCorePlacementV2(
+                    core.frontend_core_config, core.backend_core_config
+                )
+                second_core = OfflineCorePlacementV2(
+                    core.frontend_core_config, core.backend_core_config
+                )
+                first_core.default_core_config = core.default_core_config
+                second_core.default_core_config = core.default_core_config
+
+                if len(core.neus) <= 1:
+                    print("Cannot unroll core with only one neuron.")
+                    break
+                first_core.neus = core.neus[: len(core.neus) // 2]
+                second_core.neus = core.neus[len(core.neus) // 2 :]
+                weight_index_map_first_core: dict[int, int] = dict()
+                weight_index_map_second_core: dict[int, int] = dict()
+                for i, neu in enumerate(core.neus):
+                    weight_idx = core.neu_weight_map[i]
+                    if i < len(core.neus) // 2:
+                        if weight_idx not in weight_index_map_first_core:
+                            weight_index_map_first_core[weight_idx] = len(
+                                first_core.weights
+                            )
+                            first_core.weights.append(core.weights[weight_idx])
+                        first_core.neu_weight_map[i] = weight_index_map_first_core[
+                            weight_idx
+                        ]
+                    else:
+                        if weight_idx not in weight_index_map_second_core:
+                            weight_index_map_second_core[weight_idx] = len(
+                                second_core.weights
+                            )
+                            second_core.weights.append(core.weights[weight_idx])
+                        second_core.neu_weight_map[i - len(core.neus) // 2] = (
+                            weight_index_map_second_core[weight_idx]
+                        )
+
+                rg.core_placements[core_idx] = first_core
+                rg.core_placements.insert(core_idx + 1, second_core)
+
+                if self.check_routing():
+                    print("Routing is still valid after unrolling.")
+                    first_core.set_weight_address()
+                    second_core.set_weight_address()
+                    print(
+                        f"Unrolled core into two cores with pressures {first_core.get_compute_pressure()} and {second_core.get_compute_pressure()}."
+                    )
+                    free_core_num -= 1
+                else:
+                    rg.core_placements[core_idx] = core
+                    rg.core_placements.pop(core_idx + 1)
+                    print("Routing is invalid after unrolling, reverted changes.")
+                    break
+            else:
+                break
 
     def set_detail_dest(self, output_route_plan: OutputCpuIngressPlan) -> None:
         # Output collection still targets the CPU. The plan only overrides the
@@ -294,6 +394,7 @@ class Mapper:
         export_merged_frames: bool = True,
         export_proto_python: bool = True,
         debug: bool = False,
+        unrolling: bool = False,
     ) -> None:
         """Compile a PAIIR graph and export backendv2 deployment artifacts.
 
@@ -329,6 +430,10 @@ class Mapper:
             export_proto_python: Whether to copy ``compile_artifacts_pb2.py``
                 and ``compile_artifacts_pb2.pyi`` into the exported ``proto/``
                 directory when x86 artifacts are part of the export set.
+            unrolling: Whether to enable pressure-based core unrolling. When
+                ``True``, cores with high compute pressure are split into
+                multiple cores if free cores are available and routing remains
+                valid. Defaults to ``False``.
         """
         self.timesteps = self._resolve_timesteps(pai_graph, timesteps)
 
@@ -372,8 +477,17 @@ class Mapper:
         for rg in self.routing_groups:
             rg.allocate_neurons()
 
+        self.routing_groups, self.next_rg_group = toposort_for_rg(self.groups)
+
+        if unrolling:
+            self.unroll_pressure()
+
+        print("\nAll groups after neuron allocation:")
+        for rg in all_groups:
+            print(rg.routing_summary())
+
         # set core placements' coord, and generate detailed dest info for each neuron
-        self.routing()
+        self.routing(assign=True)
 
         for rg in self.routing_groups:
             self.coreplacements.extend(rg.core_placements)
