@@ -416,7 +416,7 @@ graph = compile_to_paiir(
 AvgPool -> SumPool + identity LUT
 ```
 
-这意味着芯片侧输出的是未除以 divisor 的 sum/count，而不是原始平均值。应用侧 CPU 必须按任务语义继续处理：
+这意味着芯片侧输出的是未除以 divisor 的 sum/count，而不是原始平均值。该 sum/count 的 `u1/u2/u4/u8 DATA` 位宽由 PAIIR 保守推断：只有 logical LUT 能被对应位宽的硬件 SAR LUT 精确表达，才会选择窄位宽；否则回退到更宽位宽。backendv2 只打包 IR 已生成的 `hw_lut_data`。应用侧 CPU 必须按任务语义继续处理：
 
 - 若需要恢复平均值，除以 warning 中给出的 logical divisor
 - 若分类任务只关心多 tick 累计后的 `argmax`，可直接累计 count 后再做 `argmax`
@@ -439,7 +439,7 @@ class MyQuantAct(nn.Module):
         super().__init__()
         self.register_buffer("thresholds", thresholds.to(torch.int32))
         self.register_buffer("values", values.to(torch.int8))
-        self.output_sign = 1
+        self.output_signed = True
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError("runtime behavior omitted here")
@@ -447,9 +447,21 @@ class MyQuantAct(nn.Module):
 
 register_neuron(
     MyQuantAct,
-    lambda mod: LutCustom(mod.thresholds, mod.values, mod.output_sign),
+    lambda mod: LutCustom(mod.thresholds, mod.values, output_signed=mod.output_signed),
 )
 ```
+
+对于整数域的自定义分段激活，推荐用区间语义表达 logical LUT：
+
+```python
+# round(clamp(x, 0, 4))
+lut = LutCustom.from_intervals(
+    starts=torch.tensor([0, 1, 2, 3, 4]),
+    values=torch.tensor([0, 1, 2, 3, 4]),
+)
+```
+
+`starts[i]` 表示第 `i` 段的起始输入值，`values[i]` 表示该段输出值。PAIIR 会自动 padding 到 256 项 logical LUT，并在导出时尝试生成等价的硬件 SAR LUT。例如上面的 5 段输出可安全推断为 unsigned 4-bit；但如果 256 项 logical LUT 交替输出 `{0, 1}`，即使值域只需 1 bit，也不会被错误压到 u1/u2/u4，因为硬件 SAR 查找无法用那么少的比较次数精确表达所有区间。
 
 说明：
 

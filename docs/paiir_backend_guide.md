@@ -219,7 +219,7 @@ graph = compile_to_paiir(model, x, compile_config=cfg, strict=False)
 SequentialOp(SumPool1d/2d, ANNNodeV25(identity LUT))
 ```
 
-后端看到的是普通 VALUE-domain 离线核输出，数据格式由 identity LUT 的输出范围推导。例如 `VotingLayer(10)` 的输出可成为范围 `[0, 10]` 的 `u4 DATA`。但这个输出不再是原始平均值，而是未归一化的 sum/count。
+后端看到的是普通 VALUE-domain 离线核输出，数据格式由 identity LUT 的整数输出范围和硬件 SAR 等价性共同决定。例如 `VotingLayer(10)` 的输出范围 `[0, 10]` 且有效区间数不超过 16，可导出为 `u4 DATA`。backendv2 导出 `cfg_frame2` 时只打包 PAIIR 已生成的硬件 potential/activation LUT 表；这个输出不再是原始平均值，而是未归一化的 sum/count。
 
 当前 CPU 侧责任没有结构化写入 PAIIR 图或 proto。编译期会通过 `OutputApproxWarning` 明确提示：
 
@@ -472,7 +472,7 @@ class TensorLayout:
 
 - `output_domain` 是 frontend graph 语义的 source of truth
 - 对 `OfflineCoreOp`，backend-visible `neuron_params.output_type` 应与 `output_domain` 保持一致
-- `AccumulateOp(act=None)` 必须输出 `POTENTIAL`，且 `lut_data` 为 `None`
+- `AccumulateOp(act=None)` 必须输出 `POTENTIAL`，且 `hw_lut_data` 为 `None`
 - `validate_compiled_graph()` 会把这种一致性当作 compiled-graph 契约的一部分来检查
 - 因此后端若消费离线核节点，读取 `neuron_params.output_type` 时可以假设它已经与前端传播得到的 `output_domain` 对齐，而不需要自己再为 `StandaloneCompOp` / `StandaloneActOp` / `AccumulateOp` 等节点重复推断 VALUE/POTENTIAL 语义
 
@@ -566,10 +566,10 @@ params: NeuronParams = op.neuron_params
 > / `leak_v`，并按输出 tensor 的 channel 轴 `shape[1]` 解释；不支持
 > per-spatial、per-group、per-element 或 batch-dependent tensor。
 
-#### 4. LUT 数据（ANN 模式）
+#### 4. hw LUT 数据（ANN 模式）
 
 ```python
-lut: LutData | None = op.lut_data
+hw_lut: LutData | None = op.hw_lut_data
 ```
 
 `LutData` 结构：
@@ -582,7 +582,13 @@ class LutData:
     is_float: bool      # True = float32 阈值 + bfloat16 值
 ```
 
-SNN 模式下 `lut_data` 为 `None`。
+SNN 模式下 `hw_lut_data` 为 `None`。
+
+`LutData` 只是 256 项阈值/输出表的数据载体，本身不区分逻辑语义或硬件语义；语义由接口名决定。`LutActivation.lookup()` 和 `LutActivation.logical_lut_data` 是 PAIIR 计算图层次的 logical LUT，仿真按 `torch.bucketize(..., right=True)` 的分桶语义查表。
+
+PAICORE 2.5 ANN LUT 配置帧包含 256 项 potential/activation pair。硬件按输出精度执行 SAR 式阈值查找：1/2/4/8-bit 输出分别执行 1/2/4/8 次 threshold SRAM 查询，并用得到的 prefix 索引 activation SRAM。因此 `op.hw_lut_data` 是硬件 SRAM 布局，不要求与 logical LUT 表逐项相同。
+
+PAIIR IR 在 `op.hw_lut_data` 属性内把 logical LUT 转换为目标 `output_sign/output_width` 下的硬件 SAR LUT，并验证 SAR lookup 与 logical bucketize lookup 在整数边界点等价。窄位宽只在能证明等价且 activation 值能被目标 DATA 格式表示时使用；否则输出格式推断会继续尝试更宽位宽。调试 frame2 时应按硬件 SAR lookup 检查 `hw_lut_data`，不要把它和 logical LUT 表逐项比较。
 
 ### 各算子类型的特有信息
 
@@ -596,7 +602,7 @@ seq.comp: nn.Module        # 计算模块（Conv2d / Linear / MaxPool2d / AvgPoo
 seq.act: CoreNeuronV25     # 激活模块
 seq.weights                # list[Tensor] | None，原始参数张量；池化通常为 None
 seq.neuron_params          # NeuronParams（含 bias 融合、AvgPool 补偿）
-seq.lut_data               # LutData | None（含 AvgPool LUT 补偿）
+seq.hw_lut_data            # LutData | None，硬件 SRAM LUT
 ```
 
 #### AccumulateOp
@@ -610,7 +616,7 @@ acc.signs: tuple[int, ...] # 各路径符号，(1, 1) = 加，(1, -1) = 减
 acc.act: CoreNeuronV25     # 激活模块
 acc.weights                # list[Tensor] | None，原始参数张量，与 comps 一一对应
 acc.neuron_params          # NeuronParams（多路径 bias 按 signs 融合）
-acc.lut_data               # LutData | None
+acc.hw_lut_data            # LutData | None，硬件 SRAM LUT
 ```
 
 后端可依赖的最小契约：
@@ -751,7 +757,7 @@ def extract_cores(graph):
             "raw_weights": node.weights,
             "weight_value_range": node.get_weight_value_range(),
             "neuron_params": node.neuron_params,
-            "lut_data": node.lut_data,
+            "hw_lut_data": node.hw_lut_data,
         }
 
         # 算子特有信息
@@ -842,9 +848,9 @@ def debug_graph(graph):
         else:
             print(f"  RawWeight: None, implicit_range={node.get_weight_value_range()}")
 
-        if node.lut_data:
-            lut = node.lut_data
-            print(f"  LUT: {lut.thresholds.shape}, is_float={lut.is_float}")
+        if node.hw_lut_data:
+            hw_lut = node.hw_lut_data
+            print(f"  hw LUT: {hw_lut.thresholds.shape}, is_float={hw_lut.is_float}")
         print()
 ```
 
@@ -944,8 +950,8 @@ class LutData:
 | ---- | ------------------------- | --------------------------------- |
 | SNN  | `thres_neg_mode == FIRE`  | SIGNED, WIDTH_2BIT（{-1, 0, +1}） |
 | SNN  | `thres_neg_mode == FLOOR` | UNSIGNED, WIDTH_1BIT（{0, 1}）    |
-| ANN  | `output_sign == 1`        | SIGNED, WIDTH_8BIT（[-128, 127]） |
-| ANN  | `output_sign == 0`        | UNSIGNED, WIDTH_8BIT（[0, 255]）  |
+| ANN  | `output_signed=True`      | SIGNED，默认 int8；位宽可在硬件 SAR 等价且值域可表示时保守优化 |
+| ANN  | `output_signed=False`     | UNSIGNED，默认 uint8；位宽可在硬件 SAR 等价且值域可表示时保守优化 |
 
 权重格式：从量化权重的实际值范围推断最窄的 `(DataSign, DataWidth)` 组合。
 
@@ -957,7 +963,7 @@ class LutData:
 
 - `strict=True` 才表示遇到不支持算子会立即失败
 - `strict=False` 下图中可能存在被旁路的 unsupported 节点，此时返回图适合做结构分析或部分验证，但不应自动等价理解为“全图已严格支持”
-- `graph.summary()`、`graph.predecessors()`、`graph.successors()`、`graph.get_edge_output_layout(...)`、`core_params`、`neuron_params`、`lut_data` 等接口，是后端读取部署信息的主要入口
+- `graph.summary()`、`graph.predecessors()`、`graph.successors()`、`graph.get_edge_output_layout(...)`、`core_params`、`neuron_params`、`hw_lut_data` 等接口，是后端读取部署信息的主要入口
 - 对 `OfflineCoreOp`，若 `output_domain` 与 `neuron_params.output_type` 不一致，`validate_compiled_graph()` 会直接报错；不要依赖这种不一致状态进入 backend
 - 若需要扩展编译流程，请优先在 `paibox.paiir.pipeline.passes` 中新增或调整 pass；`pass_manager` 目前不驱动默认编译路径
 - `Edge.src_port` 与 `Edge.dst_port` 仍然保留：
