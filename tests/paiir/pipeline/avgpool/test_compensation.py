@@ -3,7 +3,7 @@ import torch
 from paicorelib import DataWidth, LeakMultiInputMode, LeakMultiMode
 
 import paibox.paiir.pipeline.avgpool.deploy_scheme as deploy_scheme_mod
-from paibox.paiir.ir.calc_params import LutData, NeuronParams
+from paibox.paiir.ir.calc_params import LUT_TABLE_SIZE, LutData, NeuronParams
 from paibox.paiir.ir.core_neuron import LIFNodeV25
 from paibox.paiir.pipeline.avgpool import (
     AvgPoolDeployScheme,
@@ -54,7 +54,7 @@ class TestCompensateAvgPoolLut:
     def test_window_size_power_of_2_no_scaling(self):
         """k=2 -> scale=1.0, thresholds unchanged."""
         lut = LutData(
-            thresholds=torch.arange(256, dtype=torch.int32), values=torch.zeros(256)
+            torch.arange(LUT_TABLE_SIZE, dtype=torch.int32), torch.zeros(LUT_TABLE_SIZE)
         )
         orig_thresholds = lut.thresholds.clone()
         result = compensate_avgpool_lut(lut, window_size=4)
@@ -62,19 +62,21 @@ class TestCompensateAvgPoolLut:
 
     def test_window_size_9_scales_and_rounds_thresholds(self):
         """k=3 -> window_size=9, N=3, scale=9/8=1.125, rounded to 112."""
-        orig = torch.ones(256, dtype=torch.int32) * 100
-        lut = LutData(thresholds=orig.clone(), values=torch.zeros(256))
+        orig = torch.ones(LUT_TABLE_SIZE, dtype=torch.int32) * 100
+        lut = LutData(orig.clone(), torch.zeros(LUT_TABLE_SIZE))
         result = compensate_avgpool_lut(lut, window_size=9)
         # 100 * 1.125 = 112.5 -> round -> 112.0
-        assert torch.equal(result.thresholds, torch.full((256,), 112.0))
+        assert torch.equal(result.thresholds, torch.full((LUT_TABLE_SIZE,), 112.0))
 
     def test_float_mode_no_rounding(self):
         """Float mode skips rounding."""
-        orig = torch.ones(256, dtype=torch.float32) * 100
-        lut = LutData(thresholds=orig.clone(), values=torch.zeros(256), is_float=True)
+        orig = torch.ones(LUT_TABLE_SIZE, dtype=torch.float32) * 100
+        lut = LutData(orig.clone(), torch.zeros(LUT_TABLE_SIZE), is_float=True)
         result = compensate_avgpool_lut(lut, window_size=9)
         expected = 100 * 9 / 8
-        assert torch.allclose(result.thresholds, torch.full((256,), expected))
+        assert torch.allclose(
+            result.thresholds, torch.full((LUT_TABLE_SIZE,), expected)
+        )
 
 
 class TestCompensateAvgPoolNeuron:

@@ -11,11 +11,8 @@ from spikingjelly.activation_based import neuron as sj
 from torch import Tensor, nn
 
 from paibox.paiir.exceptions import UnsupportedOpError, UnsupportedOpWarning
-from paibox.paiir.ir.core_neuron import (
-    ANNNodeV25,
-    IFNodeV25,
-    LIFNodeV25,
-)
+from paibox.paiir.ir.calc_params import LUT_TABLE_SIZE
+from paibox.paiir.ir.core_neuron import ANNNodeV25, IFNodeV25, LIFNodeV25
 from paibox.paiir.ir.lut_activation import LutCustom, LutReLU
 from paibox.paiir.ir.op_node import (
     PadOp,
@@ -657,7 +654,7 @@ class TestLutActivationLowering:
             def __init__(self):
                 super().__init__()
                 self.linear = nn.Linear(8, 4)
-                self.act = LutReLU(min_val=-16, max_val=16, output_sign=0)
+                self.act = LutReLU(min_val=-16, max_val=16, output_signed=False)
 
             def forward(self, x):
                 return self.act(self.linear(x))
@@ -675,8 +672,8 @@ class TestLutActivationLowering:
         assert lowered.lut.lut_values is not model.act.lut_values
 
     def test_root_lutcustom_module_lowers_without_registration(self):
-        thresholds = torch.arange(256, dtype=torch.float32)
-        values = torch.arange(256, dtype=torch.float32)
+        thresholds = torch.arange(LUT_TABLE_SIZE, dtype=torch.int32)
+        values = torch.arange(LUT_TABLE_SIZE, dtype=torch.int32)
         model = LutCustom(thresholds, values).eval()
 
         graph = torch_to_paiir(model, torch.ones(1, 4))

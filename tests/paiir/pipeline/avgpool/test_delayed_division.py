@@ -10,18 +10,15 @@ from paibox.paiir.ir.op_node import SequentialOp, StandaloneCompOp
 from paibox.paiir.ir.signal_domain import SignalDomain
 from paibox.paiir.lowering.converter import register_neuron
 from paibox.paiir.nn import SumPool2d
+from paibox.paiir.pipeline.avgpool.utils import build_integer_identity_lut
 
 
 def _make_identity_u8_lut() -> LutCustom:
-    thresholds = torch.arange(256, dtype=torch.int32)
-    values = torch.arange(256, dtype=torch.uint8)
-    return LutCustom(thresholds, values, output_sign=0, is_float=False)
+    return build_integer_identity_lut(0, 255)
 
 
 def _make_clamp_u4_lut() -> LutCustom:
-    thresholds = torch.arange(256, dtype=torch.int32)
-    values = torch.arange(256, dtype=torch.int32).clamp_(0, 15).to(torch.uint8)
-    return LutCustom(thresholds, values, output_sign=0, is_float=False)
+    return build_integer_identity_lut(0, 15)
 
 
 class ClampUint4(nn.Module):

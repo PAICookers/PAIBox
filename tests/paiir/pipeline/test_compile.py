@@ -1372,10 +1372,10 @@ class TestAvgPool1dCompilation:
 
         # Verify LUT thresholds are scaled: threshold' = threshold * window_size
         # Identity LUT has thresholds [0, 1, 2, ...], after compensation [0, k, 2k, ...]
-        lut_data = avgpool_core.lut_data
-        assert lut_data is not None
-        assert lut_data.thresholds[1].item() == kernel_size
-        assert lut_data.thresholds[2].item() == kernel_size * 2
+        assert avgpool_core.act.lut is not None
+        logical_lut = avgpool_core.act.lut.logical_lut_data
+        assert logical_lut.thresholds[1].item() == kernel_size
+        assert logical_lut.thresholds[2].item() == kernel_size * 2
 
 
 class TestAvgPoolLIFSplitCore:

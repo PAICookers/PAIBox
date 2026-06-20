@@ -307,11 +307,11 @@ def make_multispike4_lut() -> LutCustom:
     """Create LutCustom for MultiSpike4 neuron.
 
     round(clamp(x, 0, 4)): only 5 effective levels
-    thresholds [0,1,2,3,4,4,...,4], values = thresholds clamped to [0,4]
+    Expressed as integer intervals so the compiler can prove a narrow
+    hardware SAR LUT when possible.
     """
-    thresholds = torch.cat([torch.arange(5), torch.full((251,), 4)])
-    values = thresholds.clone()
-    return LutCustom(thresholds, values)
+    levels = torch.arange(5, dtype=torch.int32)
+    return LutCustom.from_intervals(levels, levels)
 
 
 class UnsupportedSoftmax(nn.Module):

@@ -3,7 +3,9 @@ import math
 
 import pytest
 import torch
+from paicorelib import DataSign, DataWidth
 
+from paibox.paiir.ir.calc_params import LUT_TABLE_SIZE
 from paibox.paiir.ir.lut_activation import (
     LutCustom,
     LutLinear,
@@ -12,321 +14,467 @@ from paibox.paiir.ir.lut_activation import (
     LutSigmoid,
     LutSoftsign,
     LutTanh,
+    _lookup_hw_lut_data,
 )
 
-_ALL_LUT_CLASSES = (
-    LutReLU,
-    LutReLUSymmetric,
-    LutLinear,
-    LutSigmoid,
-    LutTanh,
-    LutSoftsign,
-)
+_DEFAULT_LUT_CASES = [
+    (LutReLU, False, torch.uint8),
+    (LutReLUSymmetric, False, torch.uint8),
+    (LutLinear, True, torch.int8),
+    (LutSigmoid, False, torch.uint8),
+    (LutTanh, True, torch.int8),
+    (LutSoftsign, True, torch.int8),
+]
 
-
-class TestLutActivationBase:
-    """Tests for shared LutActivation infrastructure (dtype, shape, lookup)."""
-
-    def test_int_mode_dtypes(self):
-        """Int mode: thresholds int32, values uint8 (unsigned) or int8 (signed)."""
-        lut_u = LutReLU(min_val=-100, max_val=100, output_sign=0)
-        assert lut_u.thresholds.dtype == torch.int32
-        assert lut_u.lut_values.dtype == torch.uint8
-
-        lut_s = LutTanh(min_val=-100, max_val=100, output_sign=1)
-        assert lut_s.thresholds.dtype == torch.int32
-        assert lut_s.lut_values.dtype == torch.int8
-
-    def test_float_mode_dtypes(self):
-        """Float mode: thresholds float32, values bfloat16."""
-        lut = LutReLU(min_val=-10, max_val=10, output_sign=0, is_float=True)
-        assert lut.thresholds.dtype == torch.float32
-        assert lut.lut_values.dtype == torch.bfloat16
-
-    def test_buffer_shape_256(self):
-        """All LUT activations produce 256-entry buffers."""
-        for cls in _ALL_LUT_CLASSES:
-            lut = cls(min_val=-100, max_val=100, output_sign=0)
-            assert lut.thresholds.shape == (256,)
-            assert lut.lut_values.shape == (256,)
-
-    def test_thresholds_monotonic(self):
-        """Thresholds must be monotonically non-decreasing."""
-        for cls in _ALL_LUT_CLASSES:
-            lut = cls(min_val=-500, max_val=500, output_sign=0)
-            diff = lut.thresholds[1:] - lut.thresholds[:-1]
-            assert torch.all(diff >= 0), f"{cls.__name__} thresholds not monotonic"
-
-    def test_lookup_values_and_indices(self):
-        """lookup() returns (values, indices) consistent with forward()."""
-        lut = LutReLU(min_val=-100, max_val=100, output_sign=0)
-        x = torch.tensor([50, -50])
-        values, indices = lut.lookup(x)
-        assert values.shape == indices.shape == (2,)
-        assert torch.all((indices >= 0) & (indices <= 255))
-        assert torch.equal(values, lut(x))
-
-    def test_forward_preserves_shape(self):
-        """Forward preserves input shape."""
-        lut = LutReLU(min_val=-100, max_val=100, output_sign=0)
-        for shape in [(2, 3, 4), (8, 16)]:
-            assert lut(torch.randn(*shape)).shape == shape
-
-    def test_forward_outputs_in_lut(self):
-        """Forward output values are always entries from lut_values."""
-        for cls in _ALL_LUT_CLASSES:
-            lut = cls(min_val=-500, max_val=500, output_sign=0)
-            y = lut(torch.linspace(-500, 500, 100))
-            lut_set = set(lut.lut_values.tolist())
-            for val in y.tolist():
-                assert val in lut_set, f"{cls.__name__}: {val} not in lut_values"
-
-
-class TestLutActivationCopying:
-    def test_deepcopy_rebuilds_relu_without_aliasing_buffers(self):
-        lut = LutReLU(min_val=-100, max_val=100, output_sign=0)
-
-        cloned = copy.deepcopy(lut)
-
-        assert isinstance(cloned, LutReLU)
-        assert cloned is not lut
-        assert torch.equal(cloned.thresholds, lut.thresholds)
-        assert torch.equal(cloned.lut_values, lut.lut_values)
-        assert cloned.thresholds is not lut.thresholds
-        assert cloned.lut_values is not lut.lut_values
-
-    def test_deepcopy_clones_custom_lut_without_aliasing_buffers(self):
-        thresholds = torch.arange(256, dtype=torch.float32)
-        values = torch.arange(256, dtype=torch.float32)
-        lut = LutCustom(thresholds, values, output_sign=0)
-
-        cloned = copy.deepcopy(lut)
-
-        assert isinstance(cloned, LutCustom)
-        assert cloned is not lut
-        assert torch.equal(cloned.thresholds, lut.thresholds)
-        assert torch.equal(cloned.lut_values, lut.lut_values)
-        assert cloned.thresholds is not lut.thresholds
-        assert cloned.lut_values is not lut.lut_values
-
-
-class TestLutReLU:
-    def test_relu_behavior(self):
-        """ReLU: negative -> 0, positive -> scaled, monotonic."""
-        lut = LutReLU(min_val=-500, max_val=512, output_sign=0)
-        assert torch.all(lut(torch.tensor([-100, -1])) == 0)
-        y_pos = lut(torch.tensor([100, 200]))
-        assert torch.all(y_pos > 0)
-        assert y_pos[1] > y_pos[0]
-
-    @pytest.mark.parametrize("sign, max_out", [(0, 255), (1, 127)])
-    def test_output_range(self, sign, max_out):
-        """Output range respects sign mode; max input maps close to max output."""
-        lut = LutReLU(min_val=-500, max_val=500, output_sign=sign)
-        y = lut(torch.linspace(-500, 500, 100))
-        assert torch.all((y >= 0) & (y <= max_out))
-        assert lut(torch.tensor([500])).item() >= max_out - 5
-
-    def test_threshold_concentration_positive(self):
-        """254 thresholds in the positive region when min < 0 < max."""
-        lut = LutReLU(min_val=-500, max_val=500, output_sign=0)
-        assert (lut.thresholds > 0).sum().item() == 254
-
-    def test_float_mode(self):
-        """Float mode returns unquantized ReLU-like values."""
-        lut = LutReLU(min_val=-10, max_val=10, output_sign=0, is_float=True)
-        y = lut(torch.tensor([-5, 0, 5]))
-        assert y[0] == 0
-        assert abs(y[2] - 5) < 0.5
-
-
-class TestLutReLUSymmetric:
-    def test_symmetric_behavior(self):
-        """Symmetric ReLU maps negatives to 0 but keeps uniform bins."""
-        lut = LutReLUSymmetric(min_val=-500, max_val=512, output_sign=1)
-        assert torch.all(lut(torch.tensor([-100, -1])) == 0)
-        y_pos = lut(torch.tensor([100, 200]))
-        assert torch.all(y_pos > 0)
-        assert y_pos[1] > y_pos[0]
-
-    @pytest.mark.parametrize("sign, max_out", [(0, 255), (1, 127)])
-    def test_output_range(self, sign, max_out):
-        """Output range respects sign mode."""
-        lut = LutReLUSymmetric(min_val=-500, max_val=500, output_sign=sign)
-        y = lut(torch.linspace(-500, 500, 100))
-        assert torch.all((y >= 0) & (y <= max_out))
-        assert lut(torch.tensor([500])).item() >= max_out - 5
-
-    def test_uniform_thresholds(self):
-        """Thresholds should be uniformly distributed across min_val and max_val."""
-        lut = LutReLUSymmetric(min_val=-500, max_val=500, output_sign=1)
-        diffs = (lut.thresholds[1:] - lut.thresholds[:-1]).float()
-        assert torch.allclose(
-            diffs, torch.tensor([diffs[0].item()] * 255, dtype=torch.float32), atol=1.0
-        )
-
-    def test_float_mode(self):
-        """Float mode returns unquantized ReLU-like values."""
-        lut = LutReLUSymmetric(min_val=-10, max_val=10, output_sign=1, is_float=True)
-        y = lut(torch.tensor([-5, 0, 5]))
-        assert y[0] == 0
-        assert abs(y[2] - 5) < 0.5
-
-
-class TestLutLinear:
-    def test_signed_mapping_endpoints(self):
-        """Linear maps endpoints close to [-128, 127]."""
-        lut = LutLinear(min_val=-100, max_val=100, output_sign=1)
-        y = lut(torch.tensor([-100, 0, 100]))
-        assert abs(y[0] - (-128)) <= 2
-        assert abs(y[1] - 0) <= 2
-        assert abs(y[2] - 127) <= 2
-
-    def test_float_mode_identity(self):
-        """Float mode linear is approximately identity."""
-        lut = LutLinear(min_val=-100, max_val=100, output_sign=1, is_float=True)
-        y = lut(torch.tensor([-50, 0, 50]))
-        for val, ref in zip(y.tolist(), [-50, 0, 50]):
-            assert abs(val - ref) < 1
-
-
-_NONLINEAR_PARAMS = [
-    (LutSigmoid, lambda x: 1 / (1 + math.exp(-x)), 0, 255),
-    (LutTanh, math.tanh, 1, 127),
-    (LutSoftsign, lambda x: x / (1 + abs(x)), 1, 127),
+_NONLINEAR_CASES = [
+    (LutSigmoid, lambda x: 1 / (1 + math.exp(-x)), False, 255),
+    (LutTanh, math.tanh, True, 127),
+    (LutSoftsign, lambda x: x / (1 + abs(x)), True, 127),
 ]
 
 
-class TestNonlinearActivations:
-    """Tests for Sigmoid, Tanh, and Softsign LUT activations."""
-
-    @pytest.mark.parametrize("cls, ref_fn, sign, scale", _NONLINEAR_PARAMS)
-    @pytest.mark.parametrize("is_float", [False, True])
-    def test_monotonic(self, cls, ref_fn, sign, scale, is_float):  # noqa: ARG002
-        """Non-linear LUT activations are monotonically non-decreasing."""
-        lut = cls(min_val=-500, max_val=500, output_sign=sign, is_float=is_float)
-        y = lut(torch.linspace(-500, 500, 200))
-        assert torch.all(y[1:] - y[:-1] >= -1e-5)
-
-    @pytest.mark.parametrize("cls, ref_fn, sign, scale", _NONLINEAR_PARAMS)
-    def test_float_accuracy(self, cls, ref_fn, sign, scale):  # noqa: ARG002
-        """Float mode approximates the math function in [-5, 5]."""
-        lut = cls(min_val=-500, max_val=500, output_sign=sign, is_float=True)
-        x = torch.linspace(-5, 5, 20)
-        y = lut(x)
-        ref = torch.tensor([ref_fn(xi.item()) for xi in x])
-        assert torch.allclose(
-            y.float(), ref, atol=0.15
-        ), f"{cls.__name__} max error = {(y.float() - ref).abs().max().item():.4f}"
-
-    @pytest.mark.parametrize("cls, ref_fn, sign, scale", _NONLINEAR_PARAMS)
-    def test_int_accuracy(self, cls, ref_fn, sign, scale):
-        """Int mode: quantised accuracy at normalised-domain points."""
-        min_val, max_val, act_range = -500, 500, 10
-        hw_scale = (max_val - min_val) / (2 * act_range)
-        lut = cls(min_val=min_val, max_val=max_val, output_sign=sign)
-
-        norm_points = [-8, -4, -2, -1, 0, 1, 2, 4, 8]
-        hw_points = [min_val + (xn + act_range) * hw_scale for xn in norm_points]
-        y = lut(torch.tensor(hw_points))
-
-        for xn, yi in zip(norm_points, y.tolist()):
-            expected = ref_fn(xn) * scale
-            assert (
-                abs(yi - expected) <= 15
-            ), f"{cls.__name__}: at x_norm={xn}, got {yi}, expected ~{expected:.1f}"
-
-    @pytest.mark.parametrize("cls, ref_fn, sign, scale", _NONLINEAR_PARAMS)
-    def test_threshold_density_near_zero(
-        self, cls, ref_fn, sign, scale
-    ):  # noqa: ARG002
-        """Non-uniform binning concentrates thresholds near x=0."""
-        thresholds = cls(min_val=-500, max_val=500, output_sign=sign).thresholds
-        inner_count = ((thresholds >= -50) & (thresholds <= 50)).sum().item()
-        assert (
-            inner_count > 50
-        ), f"{cls.__name__}: only {inner_count} thresholds in [-50, 50]"
-
-    @pytest.mark.parametrize("cls, ref_fn, sign, scale", _NONLINEAR_PARAMS)
-    def test_saturation(self, cls, ref_fn, sign, scale):  # noqa: ARG002
-        """Activation saturates at extremes (float and int modes)."""
-        lut_f = cls(min_val=-500, max_val=500, output_sign=sign, is_float=True)
-        lut_i = cls(min_val=-500, max_val=500, output_sign=sign)
-
-        # Float mode: close to math limits
-        y_lo_f = lut_f(torch.tensor([-490])).float().item()
-        y_hi_f = lut_f(torch.tensor([490])).float().item()
-        assert abs(y_lo_f - ref_fn(-490)) < 0.1
-        assert abs(y_hi_f - ref_fn(490)) < 0.1
-
-        # Int mode: close to output range limits
-        y_lo_i = lut_i(torch.tensor([-490])).item()
-        y_hi_i = lut_i(torch.tensor([490])).item()
-        if sign == 0:
-            assert y_lo_i <= 5
-            assert y_hi_i >= 250
-        else:
-            assert y_lo_i <= -110
-            assert y_hi_i >= 110
+def _low_range_identity_lut() -> LutCustom:
+    levels = torch.arange(5, dtype=torch.int32)
+    return LutCustom.from_intervals(levels, levels, output_signed=False)
 
 
-class TestLutCustom:
-    def test_dtypes(self):
-        """LutCustom converts to correct dtypes in both modes."""
-        thresholds = torch.arange(256, dtype=torch.float32)
-        values = torch.arange(256, dtype=torch.float32)
+def _assert_value_block(values: torch.Tensor, start: int, stop: int, value: int) -> None:
+    assert values[start:stop].tolist() == [value] * (stop - start)
 
-        lut_int = LutCustom(thresholds, values, output_sign=0)
-        assert lut_int.thresholds.dtype == torch.int32
-        assert lut_int.lut_values.dtype == torch.uint8
 
-        lut_float = LutCustom(thresholds, values, is_float=True)
-        assert lut_float.thresholds.dtype == torch.float32
-        assert lut_float.lut_values.dtype == torch.bfloat16
+class TestPublicSignednessAndBuffers:
+    @pytest.mark.parametrize(
+        "cls, expected_signed, expected_dtype",
+        _DEFAULT_LUT_CASES,
+        ids=[cls.__name__ for cls, _, _ in _DEFAULT_LUT_CASES],
+    )
+    def test_default_output_signed_controls_int_buffers(
+        self, cls, expected_signed, expected_dtype
+    ):
+        lut = cls(min_val=-100, max_val=100)
+
+        assert lut.output_signed is expected_signed
+        assert lut.thresholds.shape == (LUT_TABLE_SIZE,)
+        assert lut.lut_values.shape == (LUT_TABLE_SIZE,)
+        assert lut.thresholds.dtype == torch.int32
+        assert lut.lut_values.dtype == expected_dtype
+        assert torch.all(lut.thresholds[1:] >= lut.thresholds[:-1])
+
+    def test_float_mode_uses_float_buffers(self):
+        lut = LutReLU(min_val=-10, max_val=10, output_signed=True, is_float=True)
+
+        assert lut.output_signed is True
+        assert lut.thresholds.dtype == torch.float32
+        assert lut.lut_values.dtype == torch.bfloat16
+
+    def test_lutcustom_float_mode_uses_float_buffers(self):
+        thresholds = torch.linspace(-1.0, 1.0, LUT_TABLE_SIZE)
+        values = thresholds.square()
+
+        lut = LutCustom(thresholds, values, is_float=True)
+
+        assert lut.output_signed is False
+        assert lut.thresholds.dtype == torch.float32
+        assert lut.lut_values.dtype == torch.bfloat16
 
     @pytest.mark.parametrize(
-        "n_thres, n_vals, match",
-        [(100, 256, "256 thresholds"), (256, 100, "256 values")],
+        "output_signed, values, expected_signed, expected_dtype",
+        [
+            (
+                False,
+                torch.arange(LUT_TABLE_SIZE, dtype=torch.int32),
+                False,
+                torch.uint8,
+            ),
+            (True, torch.arange(-128, 128, dtype=torch.int32), True, torch.int8),
+            (None, torch.arange(LUT_TABLE_SIZE, dtype=torch.int32), False, torch.uint8),
+            (None, torch.arange(-128, 128, dtype=torch.int32), True, torch.int8),
+        ],
+        ids=[
+            "explicit_unsigned",
+            "explicit_signed",
+            "inferred_unsigned",
+            "inferred_signed",
+        ],
     )
-    def test_reject_wrong_length(self, n_thres, n_vals, match):
-        """Raises ValueError for non-256 threshold or value length."""
+    def test_lutcustom_output_signed_controls_or_infers_dtype(
+        self, output_signed, values, expected_signed, expected_dtype
+    ):
+        thresholds = torch.arange(LUT_TABLE_SIZE, dtype=torch.int32)
+
+        lut = LutCustom(thresholds, values, output_signed=output_signed)
+
+        assert lut.output_signed is expected_signed
+        assert lut.lut_values.dtype == expected_dtype
+
+    @pytest.mark.parametrize(
+        "thresholds, values, is_float, match",
+        [
+            (
+                torch.arange(LUT_TABLE_SIZE, dtype=torch.float32),
+                torch.arange(LUT_TABLE_SIZE, dtype=torch.int32),
+                False,
+                "integer LUT thresholds",
+            ),
+            (
+                torch.arange(LUT_TABLE_SIZE, dtype=torch.int32),
+                torch.arange(LUT_TABLE_SIZE, dtype=torch.float32),
+                False,
+                "integer LUT values",
+            ),
+            (
+                torch.arange(LUT_TABLE_SIZE, dtype=torch.int32),
+                torch.arange(LUT_TABLE_SIZE, dtype=torch.float32),
+                True,
+                "float LUT thresholds",
+            ),
+            (
+                torch.arange(LUT_TABLE_SIZE, dtype=torch.float32),
+                torch.arange(LUT_TABLE_SIZE, dtype=torch.int32),
+                True,
+                "float LUT values",
+            ),
+        ],
+        ids=[
+            "integer_thresholds_reject_float",
+            "integer_values_reject_float",
+            "float_thresholds_reject_integer",
+            "float_values_reject_integer",
+        ],
+    )
+    def test_lutcustom_rejects_wrong_tensor_kinds(
+        self, thresholds, values, is_float, match
+    ):
+        with pytest.raises(TypeError, match=match):
+            LutCustom(thresholds, values, is_float=is_float)
+
+    @pytest.mark.parametrize(
+        "threshold_count, value_count, match",
+        [
+            (100, LUT_TABLE_SIZE, f"{LUT_TABLE_SIZE} thresholds"),
+            (LUT_TABLE_SIZE, 100, f"{LUT_TABLE_SIZE} values"),
+        ],
+    )
+    def test_lutcustom_rejects_wrong_table_lengths(
+        self, threshold_count, value_count, match
+    ):
         with pytest.raises(ValueError, match=match):
-            LutCustom(torch.zeros(n_thres), torch.zeros(n_vals))
+            LutCustom(
+                torch.zeros(threshold_count, dtype=torch.int32),
+                torch.zeros(value_count, dtype=torch.int32),
+            )
 
-    def test_lookup_and_boundary(self):
-        """LutCustom maps inputs correctly, including boundary clamping."""
-        thresholds = torch.arange(256, dtype=torch.float32)
-        values = torch.arange(256, dtype=torch.float32)
-        lut = LutCustom(thresholds, values)
+    @pytest.mark.parametrize(
+        "output_signed, values, match",
+        [
+            (False, torch.arange(-128, 128, dtype=torch.int32), "unsigned 8-bit"),
+            (True, torch.arange(LUT_TABLE_SIZE, dtype=torch.int32), "signed 8-bit"),
+        ],
+        ids=["unsigned_negative", "signed_too_large"],
+    )
+    def test_explicit_signedness_rejects_out_of_range_values(
+        self, output_signed, values, match
+    ):
+        thresholds = torch.arange(LUT_TABLE_SIZE, dtype=torch.int32)
 
-        assert lut(torch.tensor([100.5])).item() == 100
-        assert lut(torch.tensor([-100])).item() == 0  # below min
-        assert lut(torch.tensor([999])).item() == 255  # above max
+        with pytest.raises(ValueError, match=match):
+            LutCustom(thresholds, values, output_signed=output_signed)
 
-    def test_step_function(self):
-        """Non-monotonic step function: first half -> 0, second half -> 100."""
-        thresholds = torch.arange(256, dtype=torch.float32)
-        values = torch.cat([torch.zeros(128), torch.full((128,), 100)])
-        lut = LutCustom(thresholds, values)
-        y = lut(torch.tensor([50, 180]))
-        assert y[0].item() == 0
-        assert y[1].item() == 100
-
-    def test_auto_output_sign(self):
-        """Auto-detect output_sign from values; explicit override works."""
-        lut_signed = LutCustom(
-            torch.arange(256, dtype=torch.float32), torch.linspace(-128, 127, 256)
+    def test_lutcustom_from_intervals_builds_padded_logical_lut(self):
+        lut = LutCustom.from_intervals(
+            starts=torch.tensor([0, 2, 4]),
+            values=torch.tensor([0, 1, 2]),
         )
-        assert lut_signed.output_sign == 1
 
-        lut_unsigned = LutCustom(
-            torch.arange(256, dtype=torch.float32), torch.linspace(0, 255, 256)
-        )
-        assert lut_unsigned.output_sign == 0
+        assert lut.output_signed is False
+        assert lut.thresholds[:5].tolist() == [0, 2, 4, 4, 4]
+        assert lut.lut_values[:5].tolist() == [0, 1, 2, 2, 2]
+        values, indices = lut.lookup(torch.tensor([-1, 0, 1, 2, 3, 4, 5]))
+        assert indices.tolist() == [
+            0,
+            0,
+            0,
+            1,
+            1,
+            LUT_TABLE_SIZE - 1,
+            LUT_TABLE_SIZE - 1,
+        ]
+        assert values.tolist() == [0, 0, 0, 1, 1, 2, 2]
 
-        lut_override = LutCustom(
-            torch.arange(256, dtype=torch.float32),
-            torch.linspace(-128, 127, 256),
-            output_sign=0,
+    @pytest.mark.parametrize(
+        "starts, values, error_type, match",
+        [
+            ([], [], ValueError, "must not be empty"),
+            ([0, 1], [0], ValueError, "same length"),
+            (
+                list(range(LUT_TABLE_SIZE + 1)),
+                list(range(LUT_TABLE_SIZE + 1)),
+                ValueError,
+                "at most",
+            ),
+            ([0, 0], [0, 1], ValueError, "strictly increasing"),
+            (
+                torch.tensor([0.0, 1.0]),
+                torch.tensor([0, 1]),
+                TypeError,
+                "LUT interval starts",
+            ),
+            (
+                torch.tensor([0, 2**40], dtype=torch.int64),
+                torch.tensor([0, 1]),
+                ValueError,
+                "fit int32",
+            ),
+        ],
+        ids=[
+            "empty",
+            "mismatched_length",
+            "too_many_intervals",
+            "non_increasing",
+            "non_integer_starts",
+            "int32_overflow",
+        ],
+    )
+    def test_lutcustom_from_intervals_rejects_invalid_inputs(
+        self, starts, values, error_type, match
+    ):
+        with pytest.raises(error_type, match=match):
+            LutCustom.from_intervals(starts, values)
+
+
+class TestLookupSemantics:
+    def test_lookup_uses_logical_bucketize_semantics(self):
+        lut = _low_range_identity_lut()
+        x = torch.tensor([-10, 0, 1, 2, 3, 4, 5], dtype=torch.int32)
+
+        values, indices = lut.lookup(x)
+
+        assert indices.tolist() == [
+            0,
+            0,
+            1,
+            2,
+            3,
+            LUT_TABLE_SIZE - 1,
+            LUT_TABLE_SIZE - 1,
+        ]
+        assert values.tolist() == [0, 0, 1, 2, 3, 4, 4]
+        assert torch.equal(values, lut(x))
+
+    def test_logical_lut_data_returns_cloned_table(self):
+        lut = LutReLU(min_val=-100, max_val=100)
+
+        logical = lut.logical_lut_data
+
+        assert torch.equal(logical.thresholds, lut.thresholds)
+        assert torch.equal(logical.values, lut.lut_values)
+        assert logical.thresholds is not lut.thresholds
+        assert logical.values is not lut.lut_values
+        assert logical.is_float == lut.is_float
+
+    def test_forward_preserves_shape_and_uses_lut_entries(self):
+        lut = LutTanh(min_val=-500, max_val=500)
+        x = torch.linspace(-500, 500, 24).reshape(2, 3, 4)
+
+        y = lut(x)
+
+        assert y.shape == x.shape
+        assert set(y.flatten().tolist()).issubset(set(lut.lut_values.tolist()))
+
+
+class TestHardwareLutExport:
+    @pytest.mark.parametrize(
+        "cls",
+        [
+            LutReLU,
+            LutReLUSymmetric,
+            LutLinear,
+            LutSigmoid,
+            LutTanh,
+            LutSoftsign,
+        ],
+    )
+    def test_default_presets_have_exportable_monotonic_integer_thresholds(self, cls):
+        lut = cls()
+        output_data_sign = DataSign.SIGNED if lut.output_signed else DataSign.UNSIGNED
+
+        width = lut.infer_hw_output_width(output_data_sign)
+
+        assert width == DataWidth.WIDTH_8BIT
+
+    def test_to_hw_lut_data_reencodes_low_range_identity_u4_for_sar(self):
+        lut = _low_range_identity_lut()
+        logical = lut.logical_lut_data
+
+        hardware = lut.to_hw_lut_data(DataSign.UNSIGNED, DataWidth.WIDTH_4BIT)
+        values, indices = _lookup_hw_lut_data(
+            hardware,
+            DataWidth.WIDTH_4BIT,
+            torch.tensor([0, 1, 2, 3, 4], dtype=torch.int32),
         )
-        assert lut_override.output_sign == 0
+
+        assert indices.tolist() == [0, 16, 32, 48, 64]
+        assert values.tolist() == [0, 1, 2, 3, 4]
+        assert not torch.equal(hardware.thresholds, logical.thresholds)
+        assert torch.equal(
+            hardware.thresholds[torch.tensor([16, 32, 48, 64])],
+            torch.tensor([1, 2, 3, 4], dtype=torch.int32),
+        )
+        _assert_value_block(hardware.values, 0, 16, 0)
+        _assert_value_block(hardware.values, 16, 32, 1)
+        _assert_value_block(hardware.values, 32, 48, 2)
+        _assert_value_block(hardware.values, 48, 64, 3)
+        _assert_value_block(hardware.values, 64, LUT_TABLE_SIZE, 4)
+
+    def test_to_hw_lut_data_reencodes_full_u4_identity_blocks(self):
+        levels = torch.arange(16, dtype=torch.int32)
+        lut = LutCustom.from_intervals(levels, levels, output_signed=False)
+
+        hardware = lut.to_hw_lut_data(DataSign.UNSIGNED, DataWidth.WIDTH_4BIT)
+        values, indices = _lookup_hw_lut_data(
+            hardware, DataWidth.WIDTH_4BIT, levels
+        )
+
+        assert indices.tolist() == list(range(0, LUT_TABLE_SIZE, 16))
+        assert values.tolist() == list(range(16))
+        assert hardware.thresholds[torch.arange(16, 256, 16)].tolist() == list(
+            range(1, 16)
+        )
+        for value, start in enumerate(range(0, LUT_TABLE_SIZE, 16)):
+            _assert_value_block(hardware.values, start, start + 16, value)
+
+    def test_signed_identity_hardware_lut_preserves_negative_values(self):
+        levels = torch.tensor([-1, 0, 1], dtype=torch.int32)
+        lut = LutCustom.from_intervals(levels, levels, output_signed=True)
+
+        hardware = lut.to_hw_lut_data(DataSign.SIGNED, DataWidth.WIDTH_2BIT)
+        values, indices = _lookup_hw_lut_data(
+            hardware,
+            DataWidth.WIDTH_2BIT,
+            torch.tensor([-1, 0, 1], dtype=torch.int32),
+        )
+
+        assert indices.tolist() == [0, 64, 128]
+        assert values.tolist() == [-1, 0, 1]
+        _assert_value_block(hardware.values, 0, 64, -1)
+        _assert_value_block(hardware.values, 64, 128, 0)
+        _assert_value_block(hardware.values, 128, LUT_TABLE_SIZE, 1)
+
+    def test_narrow_hardware_lut_rejects_too_many_effective_intervals(self):
+        thresholds = torch.arange(LUT_TABLE_SIZE, dtype=torch.int32)
+        values = torch.arange(LUT_TABLE_SIZE, dtype=torch.int32).remainder(2)
+        lut = LutCustom(thresholds, values, output_signed=False, is_float=False)
+
+        with pytest.raises(ValueError, match="effective intervals"):
+            lut.to_hw_lut_data(DataSign.UNSIGNED, DataWidth.WIDTH_4BIT)
+
+    def test_narrow_hardware_lut_rejects_values_outside_output_width(self):
+        lut = LutCustom.from_intervals(
+            torch.tensor([0, 1]),
+            torch.tensor([0, 2]),
+            output_signed=False,
+        )
+
+        with pytest.raises(ValueError, match="unsigned width_1bit range"):
+            lut.to_hw_lut_data(DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)
+
+
+class TestActivationBehavior:
+    @pytest.mark.parametrize("cls", [LutReLU, LutReLUSymmetric])
+    @pytest.mark.parametrize(
+        "output_signed, max_out", [(False, 255), (True, 127)], ids=["u8", "s8"]
+    )
+    def test_relu_variants_respect_signedness_and_monotonic_positive_region(
+        self, cls, output_signed, max_out
+    ):
+        lut = cls(min_val=-500, max_val=500, output_signed=output_signed)
+
+        assert torch.all(lut(torch.tensor([-100, -1])) == 0)
+        y = lut(torch.linspace(-500, 500, 100))
+        assert torch.all((y >= 0) & (y <= max_out))
+        assert lut(torch.tensor([500])).item() >= max_out - 5
+
+    def test_symmetric_relu_keeps_uniform_thresholds(self):
+        lut = LutReLUSymmetric(min_val=-500, max_val=500, output_signed=True)
+
+        diffs = (lut.thresholds[1:] - lut.thresholds[:-1]).float()
+
+        assert torch.allclose(
+            diffs,
+            torch.full_like(diffs, diffs[0].item(), dtype=torch.float32),
+            atol=1.0,
+        )
+
+    def test_linear_default_signed_mapping_preserves_endpoints(self):
+        lut = LutLinear(min_val=-100, max_val=100)
+
+        y = lut(torch.tensor([-100, 0, 100]))
+
+        assert abs(y[0] - (-128)) <= 2
+        assert abs(y[1]) <= 2
+        assert abs(y[2] - 127) <= 2
+
+    @pytest.mark.parametrize(
+        "cls, ref_fn, output_signed, scale",
+        _NONLINEAR_CASES,
+        ids=[cls.__name__ for cls, _, _, _ in _NONLINEAR_CASES],
+    )
+    def test_nonlinear_luts_are_monotonic_and_reasonably_accurate(
+        self, cls, ref_fn, output_signed, scale
+    ):
+        min_val, max_val, act_range = -500, 500, 10
+        lut = cls(
+            min_val=min_val,
+            max_val=max_val,
+            output_signed=output_signed,
+            act_range=act_range,
+        )
+
+        y = lut(torch.linspace(min_val, max_val, 200))
+        assert torch.all(y[1:] - y[:-1] >= -1e-5)
+
+        hw_scale = (max_val - min_val) / (2 * act_range)
+        norm_points = [-4, -1, 0, 1, 4]
+        hw_points = [min_val + (xn + act_range) * hw_scale for xn in norm_points]
+        sampled = lut(torch.tensor(hw_points))
+        for xn, actual in zip(norm_points, sampled.tolist()):
+            expected = ref_fn(xn) * scale
+            assert abs(actual - expected) <= 15
+
+    @pytest.mark.parametrize(
+        "cls, ref_fn, output_signed, scale",
+        _NONLINEAR_CASES,
+        ids=[cls.__name__ for cls, _, _, _ in _NONLINEAR_CASES],
+    )
+    def test_nonlinear_float_mode_approximates_math_function(
+        self, cls, ref_fn, output_signed, scale
+    ):  # noqa: ARG002
+        lut = cls(min_val=-500, max_val=500, output_signed=output_signed, is_float=True)
+        x = torch.linspace(-5, 5, 20)
+        ref = torch.tensor([ref_fn(xi.item()) for xi in x])
+
+        y = lut(x)
+        assert torch.allclose(y.float(), ref, atol=0.15)
+
+
+class TestCopying:
+    @pytest.mark.parametrize(
+        "lut",
+        [
+            LutReLU(min_val=-100, max_val=100),
+            LutCustom(
+                torch.arange(LUT_TABLE_SIZE, dtype=torch.int32),
+                torch.arange(LUT_TABLE_SIZE, dtype=torch.int32),
+            ),
+        ],
+        ids=["generated", "custom"],
+    )
+    def test_deepcopy_clones_buffers_without_aliasing(self, lut):
+        cloned = copy.deepcopy(lut)
+
+        assert cloned is not lut
+        assert type(cloned) is type(lut)
+        assert torch.equal(cloned.thresholds, lut.thresholds)
+        assert torch.equal(cloned.lut_values, lut.lut_values)
+        assert cloned.thresholds is not lut.thresholds
+        assert cloned.lut_values is not lut.lut_values

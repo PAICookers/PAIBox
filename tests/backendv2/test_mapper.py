@@ -44,7 +44,13 @@ from paibox.backendv2.proto.compile_artifacts_pb2 import (
     RuntimeParams,
 )
 from paibox.backendv2.routing import FANIN_BASE, OutputGroup
-from paibox.paiir import ANNNodeV25, LutCustom, compile_to_paiir, register_neuron
+from paibox.paiir import (
+    LUT_TABLE_SIZE,
+    ANNNodeV25,
+    LutCustom,
+    compile_to_paiir,
+    register_neuron,
+)
 from tests.paiir.conftest import ANNClassifier, SimpleCNN, SNNTwoLayer, make_img_3ch_8x8
 from tests.utils import is_ci_env
 
@@ -59,15 +65,15 @@ class FloatOutputIdentityLutCustom(LutCustom):
 class RepeatedWeightDifferentBiasLinearLut(nn.Module):
     def __init__(self) -> None:
         super().__init__()
-        thresholds = torch.arange(256, dtype=torch.int32)
-        values = torch.arange(256, dtype=torch.uint8)
+        thresholds = torch.arange(LUT_TABLE_SIZE, dtype=torch.int32)
+        values = torch.arange(LUT_TABLE_SIZE, dtype=torch.uint8)
         self.linear1 = nn.Linear(4, 4, bias=True)
         self.lut1 = FloatOutputIdentityLutCustom(
-            thresholds, values, output_sign=0, is_float=False
+            thresholds, values, output_signed=False, is_float=False
         )
         self.linear2 = nn.Linear(4, 2, bias=True)
         self.lut2 = FloatOutputIdentityLutCustom(
-            thresholds, values, output_sign=0, is_float=False
+            thresholds, values, output_signed=False, is_float=False
         )
         with torch.no_grad():
             repeated_row = torch.tensor([1, -1, 1, -1], dtype=torch.float32)
@@ -93,7 +99,7 @@ def _register_float_output_identity_lut_custom() -> None:
                 LutCustom(
                     lut.thresholds.detach().clone(),
                     lut.lut_values.detach().clone(),
-                    output_sign=lut.output_sign,
+                    output_signed=lut.output_signed,
                     is_float=lut.is_float,
                 )
             ),
