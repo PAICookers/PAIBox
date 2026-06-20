@@ -21,9 +21,10 @@ def _all_empty_offline_except(*used: CoordXY) -> set[CoordXY]:
 
 
 def _assert_control_loop_cost_fields(plan) -> None:
-    assert plan.score.cpu_to_root_path_len == find_coordxy_shortest_path(
-        plan.global_signal_root
-    )[1]
+    assert (
+        plan.score.cpu_to_root_path_len
+        == find_coordxy_shortest_path(plan.global_signal_root)[1]
+    )
     assert plan.score.complete_path_len == route_len(plan.control_offset)
     assert (
         plan.score.control_loop_cost
