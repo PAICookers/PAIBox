@@ -34,6 +34,7 @@ message DataType {
         INT4 = 6;
         UINT8 = 7;
         INT8 = 8;
+        FLOAT16 = 9;
     }
 }
 

@@ -47,7 +47,7 @@ from .ir import (
 from .pipeline import CompileConfig, compile_to_paiir
 
 # Conversion entrypoints
-from .lowering import register_module, register_neuron, torch_to_paiir
+from .lowering import mark_online, register_module, register_neuron, torch_to_paiir
 
 __all__ = [
     # Chip-accurate operators
@@ -69,6 +69,7 @@ __all__ = [
     # Graph
     "PAIIRGraph",
     # Conversion and passes
+    "mark_online",
     "register_module",
     "register_neuron",
     "torch_to_paiir",

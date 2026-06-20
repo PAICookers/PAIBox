@@ -19,6 +19,9 @@ conversion pipeline:
    the graph
 10. :func:`validate_deployable_graph` -- reject residual expression-layer IR
 
+Online-marked models currently branch out before offline fusion and enter the
+dedicated online compile path instead.
+
 Use :func:`compile_to_paiir` for a one-step compilation, or call the
 individual passes directly for fine-grained control.
 
@@ -34,6 +37,7 @@ from torch import Tensor, nn
 
 from ..ir.graph import PAIIRGraph
 from ..lowering.converter import torch_to_paiir
+from .online import compile_online_graph, has_online_nodes
 from .avgpool import rewrite_delayed_avgpool_division, rewrite_standalone_avgpools
 from .avgpool.standalone_rewrite import OutputApprox
 from .data_format import DataFormat
@@ -211,10 +215,36 @@ def compile_to_paiir(
         after connectivity cleanup, signal-semantics propagation, data-format
         propagation, and tick assignment
     13. :func:`validate_deployable_graph` -- ensure no frontend-only IR remains
+
+    Online-marked models skip the offline deploy pipeline and instead refine
+    the semantic online graph into compiled online work modes.
     """
     cfg = compile_config or CompileConfig()
     _timesteps = _resolve_config_arg(timesteps, cfg.timesteps)
     _auto_reset = _resolve_config_arg(auto_reset, cfg.auto_reset)
+
+    graph = torch_to_paiir(
+        model, *sample_inputs, concrete_args=concrete_args, strict=strict
+    )
+    if has_online_nodes(graph):
+        if input_formats is not None:
+            raise ValueError("online compile does not support input_formats.")
+        if enable_avgpool_calibration is not None:
+            raise ValueError(
+                "online compile does not support enable_avgpool_calibration."
+            )
+        if enable_split_avgpool_lif is not None:
+            raise ValueError(
+                "online compile does not support enable_split_avgpool_lif."
+            )
+        if enable_delayed_avgpool_division is not None:
+            raise ValueError(
+                "online compile does not support enable_delayed_avgpool_division."
+            )
+        if output_approx is not None:
+            raise ValueError("online compile does not support output_approx.")
+        return compile_online_graph(graph, _timesteps, _auto_reset)
+
     _input_formats = input_formats if input_formats is not None else cfg.input_formats
     _enable_avgpool_calibration = (
         enable_avgpool_calibration
@@ -232,10 +262,6 @@ def compile_to_paiir(
         else cfg.enable_delayed_avgpool_division
     )
     _output_approx = output_approx if output_approx is not None else cfg.output_approx
-
-    graph = torch_to_paiir(
-        model, *sample_inputs, concrete_args=concrete_args, strict=strict
-    )
 
     graph = _run_pre_fusion_rewrite_phase(graph)
     graph = flatten_general_add_chains(graph)

@@ -25,7 +25,13 @@ from paicorelib import OutputType, PoolingMode
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from .calc_params import LutData, NeuronParams, OfflineCoreParams, OnlineCoreParams
+from .calc_params import (
+    LutData,
+    NeuronParams,
+    OfflineCoreParams,
+    OnlineCoreParams,
+    OnlineCoreSemanticMode,
+)
 from .core_neuron import CoreNeuronV25
 from .ir_base import FormatFlow, PAIIRNode, TensorLayout
 from .maxpool_export import (
@@ -756,15 +762,53 @@ class StandaloneActOp(OfflineCoreOp):
 
 
 class OnlineCoreOp(OpNode):
-    """Placeholder for online (learning) core operators.
+    """Online-core operator.
 
-    Both v2.0 and v2.5 chips have online cores supporting STDP-based
-    on-chip learning. The backend handles version-specific configuration.
+    The online path keeps its own IR family instead of reusing
+    :class:`OfflineCoreOp` with a training flag. The first phase models the
+    semantic forward node and carries the compile-time fields needed by later
+    graph expansion and backend refinement.
     """
 
-    def __init__(self, core_params: OnlineCoreParams | None = None) -> None:
+    comp: nn.Module | None
+
+    def __init__(
+        self,
+        comp: nn.Module | None = None,
+        core_params: OnlineCoreParams | None = None,
+    ) -> None:
         super().__init__()
+        self.comp = comp
         self.core_params = core_params or OnlineCoreParams()
+
+    @property
+    def weights(self) -> list[Tensor] | None:
+        if self.comp is None:
+            return None
+        w = _get_weight_tensor(self.comp)
+        if torch.is_tensor(w):
+            return [w.detach().to(torch.bfloat16)]
+        return None
+
+    def forward(self, x: Tensor) -> Tensor:
+        if self.core_params.semantic_mode is not OnlineCoreSemanticMode.FORWARD:
+            raise NotImplementedError(
+                "OnlineCoreOp simulation currently supports forward semantic nodes only."
+            )
+        if self.comp is None:
+            return x
+        return _run_comp(self.comp, x)
+
+    def extra_repr(self) -> str:
+        parts = [
+            super().extra_repr(),
+            f"semantic_mode={self.core_params.semantic_mode.value}",
+        ]
+        if self.core_params.work_mode is not None:
+            parts.append(f"work_mode={self.core_params.work_mode.name}")
+        if self.comp is not None:
+            parts.append(f"comp={type(self.comp).__name__}")
+        return ", ".join(parts)
 
 
 class CPUOp(OpNode):

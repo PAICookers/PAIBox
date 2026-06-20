@@ -10,7 +10,15 @@ and backend deployment:
 - parameter dataclasses used by deployable nodes
 """
 
-from .calc_params import LutData, NeuronParams, OfflineCoreParams, OnlineCoreParams
+from .calc_params import (
+    LutData,
+    NeuronParams,
+    OfflineCoreParams,
+    OnlineCoreParams,
+    OnlineCoreSemanticMode,
+    OnlineGradientRole,
+    OnlineUpdateDirection,
+)
 from .core_neuron import (
     ANNNodeV25,
     CoreNeuronV25,
@@ -83,6 +91,9 @@ __all__ = [
     "OfflineCoreParams",
     "OnlineCoreOp",
     "OnlineCoreParams",
+    "OnlineCoreSemanticMode",
+    "OnlineGradientRole",
+    "OnlineUpdateDirection",
     "OpNode",
     "OutputNode",
     "PAIIRGraph",

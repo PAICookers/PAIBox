@@ -265,6 +265,34 @@ class ANNResidualSubtract(nn.Module):
         return self.tanh(self.linear_a(x) - self.linear_b(x))
 
 
+class SJMNISTValidationNet(nn.Module):
+    """MNIST-sized SpikingJelly reference network for future online-core validation.
+
+    The topology stays intentionally small:
+
+    - grayscale `1x28x28` input
+    - flatten
+    - dense hidden layer
+    - SpikingJelly IF neuron
+    - dense classifier head
+
+    This keeps the model easy to reuse across compile, export, and later
+    online-training validation, while still being a real SpikingJelly network.
+    """
+
+    def __init__(self, hidden_features: int = 128):
+        super().__init__()
+        self.flatten = nn.Flatten(start_dim=1)
+        self.fc1 = nn.Linear(28 * 28, hidden_features, bias=False)
+        self.if1 = sj.IFNode(v_threshold=1.0)
+        self.fc2 = nn.Linear(hidden_features, 10, bias=False)
+
+    def forward(self, x):
+        x = self.flatten(x)
+        x = self.if1(self.fc1(x))
+        return self.fc2(x)
+
+
 class SPPFBlock(nn.Module):
     """Conv-LIF -> cascaded MaxPool x3 -> cat -> Conv-LIF: SPPF pattern."""
 
@@ -335,6 +363,11 @@ class UnsupportedSinModel(nn.Module):
 def make_img_1ch_4x4() -> Tensor:
     """Single-channel 4x4 image, for flatten/linear tests."""
     return torch.randn(1, 1, 4, 4)
+
+
+def make_img_1ch_28x28() -> Tensor:
+    """Single-channel 28x28 image, matching the default MNIST validation net."""
+    return torch.randn(1, 1, 28, 28)
 
 
 def make_img_3ch_8x8() -> Tensor:

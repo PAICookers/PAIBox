@@ -46,7 +46,7 @@ import operator
 import sys
 import warnings
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from functools import partial
 from typing import Any, TypeVar
 
@@ -60,6 +60,11 @@ from torch.fx.passes.shape_prop import ShapeProp
 
 from ..exceptions import UnsupportedOpError, UnsupportedOpWarning
 from ..ir.add_ops import AddOperandKind, AddOperandSpec, GeneralAddOp
+from ..ir.calc_params import (
+    OnlineCoreParams,
+    OnlineCoreSemanticMode,
+    OnlineCoreUpdateType,
+)
 from ..ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
 from ..ir.graph import PAIIRGraph
 from ..ir.ir_base import InputNode, OutputNode
@@ -76,6 +81,7 @@ from ..ir.lut_activation import (
 from ..ir.op_node import (
     ConcatOp,
     LayoutStage,
+    OnlineCoreOp,
     OpNode,
     PadOp,
     ShapeStage,
@@ -97,6 +103,7 @@ from .fx_utils import (
     get_output_layouts,
     get_output_shape,
 )
+from .online_training import expand_online_training_graph
 from .shape_analysis import ReshapeSinkInfo, ShapeAnalysisResult, analyze_shape_helpers
 from .sj_layers import (
     _SUPPORTED_SJ_LAYER_COMP_TYPES,
@@ -119,7 +126,7 @@ else:
     from typing_extensions import deprecated
 
 
-__all__ = ["torch_to_paiir", "register_module", "register_neuron"]
+__all__ = ["mark_online", "torch_to_paiir", "register_module", "register_neuron"]
 
 _M = TypeVar("_M", bound=nn.Module)
 
@@ -170,6 +177,12 @@ PAD_FUNCS = (torch.nn.functional.pad,)
 # Known bypass targets (shape/dim ops that don't need IR nodes)
 KNOWN_BYPASS_FUNCS = (operator.getitem,)
 KNOWN_BYPASS_METHODS = ("size", "contiguous")
+_ONLINE_ATTR = "_paiir_online_params"
+_ONLINE_PARAM_NAMES = frozenset(field.name for field in fields(OnlineCoreParams))
+
+
+def _is_online_markable_module(module: nn.Module) -> bool:
+    return type(module) is nn.Linear
 
 
 def _has_nonzero_padding(padding: Any) -> bool:
@@ -1088,6 +1101,67 @@ def register_module(
     _USER_MODULE_MAP[module_type] = _build_module_mapper(module_type, converter)
 
 
+def mark_online(
+    module: _M,
+    *,
+    recursive: bool = True,
+    core_params: OnlineCoreParams | None = None,
+    **overrides: Any,
+) -> _M:
+    """Mark a module or module subtree for online-core lowering."""
+    params = copy.deepcopy(core_params) if core_params is not None else OnlineCoreParams()
+    for key, value in overrides.items():
+        if key not in _ONLINE_PARAM_NAMES:
+            raise TypeError(f"unknown online-core parameter: {key}")
+        setattr(params, key, value)
+    _validate_mark_online_params(params)
+
+    targets: list[nn.Module] = []
+    if recursive:
+        for submodule in module.modules():
+            if _is_online_markable_module(submodule):
+                targets.append(submodule)
+    else:
+        if not _is_online_markable_module(module):
+            raise ValueError(
+                "mark_online() currently supports direct marking of nn.Linear only."
+            )
+        targets.append(module)
+
+    if not targets:
+        raise ValueError(
+            "mark_online() found no supported online-core modules. "
+            "Phase 1 currently supports nn.Linear only."
+        )
+
+    for target in targets:
+        setattr(target, _ONLINE_ATTR, copy.deepcopy(params))
+    return module
+
+
+def _validate_mark_online_params(params: OnlineCoreParams) -> None:
+    if params.semantic_mode is not OnlineCoreSemanticMode.FORWARD:
+        raise ValueError(
+            "mark_online() currently supports semantic_mode='forward' only."
+        )
+    if params.gradient_role is not None:
+        raise ValueError(
+            "mark_online() does not accept gradient_role on forward-marked "
+            "modules; it is assigned during online compile."
+        )
+    if params.work_mode is not None:
+        raise ValueError(
+            "mark_online() does not accept prebound work_mode; it is assigned "
+            "during online compile."
+        )
+    if isinstance(params.output_width, OnlineCoreUpdateType):
+        raise ValueError(
+            "mark_online() does not accept update-stage output_width on "
+            "forward-marked modules; Phase 1 infers update type from Linear "
+            "bias and keeps KAHAN/update-mode config for a later phase."
+        )
+
+
 def torch_to_paiir(
     model: nn.Module,
     *sample_inputs: Tensor,
@@ -1151,7 +1225,10 @@ def torch_to_paiir(
         propagate_shapes(gm, *sample_inputs)
         propagate_dims(gm)
 
-    return _fx_graph_to_paiir(gm, full_map, strict)
+    graph = _fx_graph_to_paiir(gm, full_map, strict)
+    graph = expand_online_training_graph(graph)
+    graph.eval()
+    return graph
 
 
 def _is_lowering_bypass_module(m: nn.Module) -> bool:
@@ -1227,6 +1304,63 @@ def _register_ir_node(
 
     paiir_graph.add_node(ir_node)
     ctx.fx_to_ir[fx_node.name] = ir_node.name
+
+
+def _get_online_params(torch_module: nn.Module) -> OnlineCoreParams | None:
+    params = getattr(torch_module, _ONLINE_ATTR, None)
+    if params is None:
+        return None
+    return copy.deepcopy(params)
+
+
+def _wrap_online_ir_node(
+    torch_module: nn.Module, ir_node: OpNode
+) -> OnlineCoreOp | None:
+    params = _get_online_params(torch_module)
+    if params is None:
+        return None
+    if params.semantic_mode is not OnlineCoreSemanticMode.FORWARD:
+        raise ValueError(
+            "mark_online() currently supports semantic_mode='forward' only during "
+            "direct FX->PAIIR lowering."
+        )
+
+    if isinstance(ir_node, StandaloneCompOp) and isinstance(ir_node.comp, nn.Linear):
+        return OnlineCoreOp(comp=ir_node.comp, core_params=params)
+    return None
+
+
+def _register_lowered_module_ir_node(
+    paiir_graph: PAIIRGraph,
+    ctx: _LoweringContext,
+    node: fx.Node,
+    torch_module: nn.Module,
+    ir_node: OpNode,
+    input_override: tuple[fx.Node, ...] | None,
+    strict: bool,
+) -> None:
+    online_node = _wrap_online_ir_node(torch_module, ir_node)
+    if online_node is not None:
+        _register_ir_node(
+            paiir_graph, ctx, node, online_node, input_nodes_override=input_override
+        )
+        return
+
+    if _get_online_params(torch_module) is not None:
+        _mark_unsupported(
+            ctx,
+            node,
+            f"online lowering for nn.Module '{type(torch_module).__name__}'",
+            strict,
+        )
+        return
+
+    if isinstance(ir_node, OpNode):
+        _register_ir_node(
+            paiir_graph, ctx, node, ir_node, input_nodes_override=input_override
+        )
+    else:
+        ctx.bypass_nodes.add(node)
 
 
 def _mark_unsupported(
@@ -1333,12 +1467,15 @@ def _apply_module_lowering_rule(
 
     if (mod_type := type(torch_module)) in _USER_MODULE_MAP:
         ir_node = module_map[mod_type](torch_module)
-        if isinstance(ir_node, OpNode):
-            _register_ir_node(
-                paiir_graph, ctx, node, ir_node, input_nodes_override=input_override
-            )
-        else:
-            ctx.bypass_nodes.add(node)
+        _register_lowered_module_ir_node(
+            paiir_graph,
+            ctx,
+            node,
+            torch_module,
+            ir_node,
+            input_override,
+            strict,
+        )
         return True
 
     if is_sj_layer_module(torch_module) and not is_supported_sj_layer_module(
@@ -1378,12 +1515,15 @@ def _apply_module_lowering_rule(
 
     if (mod_type := type(torch_module)) in module_map:
         ir_node = module_map[mod_type](torch_module)
-        if isinstance(ir_node, OpNode):
-            _register_ir_node(
-                paiir_graph, ctx, node, ir_node, input_nodes_override=input_override
-            )
-        else:
-            ctx.bypass_nodes.add(node)
+        _register_lowered_module_ir_node(
+            paiir_graph,
+            ctx,
+            node,
+            torch_module,
+            ir_node,
+            input_override,
+            strict,
+        )
         return True
 
     mod_name = type(torch_module).__name__

@@ -1,4 +1,4 @@
-"""Offline core computation parameters.
+"""Offline and online core computation parameters.
 
 Uses paicorelib enum types to describe the configuration of an offline core.
 The IR is version-agnostic; the backend translates these parameters to
@@ -6,9 +6,12 @@ chip-specific register values (v2.0 or v2.5).
 """
 
 from dataclasses import dataclass, field
+from enum import Enum
 
 import torch
 from paicorelib import (
+    CSCAccelerateMode,
+    LCN_EX,
     RM,
     AddPotentialMode,
     DataSign,
@@ -23,6 +26,11 @@ from paicorelib import (
     SNNMode,
     ThresholdNegMode,
     ThresholdPosMode,
+    OnlineCoreType,
+    OnlineCoreUpdateType,
+    OnlineCoreWorkMode,
+    OnlineDataWidth,
+    OnlineSNNMode,
     ZeroOutputMode,
 )
 from torch import Tensor
@@ -32,6 +40,9 @@ __all__ = [
     "LutData",
     "OfflineCoreParams",
     "NeuronParams",
+    "OnlineCoreSemanticMode",
+    "OnlineGradientRole",
+    "OnlineUpdateDirection",
     "OnlineCoreParams",
 ]
 
@@ -224,12 +235,141 @@ class NeuronParams:
     output_type: OutputType = OutputType.VALUE
 
 
+class OnlineCoreSemanticMode(str, Enum):
+    """Semantic online-core stage before hardware work-mode refinement."""
+
+    FORWARD = "forward"
+    LOSS = "loss"
+    GRADIENT = "gradient"
+    POOL_GRADIENT = "pool_gradient"
+    UPDATE = "update"
+
+
+class OnlineGradientRole(str, Enum):
+    """Gradient-stage refinement used to select the hardware work mode."""
+
+    OUTPUT = "output"
+    HIDDEN = "hidden"
+
+
+class OnlineUpdateDirection(str, Enum):
+    """Update-stage refinement used to select the hardware work mode."""
+
+    FORWARD = "forward"
+    BACKWARD = "backward"
+
+
 @dataclass
 class OnlineCoreParams:
-    """Online (STDP) core parameters.
+    """Online-core parameters.
 
-    Placeholder for online learning cores available on both v2.0 and v2.5.
-    The backend handles version-specific configuration.
+    The frontend keeps a compact 5-mode semantic view and only refines into the
+    8 hardware ``work_mode`` states when the compile pipeline has enough graph
+    context to do so.
     """
 
-    pass
+    semantic_mode: OnlineCoreSemanticMode = OnlineCoreSemanticMode.FORWARD
+    gradient_role: OnlineGradientRole | None = None
+    update_direction: OnlineUpdateDirection | None = None
+    work_mode: OnlineCoreWorkMode | None = None
+
+    snn_mode: OnlineSNNMode = OnlineSNNMode.ANN_NO_ACT
+    pooling_mode: PoolingMode = PoolingMode.AVERAGE
+    add_potential: AddPotentialMode = AddPotentialMode.NORMAL
+    zero_output: ZeroOutputMode = ZeroOutputMode.DISABLE
+
+    input_core: OnlineCoreType = OnlineCoreType.ONLINE
+    input_width: OnlineDataWidth = OnlineDataWidth.TYPE_FP16
+    output_core: OnlineCoreType = OnlineCoreType.ONLINE
+    output_width: OnlineDataWidth | OnlineCoreUpdateType = OnlineDataWidth.TYPE_FP16
+
+    lcn_at: LCN_EX = LCN_EX.LCN_1X
+    lcn_mp: LCN_EX = LCN_EX.LCN_1X
+    lcn_lg: LCN_EX = LCN_EX.LCN_1X
+    target_lcn_at: LCN_EX = LCN_EX.LCN_1X
+    target_lcn_mp: LCN_EX = LCN_EX.LCN_1X
+    target_lcn_lg: LCN_EX = LCN_EX.LCN_1X
+
+    axon_skew: int = 0
+    neuron_number: int = 0
+    update_number: int = 0
+    csc_accelerate: CSCAccelerateMode = CSCAccelerateMode.DISABLE
+
+    scale_in: float = 1.0
+    bias_in: float = 0.0
+    scale_out: float = 1.0
+    bias_out: float = 0.0
+    learning_rate: float = 0.0
+
+    update_core_xy: int = 0
+    update_core_x: int = 0
+    update_core_y: int = 0
+    test_core_xy: int = 0
+    test_core_x: int = 0
+    test_core_y: int = 0
+
+    global_send: int = 0
+    global_receive: int = 0
+    thread_number: int = 0
+    busy_cycle: int = 2
+    delay_cycle: int = 2
+    width_cycle: int = 2
+
+    tick_start: int | None = None
+    tick_duration: int = 0
+    tick_initial: int = 0
+
+    def resolve_work_mode(self) -> OnlineCoreWorkMode:
+        """Resolve the hardware work mode from semantic state."""
+        if self.work_mode is not None:
+            return self.work_mode
+
+        if self.semantic_mode is OnlineCoreSemanticMode.FORWARD:
+            return OnlineCoreWorkMode.FORWARD_INFERENCE
+        if self.semantic_mode is OnlineCoreSemanticMode.LOSS:
+            return OnlineCoreWorkMode.LOSS_FN
+        if self.semantic_mode is OnlineCoreSemanticMode.GRADIENT:
+            if self.gradient_role is OnlineGradientRole.OUTPUT:
+                return OnlineCoreWorkMode.OUTPUT_LAYER_GRADIENT
+            if self.gradient_role is OnlineGradientRole.HIDDEN:
+                return OnlineCoreWorkMode.MIDDLE_LAYER_GRADIENT
+            raise ValueError("gradient_role is required for semantic_mode='gradient'")
+        if self.semantic_mode is OnlineCoreSemanticMode.POOL_GRADIENT:
+            if self.pooling_mode is PoolingMode.MAX:
+                return OnlineCoreWorkMode.MAX_POOLING_GRADIENT
+            return OnlineCoreWorkMode.AVG_POOLING_GRADIENT
+        if self.semantic_mode is OnlineCoreSemanticMode.UPDATE:
+            if self.update_direction is OnlineUpdateDirection.FORWARD:
+                return OnlineCoreWorkMode.FORWARD_WEIGHT_UPDATE
+            if self.update_direction is OnlineUpdateDirection.BACKWARD:
+                return OnlineCoreWorkMode.BACKWARD_WEIGHT_UPDATE
+            raise ValueError(
+                "update_direction is required for semantic_mode='update'"
+            )
+
+        raise AssertionError(f"unexpected online semantic mode: {self.semantic_mode}")
+
+    def refine_work_mode(self) -> None:
+        """Materialize the hardware work mode in-place."""
+        self.work_mode = self.resolve_work_mode()
+
+    def validate_tick_params(self) -> None:
+        """Validate tick parameters against chip register limits."""
+        if self.tick_start is None:
+            raise ValueError(
+                "tick_start is None (unassigned). Run assign_tick_params() first."
+            )
+        if not 0 <= self.tick_start <= _TICK_START_MAX:
+            raise ValueError(
+                f"tick_start must be in [0, {_TICK_START_MAX}], got {self.tick_start}"
+            )
+        if not 0 <= self.tick_duration <= _TICK_DURATION_MAX:
+            raise ValueError(
+                f"tick_duration must be in [0, {_TICK_DURATION_MAX}], "
+                f"got {self.tick_duration}"
+            )
+        if not 0 <= self.tick_initial <= _TICK_INITIAL_MAX:
+            raise ValueError(
+                f"tick_initial must be in [0, {_TICK_INITIAL_MAX}], "
+                f"got {self.tick_initial}"
+            )

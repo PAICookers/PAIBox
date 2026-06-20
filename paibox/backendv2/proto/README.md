@@ -4,6 +4,15 @@
 
 本文档只描述 `compile_artifacts.proto` 当前已经承诺的内容。板端 DMA、UART、PCIe、NoC FIFO、同步控制等运行时协议不属于本 proto 的接口范围。
 
+当前 `proto/runtime` helper 的接口边界是：
+
+- 可以读取 `config.pb`，并恢复 `config_frames`、`input mapping`、`output mapping`
+- 可以把 online ANN 输入张量编码成 raw `u64` online work frame type 1
+- 可以把逻辑输出张量编码成本地模拟用的 raw `u64` online work frame type 1，或带单个 `CONF_TESTOUT` package header 的返回帧
+- 可以把 raw `u64` online work frame type 1 输出帧，或带单个 `CONF_TESTOUT` package header 的返回帧，解码回逻辑输出张量
+- 不负责板端更上层 transport/DMA/串口封装拆包
+- 不负责 CPU 与板端之间的同步帧、更新帧、完成帧调度策略
+
 ## 1. 产物文件
 
 `Mapper.compile(...)` 会在导出目录下生成 `proto/` 子目录：
@@ -28,6 +37,8 @@ output/
 
 正式程序不要把 `config.json` 作为机器接口；它只用于调试和人工核对。
 
+仓库里的 `scripts/gen_proto_backendv2.py` 会在生成后对 `compile_artifacts_pb2.py` 做一层轻量后处理，移除过于严格的 Python gencode/runtime 版本守卫。这样即使开发机上的 `protoc` 新于项目当前依赖的 `protobuf<7` runtime，schema 仍可在仓库内正常导入和测试。若环境里没有 `ruff`，脚本也会跳过格式化步骤而继续完成生成。
+
 ## 2. 读取 `config.pb`
 
 Python 应用可以把 `compile_artifacts_pb2.py` 和 `compile_artifacts_pb2.pyi` 复制到自己的工程目录，再按普通模块导入。
@@ -41,21 +52,19 @@ app/
   load_config.py
 ```
 
+仓库内如果直接复用 `paibox.backendv2.proto.runtime`，`load_compile_artifacts(...)` 现在支持三种路径形态：
+
+- 导出根目录，例如 `output/`
+- `proto/` 目录，例如 `output/proto/`
+- 完整的 `config.pb` 路径，例如 `output/proto/config.pb`
+
 读取示例：
 
 ```python
-from pathlib import Path
-
-from compile_artifacts_pb2 import CompileArtifacts
+from paibox.backendv2.proto.runtime import load_compile_artifacts
 
 
-def load_compile_artifacts(pb_path: str | Path) -> CompileArtifacts:
-    artifacts = CompileArtifacts()
-    artifacts.ParseFromString(Path(pb_path).read_bytes())
-    return artifacts
-
-
-artifacts = load_compile_artifacts("output/proto/config.pb")
+artifacts = load_compile_artifacts("output")
 ```
 
 非 Python 应用应使用 `compile_artifacts.proto` 为目标语言生成代码。例如 C++：
@@ -78,7 +87,7 @@ message CompileArtifacts {
 
 | 字段             | 含义                                                                                   |
 | ---------------- | -------------------------------------------------------------------------------------- |
-| `schema_version` | schema 版本。当前 backendv2 proto 仍为 `1`；应用侧可用它判断当前程序是否支持该 `.pb`。 |
+| `schema_version` | schema 版本。当前 backendv2 proto 为 `2`；应用侧可用它判断当前程序是否支持该 `.pb`。     |
 | `io_mapping`     | 逻辑 I/O 张量与芯片工作帧地址之间的映射。                                              |
 | `config_frames`  | 编译生成的配置帧，按 32-bit word 展平保存。                                            |
 
@@ -103,24 +112,17 @@ message ConfigFrames {
 | `HIGH_FIRST` | `[frame0.high32, frame0.low32, frame1.high32, frame1.low32, ...]` |
 | `LOW_FIRST`  | `[frame0.low32, frame0.high32, frame1.low32, frame1.high32, ...]` |
 
-如果应用侧需要从 `config.pb` 还原 64-bit 配置帧，可使用如下逻辑。该示例未经过板端流程验证，仅供实现参考：
+如果应用侧需要从 `config.pb` 还原 64-bit 配置帧，仓库里已经提供了正式 helper：
 
 ```python
-from compile_artifacts_pb2 import ConfigFrames
+from paibox.backendv2.proto.runtime import iter_config_frame_u64, load_compile_artifacts
 
 
-def iter_config_frame_u64(config_frames: ConfigFrames):
-    words = list(config_frames.words)
-    if len(words) % 2 != 0:
-        raise ValueError("config_frames.words must contain an even number of words")
-
-    for first, second in zip(words[0::2], words[1::2]):
-        if config_frames.word_order == ConfigFrames.HIGH_FIRST:
-            high32, low32 = first, second
-        else:
-            low32, high32 = first, second
-        yield (int(high32) << 32) | int(low32)
+artifacts = load_compile_artifacts("output")
+config_frames_u64 = list(iter_config_frame_u64(artifacts.config_frames))
 ```
+
+`iter_config_frame_u64(...)` 只负责把 `config_frames.words` 按 `word_order` 还原成 raw `u64` 配置帧，不涉及板端更上层传输或下发时序。
 
 如果应用侧已经使用 `cfg_frame*.h` 或 `cfg_frames.npy` 下发配置帧，通常不需要再从 `config.pb` 还原配置帧。
 
@@ -209,9 +211,9 @@ message CoreTick {
 
 `TickParams` 对应 2.5 计算核的 `tick_start/tick_duration/tick_initial` 内部硬件参数；它不同于前端公开编译参数 `timesteps`。`tick_duration=0` 表示持续工作；`tick_initial=0` 表示不自动复位。`CoreTick.tick` 是该物理计算核的 tick 参数，`CoreTick.nodes` 是部署到同一个物理计算核上的 PAIIR 节点名列表。
 
-`RuntimeParams.timesteps` 是应用推理序列长度。后端未显式接收 `Mapper.compile(..., timesteps=...)` 时，会优先从自动复位图的 `tick_initial` 推导；不能在 `auto_reset=True` 场景依赖 `tick_duration>0` 推导运行长度。`tick_depth` 是该 thread 输出 producer 的最大 `tick_start`；`sync_steps = tick_depth + timesteps - 1` 是推荐外部同步步数。`sync_steps` 只描述主机视角的同步控制长度，不参与输出层 `target_lcn` 选择；输出层 `target_lcn` 由实际输出 axon 地址容量反推，优先保留更多本地 timestep 位。输出帧中的 timestep 是输出层本地运行时步。`decode_mode=STREAM` 表示最终 `target_lcn` 的 timestep 位宽可区分运行时步；`STEP` 表示需要应用分步推理、分步解码，或只能进行 warning 级 best-effort 序列解码。
+`RuntimeParams.timesteps` 是应用推理序列长度。后端未显式接收 `Mapper.compile(..., timesteps=...)` 时，会优先从自动复位图的 `tick_initial` 推导；不能在 `auto_reset=True` 场景依赖 `tick_duration>0` 推导运行长度。离线 thread 和当前 Phase 1 online thread 都会写出这组 runtime 字段。`tick_depth` 是该 thread 输出 producer 的最大 `tick_start`；`sync_steps = tick_depth + timesteps - 1` 是推荐外部同步步数。`sync_steps` 只描述主机视角的同步控制长度，不参与输出层 `target_lcn` 选择；输出层 `target_lcn` 由实际输出 axon 地址容量反推，优先保留更多本地 timestep 位。输出帧中的 timestep 是输出层本地运行时步。`decode_mode=STREAM` 表示最终 `target_lcn` 的 timestep 位宽可区分运行时步；`STEP` 表示需要应用分步推理、分步解码，或只能进行 warning 级 best-effort 序列解码。
 
-`DataType.Code` 描述普通 DATA payload 的码字类型。`UINT*` / `INT*` 中的数字表示逻辑位宽；`INT*` 按 two's complement 解释。`NOT_SET` 只作为默认值，应用侧不应把它当成有效 DATA 类型。`VOLTAGE` 输出不设置 `dtype`，固定按 `int32` 膜电平解释。
+`DataType.Code` 描述普通 DATA payload 的码字类型。`UINT*` / `INT*` 中的数字表示逻辑位宽；`INT*` 按 two's complement 解释。`NOT_SET` 只作为默认值，应用侧不应把它当成有效 DATA 类型。`VOLTAGE` 输出不设置 `dtype`，固定按 `int32` 膜电平解释。当前 online ANN 路径会使用 `FLOAT16` 表示 `fp16` payload。
 
 ## 6. 输入映射与输入工作帧编码
 
@@ -265,7 +267,34 @@ message InputEntry {
 4. 用 `core_offset` 构造工作帧目标偏移。
 5. 用 `copy_count` 构造 AER 多播复制数量。
 6. 用 `tick_relative`、`addr_axon`、`target_lcn` 得到工作帧中的 timestep 和 axon。
-7. 生成 offline work frame type 1。
+7. 若 `dtype != FLOAT16`，生成 offline work frame type 1；若 `dtype == FLOAT16`，生成 online work frame type 1。
+
+当前仓库已经提供第一阶段 online ANN 的输入工作帧 helper：
+
+```python
+from paibox.backendv2.proto.runtime import (
+    encode_online_input_frames,
+    load_compile_artifacts,
+)
+
+artifacts = load_compile_artifacts("output")
+frames = encode_online_input_frames(
+    artifacts,
+    input_name="input",
+    data=data,
+    thread_id=0,
+)
+```
+
+这个 helper 当前只覆盖：
+
+- `dtype == FLOAT16`
+- `ANN + nn.Linear`
+- `ONLINE -> ONLINE`
+- `LCN_1X`
+- 输入侧 `TransformOp` 已经体现在 mapping 里，应用侧不需要再手工重排地址
+
+注意：`backendv2` 编译阶段仍不直接导出运行时输入数据；应用侧需要在运行前根据 `config.pb` 的 `input mapping` 现算工作帧。
 
 下面的 Python 代码未经过板端流程验证，仅供实现参考。实际应用应以板端运行时 ABI 和当前 `paicorelib` 版本为准。
 
@@ -395,11 +424,131 @@ message OutputEntry {
 | `axon_bit_idx`               | 平坦 output axon bit index。`DATA` 为数据地址；`VOLTAGE` 为膜电平基地址。 |
 | `dtype`                      | `DATA` 输出的数据类型，包含位宽和符号性；`VOLTAGE` 不设置该字段。         |
 
-CPU 接收端仍应先根据返回工作帧的帧头区分 I/II 型。`kind` 的作用是让应用侧在运行前从 `config.pb` 预生成静态解码表，并保留调试语义。不要用 `bit_width` 反推出输出语义；应以 `OutputTensorMapping.kind` 为准。`OutputTensorMapping.bit_width` 是位宽读取入口，字段顺序刻意放在 `tick` 和 `entries` 前，便于 JSON 中先看到张量级标量；`DATA` 输出用 entry 级 `dtype` 解释 signedness；`VOLTAGE` 输出固定按 `int32` 膜电平解释。
+CPU 接收端仍应先根据返回工作帧的帧头区分 I/II 型。`kind` 的作用是让应用侧在运行前从 `config.pb` 预生成静态解码表，并保留调试语义。不要用 `bit_width` 反推出输出语义；应以 `OutputTensorMapping.kind` 为准。`OutputTensorMapping.bit_width` 是位宽读取入口；`DATA` 输出用 entry 级 `dtype` 解释 signedness；`VOLTAGE` 输出固定按 `int32` 膜电平解释。
 
-`output_mappings.target_lcn` 选择策略与上游 backendv2 保持一致：后端先分配实际输出 axon 地址，再根据最大 axon bit 反推可容纳这些地址的最小 LCN。应用传入的 `timesteps` 不直接扩大 `target_lcn`；若所选 LCN 的 timestep 位宽不足以一次性区分全部运行时步，导出的 `RuntimeParams.decode_mode` 会变为 `STEP`。
+offline 路径里，`output_mappings.target_lcn` 选择策略与上游 backendv2 保持一致：后端先分配实际输出 axon 地址，再根据最大 axon bit 反推可容纳这些地址的最小 LCN。当前 Phase 1 online 路径则直接沿用编译图里显式统一的 `target_lcn_at`。应用传入的 `timesteps` 不直接扩大 `target_lcn`；若所选 LCN 的 timestep 位宽不足以一次性区分全部运行时步，导出的 `RuntimeParams.decode_mode` 会变为 `STEP`。
 
-应用侧可直接使用 `paibox.backendv2.proto.runtime_codec.FrameCodec` 读取 `config.pb` 或 `config.json`。实时路径推荐读取 `.pb`，并在初始化时预生成输入编码表和输出 scatter 表。`FrameCodec.from_file(..., thread_id=0)` 默认选择硬件线程 0；多线程或非 0 线程产物需显式传入 `thread_id`。单输入模型可直接传入 array-like；多输入模型必须传入 `{input_name: array_like}`。编码输入可以是 NumPy array，也可以是 torch tensor；torch tensor 会通过 `detach().cpu().numpy()` 转为 NumPy。`codec.encode(inputs)` 默认要求输入形状为 `[T, *input_shape]`；`codec.encode(inputs, t=t)` 编码单个运行时步。`codec.decode(frames)` 的 `frames` 固定要求为 `np.ndarray` 且 `dtype=np.uint64`，在 `STREAM` 模式下返回 `[T, *output_shape]`，未输出位置置 0；多输出模型返回 `{output_name: ndarray}`。`STEP` 模式推荐 `codec.decode(frames, t=t)` 分步解码。
+当前仓库已经提供第一阶段输出侧 helper，可直接把 `config.pb` 里的 `output mapping` 变成静态解码表，并把已解析的 `(axon_bit_idx, payload)` 散回逻辑输出张量：
+
+```python
+from paibox.backendv2.proto.runtime import (
+    build_output_mapping_tables,
+    decode_online_boundary_output_package_stream,
+    decode_online_boundary_output_tensor_stream,
+    decode_online_boundary_output_frames,
+    decode_online_data_output_package_stream,
+    decode_online_data_output_tensor_stream,
+    decode_online_data_output_frames,
+    encode_online_boundary_output_frames,
+    encode_online_data_output_frames,
+    load_compile_artifacts,
+    parse_online_data_output_package_header,
+    package_online_data_output_frames,
+    scatter_data_output,
+    scatter_data_output_stream,
+    split_online_data_output_packages,
+    strip_online_data_output_package_header,
+    validate_online_boundary_output_package_header,
+)
+
+artifacts = load_compile_artifacts("output")
+output_tables = build_output_mapping_tables(artifacts, thread_id=0)
+boundary = output_tables["linear"].boundary
+simulated_raw_frames = encode_online_data_output_frames(
+    output_tables,
+    output_name="linear",
+    data=[[1.0, 2.0, 3.0, 4.0]],
+)
+simulated_packaged_frames = encode_online_data_output_frames(
+    output_tables,
+    output_name="linear",
+    data=[[1.0, 2.0, 3.0, 4.0]],
+    packaged=True,
+)
+boundary_packaged_frames = encode_online_boundary_output_frames(
+    output_tables,
+    output_name="linear",
+    data=[[1.0, 2.0, 3.0, 4.0]],
+    packaged=True,
+)
+boundary_header = parse_online_data_output_package_header(boundary_packaged_frames)
+validated_boundary_header = validate_online_boundary_output_package_header(
+    output_tables,
+    output_name="linear",
+    frames=boundary_packaged_frames,
+)
+manual_packaged_frames = package_online_data_output_frames(
+    simulated_raw_frames,
+    core_offset=boundary.producer_core_offset if boundary else (0, 0, 0),
+)
+decoded_items = decode_online_data_output_frames(
+    output_tables,
+    output_name="linear",
+    frames=raw_output_frames,
+)
+output = scatter_data_output(
+    output_tables,
+    output_name="linear",
+    decoded_items=decoded_items,
+)
+
+raw_frames = strip_online_data_output_package_header(packaged_output_frames)
+decoded_items = decode_online_data_output_frames(
+    output_tables,
+    output_name="linear",
+    frames=raw_frames,
+)
+
+decoded_items = decode_online_data_output_frames(
+    output_tables,
+    output_name="linear",
+    frames=packaged_output_frames,
+    packaged=True,
+)
+
+decoded_boundary_items = decode_online_boundary_output_frames(
+    output_tables,
+    output_name="linear",
+    frames=boundary_packaged_frames,
+)
+
+boundary_package_stream = np.concatenate(
+    [boundary_packaged_frames, boundary_packaged_frames]
+)
+boundary_packages = split_online_data_output_packages(boundary_package_stream)
+decoded_boundary_stream = decode_online_boundary_output_package_stream(
+    output_tables,
+    output_name="linear",
+    frames=boundary_package_stream,
+)
+boundary_tensor_stream = decode_online_boundary_output_tensor_stream(
+    output_tables,
+    output_name="linear",
+    frames=boundary_package_stream,
+)
+```
+
+这个 helper 当前只覆盖：
+
+- `mapping.kind == DATA`
+- 当前 online WF1 原始输出帧
+- 单个 `WORK_TYPE1 + CONF_TESTOUT` V2 package header 前缀
+- 多个连续 `WORK_TYPE1 + CONF_TESTOUT` package 组成的返回流
+- `FLOAT16` 和 `INT/UINT <= 8bit`
+- 当前 online `output mapping` 保留的原始前向输出
+- 本地模拟时，也可对称使用 `encode_online_data_output_frames(...)` / `package_online_data_output_frames(...)`
+- 若需要按输出边界 route 模拟返回帧，可直接使用 `encode_online_boundary_output_frames(...)`
+- 若需要查看返回包头里的 route 信息，可直接使用 `parse_online_data_output_package_header(...)`
+- 若需要在解码前单独验证 boundary-route 包头，可直接使用 `validate_online_boundary_output_package_header(...)`
+- 若需要把连续返回流拆成单个 package，可直接使用 `split_online_data_output_packages(...)`
+- 若需要直接解码连续 package 返回流，可使用 `decode_online_data_output_package_stream(...)` 或 `decode_online_boundary_output_package_stream(...)`
+- 若需要直接拿逻辑输出张量序列，可使用 `scatter_data_output_stream(...)`、`decode_online_data_output_tensor_stream(...)` 或 `decode_online_boundary_output_tensor_stream(...)`
+- 若导出物是当前 Phase 1 online artifact，`OutputMappingTable.boundary` 还会附带最小物理输出边界元数据：
+  `producer_core_offset`、`test_core_offset`、`target_coord`、`data_route_offset`、
+  `control_ingress_side`、`data_ingress_side`、`work_mode`、`output_core`、
+  `global_send`、`global_receive`
+
+其中 `strip_online_data_output_package_header(...)` 只负责剥离单个 V2 package header，`decode_online_data_output_frames(..., packaged=True)` 等价于先做这一步再解码 raw `u64` online WF1 数据帧；`encode_online_data_output_frames(..., packaged=True)` 等价于先编码 producer 侧 raw `u64` online WF1 数据帧，再补单个 `CONF_TESTOUT` package header。若存在连续返回流，`split_online_data_output_packages(...)` 可先把流拆成多个单包，再由 `decode_online_data_output_package_stream(...)` 或 `decode_online_boundary_output_package_stream(...)` 逐包处理；若应用直接要逻辑输出张量序列，则可继续用 `scatter_data_output_stream(...)`，或者直接调用 `decode_online_data_output_tensor_stream(...)` / `decode_online_boundary_output_tensor_stream(...)`。若 `OutputMappingTable.boundary` 存在，输出侧编码默认复用 `producer_core_offset`。若希望直接模拟“按输出边界 route 返回”的帧，`encode_online_boundary_output_frames(...)` 会改用 `boundary.data_route_offset` 或 `boundary.test_core_offset`；对应地，`validate_online_boundary_output_package_header(...)` / `decode_online_boundary_output_frames(...)` 会在解码前先做边界 route 校验。当前这层校验已经区分两类语义：`control` route 继续要求与显式 `test_core_*` 精确一致，`data` route 则按 `target_coord + ingress_side + 在线网格合法性` 做语义校验，不再死卡单个派生 offset。`parse_online_data_output_package_header(...)` 则可直接拿到 `core_offset/copy_count/package_type/n_payload_frames`。当前 `build_output_mapping_tables(...)` 还会继续把 `test_core_*` 恢复成更完整的输出边界 route metadata：边界目标坐标、与控制/测试帧入口侧对齐的数据 route offset，以及两者对应的 ingress side。也就是说，helper 现在已经负责“逻辑张量 <-> producer 侧或 boundary-route 侧的单个或连续多个 package header + online WF1 数据帧”的本地对称模拟，并且已经能把连续返回流直接收口回逻辑张量序列，但仍不负责板端更上层 transport/DMA/串口封装拆包。
 
 `OutputNode` 是图输出的虚拟边界节点，不是实际计算核。`OutputTensorMapping.name` 和 `shape` 使用最终输出源/生产者节点，`tick` 从该输出源追溯到实际生产计算核后导出。
 
@@ -412,7 +561,7 @@ CPU 接收端仍应先根据返回工作帧的帧头区分 I/II 型。`kind` 的
 3. 根据映射表把 payload 写回输出张量的展平位置 `elem_idx`。
 4. 根据 `dtype` 把 payload 解释为 signed/unsigned 1/2/4/8-bit 码字。
 
-膜电平 `VOLTAGE` 输出对应工作帧 II 型。后端分配时为每个神经元膜电平保留 `base + {0, 8, 16, 24}` 四个内部 byte lane，但 proto 只记录基地址 `axon_bit_idx`。运行时返回的 4 个 type-II 帧使用同一个基地址作为 axon，payload 按低字节到高字节顺序出现。`FrameCodec` 会按 `(output_name, runtime_t, elem_idx)` 收集同一基地址上的 4 个 payload byte，并用 little-endian signed `int32` 还原膜电平；若缺 byte，则 warning 后补 0。由于返回帧本身不携带 byte-lane 编号，应用侧也需要保持芯片/运行时输出顺序。
+膜电平 `VOLTAGE` 输出对应工作帧 II 型。后端分配时为每个神经元膜电平保留 `base + {0, 8, 16, 24}` 四个内部 byte lane，但 proto 只记录基地址 `axon_bit_idx`。应用侧需要按相同次序收集同一基地址上的 4 个 payload byte，再按 little-endian `int32` 还原膜电平；由于返回帧本身不携带 byte-lane 编号，应用侧也需要保持芯片/运行时输出顺序。
 
 如果应用侧需要主动构造工作帧 II 型，可把每个膜电平元素拆成一个 `int32`，再调用 `OfflineFrameGenV2.gen_work_frame2(...)`。该接口会为每个膜电平值自动展开 4 个 byte lane，并生成 4 帧 64-bit work frame type 2。下面的示例未经过板端流程验证，仅供实现参考：
 

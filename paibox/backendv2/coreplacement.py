@@ -14,6 +14,7 @@ from paicorelib import (
     OfflineFrameGenV2,
     OnlineCoreRegV2,
     OnlineCoreType,
+    OnlineCoreUpdateType,
     OnlineCoreWorkMode,
     OnlineDataWidth,
     OnlineFrameGenV2,
@@ -30,7 +31,9 @@ from .core_config import (
     Backend_Core_Config,
     Default_Core_Config,
     Frontend_Core_Config,
+    OnlineCoreParams,
     to_core_reg,
+    to_online_core_reg,
 )
 from .neuron import NeuronPlacement, OfflineNeuronPlacement
 from .weight import N_WEIGHTS_PER_SRAM, Weight
@@ -63,7 +66,7 @@ class CorePlacement:
 
     @property
     @abstractmethod
-    def output_width(self) -> DataWidth:
+    def output_width(self) -> DataWidth | OnlineDataWidth | OnlineCoreUpdateType:
         pass
 
     @property
@@ -271,6 +274,77 @@ class EmptyOfflineCorePlacementV2(OfflineCorePlacementV2):
         return frame_type1, None, None
 
 
+class OnlineCorePlacementV2(CorePlacement):
+    """Minimal online-core placement wrapper for the current backend bridge."""
+
+    def __init__(
+        self,
+        core_params: OnlineCoreParams,
+        n_timestep: int = 1,
+        *,
+        node_names: tuple[str, ...] = (),
+    ) -> None:
+        super().__init__()
+        self.core_params = core_params
+        self.n_timestep = n_timestep
+        self.node_names = node_names
+
+    @property
+    def n_sram_required(self) -> int:
+        return 0
+
+    @property
+    def neuron_sram_required(self) -> int:
+        return 0
+
+    @property
+    def weight_sram_required(self) -> int:
+        return 0
+
+    @property
+    def core_config(self) -> OnlineCoreRegV2:
+        return to_online_core_reg(
+            self.core_params, self.coord, auto_conf=self.auto_core_config
+        )
+
+    @property
+    def output_width(self) -> DataWidth | OnlineDataWidth | OnlineCoreUpdateType:
+        return self.core_params.output_width
+
+    def set_weight_address(self) -> None:
+        return None
+
+    def set_auto_core_config(self, test_offset: CoordZXYOffset | None = None) -> None:
+        if test_offset is None:
+            test_offset, _ = find_coordxy_shortest_path(TEST_DEST_CORE, self.coord)
+
+        self.auto_core_config.neuron_number = 0
+        self.auto_core_config.test_core_xy = test_offset.z
+        self.auto_core_config.test_core_x = test_offset.x
+        self.auto_core_config.test_core_y = test_offset.y
+
+    def to_frame(
+        self,
+    ) -> tuple[FrameArrayType, FrameArrayType | None, FrameArrayType | None]:
+        pkt_offset, _ = find_coordxy_shortest_path(self.coord)
+        core_reg = self.core_config
+        frame_type1 = OnlineFrameGenV2.gen_config_frame1(pkt_offset, core_reg)
+        frame_type2 = np.concatenate(
+            [
+                OnlineFrameGenV2.gen_control_frame1(
+                    pkt_offset, n_timestep=self.n_timestep
+                ),
+                OnlineFrameGenV2.gen_control_frame2(pkt_offset),
+                OnlineFrameGenV2.gen_control_frame3(
+                    pkt_offset, thread_id=core_reg.thread_number
+                ),
+                OnlineFrameGenV2.gen_control_frame4(pkt_offset),
+            ],
+            axis=0,
+        ).astype(FRAME_DTYPE)
+        return frame_type1, frame_type2, None
+
+
 class EmptyOnlineCorePlacementV2(CorePlacement):
     """Minimal empty online core used only as a global signal relay.
 
@@ -344,7 +418,7 @@ class EmptyOnlineCorePlacementV2(CorePlacement):
         )
 
     @property
-    def output_width(self) -> DataWidth:
+    def output_width(self) -> DataWidth | OnlineDataWidth | OnlineCoreUpdateType:
         raise self._unsupported_empty_online_property("output_width")
 
     def set_weight_address(self) -> None:

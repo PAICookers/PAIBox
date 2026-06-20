@@ -8,12 +8,13 @@ from paicorelib import (
     DataSign,
     DataWidth,
     OfflineCoreRegV2,
+    OnlineCoreRegV2,
     PoolingMode,
     SNNMode,
     ZeroOutputMode,
 )
 
-from paibox.paiir.ir.calc_params import LutData
+from paibox.paiir.ir.calc_params import LutData, OnlineCoreParams
 
 TEST_DEST_CORE = CoordXY(0, 0)
 
@@ -106,3 +107,76 @@ def to_core_reg(
         tick_initial=frontend_conf.tick_initial,
     )
     return core_reg
+
+
+def to_online_core_reg(
+    core_params: OnlineCoreParams,
+    coord: CoordXY,
+    auto_conf: Auto_Core_Config | None = None,
+) -> OnlineCoreRegV2:
+    if core_params.tick_start is None:
+        raise ValueError(
+            "online backend bridge requires tick_start to be assigned before "
+            "mapping to OnlineCoreRegV2"
+        )
+
+    work_mode = core_params.work_mode
+    if work_mode is None:
+        work_mode = core_params.resolve_work_mode()
+
+    if (
+        auto_conf is not None
+        and core_params.test_core_xy == 0
+        and core_params.test_core_x == 0
+        and core_params.test_core_y == 0
+    ):
+        test_core_xy = auto_conf.test_core_xy
+        test_core_x = auto_conf.test_core_x
+        test_core_y = auto_conf.test_core_y
+    else:
+        test_core_xy = core_params.test_core_xy
+        test_core_x = core_params.test_core_x
+        test_core_y = core_params.test_core_y
+
+    return OnlineCoreRegV2(
+        name=f"online_core_reg_at_({coord.x},{coord.y})",
+        snn_ann=core_params.snn_mode,
+        max_pooling=core_params.pooling_mode,
+        add_potential=core_params.add_potential,
+        zero_output=core_params.zero_output,
+        work_mode=work_mode,
+        input_core=core_params.input_core,
+        input_width=core_params.input_width,
+        output_core=core_params.output_core,
+        output_width=core_params.output_width,
+        lcn_at=core_params.lcn_at,
+        lcn_mp=core_params.lcn_mp,
+        lcn_lg=core_params.lcn_lg,
+        target_lcn_at=core_params.target_lcn_at,
+        target_lcn_mp=core_params.target_lcn_mp,
+        target_lcn_lg=core_params.target_lcn_lg,
+        axon_skew=core_params.axon_skew,
+        neuron_number=core_params.neuron_number,
+        update_number=core_params.update_number,
+        csc_accelerate=core_params.csc_accelerate,
+        scale_in=core_params.scale_in,
+        bias_in=core_params.bias_in,
+        scale_out=core_params.scale_out,
+        bias_out=core_params.bias_out,
+        learning_rate=core_params.learning_rate,
+        update_core_xy=core_params.update_core_xy,
+        update_core_x=core_params.update_core_x,
+        update_core_y=core_params.update_core_y,
+        test_core_xy=test_core_xy,
+        test_core_x=test_core_x,
+        test_core_y=test_core_y,
+        global_send=core_params.global_send,
+        global_receive=core_params.global_receive,
+        thread_number=core_params.thread_number,
+        busy_cycle=core_params.busy_cycle,
+        delay_cycle=core_params.delay_cycle,
+        width_cycle=core_params.width_cycle,
+        tick_start=core_params.tick_start,
+        tick_duration=core_params.tick_duration,
+        tick_initial=core_params.tick_initial,
+    )

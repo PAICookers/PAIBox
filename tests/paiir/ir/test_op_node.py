@@ -10,6 +10,7 @@ from paicorelib import (
     LeakMultiComparisonOrder,
     LeakMultiInputMode,
     LeakMultiMode,
+    OnlineCoreWorkMode,
     OutputType,
     PoolingMode,
     SNNMode,
@@ -19,7 +20,14 @@ from paicorelib import (
 from torch import nn
 
 from paibox.paiir.ir.add_ops import PotentialAddOp
-from paibox.paiir.ir.calc_params import NeuronParams, OfflineCoreParams
+from paibox.paiir.ir.calc_params import (
+    NeuronParams,
+    OfflineCoreParams,
+    OnlineCoreParams,
+    OnlineCoreSemanticMode,
+    OnlineGradientRole,
+    OnlineUpdateDirection,
+)
 from paibox.paiir.ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
 from paibox.paiir.ir.ir_base import FormatFlow, OutputNode
 from paibox.paiir.ir.lut_activation import LutReLU, LutSigmoid
@@ -27,6 +35,7 @@ from paibox.paiir.ir.op_node import (
     AccumulateOp,
     ConcatOp,
     LayoutStage,
+    OnlineCoreOp,
     PadOp,
     SequentialOp,
     ShapeStage,
@@ -264,6 +273,68 @@ class TestWeights:
 
         op.signal_semantics.output_domain = SignalDomain.POTENTIAL
         assert op.neuron_params.output_type == OutputType.POTENTIAL
+
+
+class TestOnlineCoreParams:
+    def test_forward_semantic_maps_to_forward_inference(self):
+        params = OnlineCoreParams()
+        assert params.resolve_work_mode() == OnlineCoreWorkMode.FORWARD_INFERENCE
+
+    def test_gradient_requires_role(self):
+        params = OnlineCoreParams(semantic_mode=OnlineCoreSemanticMode.GRADIENT)
+        with pytest.raises(ValueError, match="gradient_role"):
+            params.resolve_work_mode()
+
+    @pytest.mark.parametrize(
+        ("role", "expected"),
+        (
+            (OnlineGradientRole.OUTPUT, OnlineCoreWorkMode.OUTPUT_LAYER_GRADIENT),
+            (OnlineGradientRole.HIDDEN, OnlineCoreWorkMode.MIDDLE_LAYER_GRADIENT),
+        ),
+    )
+    def test_gradient_role_refines_work_mode(self, role, expected):
+        params = OnlineCoreParams(
+            semantic_mode=OnlineCoreSemanticMode.GRADIENT, gradient_role=role
+        )
+        assert params.resolve_work_mode() == expected
+
+    @pytest.mark.parametrize(
+        ("direction", "expected"),
+        (
+            (
+                OnlineUpdateDirection.FORWARD,
+                OnlineCoreWorkMode.FORWARD_WEIGHT_UPDATE,
+            ),
+            (
+                OnlineUpdateDirection.BACKWARD,
+                OnlineCoreWorkMode.BACKWARD_WEIGHT_UPDATE,
+            ),
+        ),
+    )
+    def test_update_direction_refines_work_mode(self, direction, expected):
+        params = OnlineCoreParams(
+            semantic_mode=OnlineCoreSemanticMode.UPDATE,
+            update_direction=direction,
+        )
+        assert params.resolve_work_mode() == expected
+
+
+class TestOnlineCoreOp:
+    def test_forward_linear_runs_compute(self):
+        linear = nn.Linear(4, 3, bias=False)
+        op = OnlineCoreOp(comp=linear)
+        x = torch.randn(1, 4)
+        out = op(x)
+        assert out.shape == (1, 3)
+        assert op.weights is not None
+        assert op.weights[0].dtype == torch.bfloat16
+
+    def test_non_forward_simulation_is_not_supported_yet(self):
+        op = OnlineCoreOp(
+            core_params=OnlineCoreParams(semantic_mode=OnlineCoreSemanticMode.LOSS)
+        )
+        with pytest.raises(NotImplementedError, match="forward semantic"):
+            op(torch.randn(1, 4))
 
     def test_add_op_returns_none(self):
         op = PotentialAddOp(op_signs=(1, -1))

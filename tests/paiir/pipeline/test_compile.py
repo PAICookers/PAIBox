@@ -4,7 +4,17 @@ from collections.abc import Callable
 import pytest
 import torch
 import torch.nn.functional as F
-from paicorelib import DataSign, DataWidth
+from paicorelib import (
+    LCN_EX,
+    DataSign,
+    DataWidth,
+    OnlineCoreRegLimV2,
+    OnlineCoreType,
+    OnlineCoreUpdateType,
+    OnlineCoreWorkMode,
+    OnlineDataWidth,
+    OnlineSNNMode,
+)
 from spikingjelly.activation_based import layer as sj_layer
 from spikingjelly.activation_based import neuron as sj
 from torch import Tensor, nn
@@ -15,6 +25,7 @@ from paibox.paiir import (
     CompileConfig,
     LIFNodeV25,
     compile_to_paiir,
+    mark_online,
     register_module,
     torch_to_paiir,
 )
@@ -23,16 +34,23 @@ from paibox.paiir.exceptions import (
     UnsupportedOpError,
     UnsupportedOpWarning,
 )
+from paibox.paiir.ir.calc_params import (
+    OnlineCoreSemanticMode,
+    OnlineGradientRole,
+    OnlineUpdateDirection,
+)
 from paibox.paiir.ir.op_node import (
     AccumulateOp,
     ConcatOp,
     LayoutStage,
+    OnlineCoreOp,
     PadOp,
     SequentialOp,
     ShapeStage,
     SplitOp,
     StandaloneActOp,
     StandaloneCompOp,
+    TransformOp,
 )
 from paibox.paiir.ir.signal_domain import SignalDomain
 from paibox.paiir.lowering.converter import _analyze_graph, _LoweringContext
@@ -43,10 +61,18 @@ from paibox.paiir.pipeline.avgpool import (
     calibrate_avgpool_threshold,
 )
 from paibox.paiir.pipeline.avgpool.metadata import AvgPoolDeployMetadata
+from paibox.paiir.pipeline.online import (
+    OnlineUpdateStagePlan,
+    analyze_online_update_stage_plans,
+    compile_online_graph,
+    has_online_nodes,
+    validate_online_compiled_graph,
+)
 from paibox.paiir.pipeline.passes import GraphCleanupWarning, validate_graph
 from tests.paiir.conftest import (
     ANNClassifier,
     SimpleCNN,
+    SJMNISTValidationNet,
     SNNResidualAdd,
     SNNTwoLayer,
     SNNWithAvgPool1dIF,
@@ -55,10 +81,18 @@ from tests.paiir.conftest import (
     UnsupportedSoftmax,
     find_nodes,
     find_transform_nodes,
+    make_img_1ch_28x28,
     make_img_3ch_8x8,
     make_img_3ch_32x32,
+    make_vec_8d,
     make_vec_64d,
     offline_nodes,
+)
+from tests.paiir.online_test_utils import (
+    OnlineLinear,
+    TwoLayerOnlineLinear,
+    single_online_node,
+    uniform_online_lcn_kwargs,
 )
 from tests.paiir.tracing import trace_for_lowering
 
@@ -228,6 +262,22 @@ def _find_single_conv_comp(graph, conv_type: type[nn.Conv1d] | type[nn.Conv2d]):
     return comp_nodes[0], comp
 
 
+def _online_nodes(graph):
+    return [
+        graph.nodes[name]
+        for name in graph.topo_sort()
+        if isinstance(graph.nodes[name], OnlineCoreOp)
+    ]
+
+
+def _online_nodes_by_mode(graph, semantic_mode: OnlineCoreSemanticMode):
+    return [
+        node
+        for node in _online_nodes(graph)
+        if node.core_params.semantic_mode is semantic_mode
+    ]
+
+
 TRANSFORM_BEFORE_LINEAR_CASES = (
     pytest.param(
         lambda: _make_linear_after_transform_model(
@@ -333,6 +383,674 @@ class PotentialIntoStandalonePool(nn.Module):
         return self.pool(self.conv(x))
 
 
+class TestOnlineCompile:
+    def test_compile_refines_single_layer_online_work_modes(self):
+        graph = compile_to_paiir(mark_online(OnlineLinear()), make_vec_8d())
+
+        assert [node.core_params.work_mode for node in _online_nodes(graph)] == [
+            OnlineCoreWorkMode.FORWARD_INFERENCE,
+            OnlineCoreWorkMode.LOSS_FN,
+            OnlineCoreWorkMode.OUTPUT_LAYER_GRADIENT,
+            OnlineCoreWorkMode.FORWARD_WEIGHT_UPDATE,
+        ]
+
+    def test_compile_refines_multi_layer_online_work_modes(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear1 = nn.Linear(8, 6)
+                self.linear2 = nn.Linear(6, 4)
+
+            def forward(self, x):
+                return self.linear2(self.linear1(x))
+
+        graph = compile_to_paiir(mark_online(Model()), make_vec_8d())
+
+        assert [node.core_params.work_mode for node in _online_nodes(graph)] == [
+            OnlineCoreWorkMode.FORWARD_INFERENCE,
+            OnlineCoreWorkMode.FORWARD_INFERENCE,
+            OnlineCoreWorkMode.LOSS_FN,
+            OnlineCoreWorkMode.OUTPUT_LAYER_GRADIENT,
+            OnlineCoreWorkMode.MIDDLE_LAYER_GRADIENT,
+            OnlineCoreWorkMode.FORWARD_WEIGHT_UPDATE,
+            OnlineCoreWorkMode.FORWARD_WEIGHT_UPDATE,
+        ]
+
+    def test_compile_analyzes_single_layer_update_stage_plan(self):
+        graph = compile_to_paiir(mark_online(OnlineLinear()), make_vec_8d())
+        forward = single_online_node(graph, OnlineCoreSemanticMode.FORWARD)
+        gradient = single_online_node(graph, OnlineCoreSemanticMode.GRADIENT)
+        update = single_online_node(graph, OnlineCoreSemanticMode.UPDATE)
+
+        plans = analyze_online_update_stage_plans(graph)
+
+        assert plans == [
+            OnlineUpdateStagePlan(
+                layer_idx_from_output=0,
+                forward_name=forward.name,
+                backward_peer_name=gradient.name,
+                update_name=update.name,
+                gradient_role=OnlineGradientRole.OUTPUT,
+            )
+        ]
+        assert plans[0].logical_sync_targets == (forward.name, gradient.name)
+        assert (
+            plans[0].logical_sync_target_summary
+            == f"forward='{forward.name}' and backward_peer='{gradient.name}'"
+        )
+
+    def test_compile_analyzes_multi_layer_update_stage_plans(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear1 = nn.Linear(8, 6)
+                self.linear2 = nn.Linear(6, 4)
+
+            def forward(self, x):
+                return self.linear2(self.linear1(x))
+
+        graph = compile_to_paiir(mark_online(Model()), make_vec_8d())
+        forward_nodes = _online_nodes_by_mode(graph, OnlineCoreSemanticMode.FORWARD)
+        gradient_nodes = _online_nodes_by_mode(graph, OnlineCoreSemanticMode.GRADIENT)
+        update_nodes = _online_nodes_by_mode(graph, OnlineCoreSemanticMode.UPDATE)
+
+        plans = analyze_online_update_stage_plans(graph)
+
+        assert [plan.layer_idx_from_output for plan in plans] == [0, 1]
+        assert [plan.forward_name for plan in plans] == [
+            forward_nodes[1].name,
+            forward_nodes[0].name,
+        ]
+        assert [plan.backward_peer_name for plan in plans] == [
+            gradient_nodes[0].name,
+            gradient_nodes[1].name,
+        ]
+        assert [plan.update_name for plan in plans] == [
+            update_nodes[0].name,
+            update_nodes[1].name,
+        ]
+        assert [plan.gradient_role for plan in plans] == [
+            OnlineGradientRole.OUTPUT,
+            OnlineGradientRole.HIDDEN,
+        ]
+        assert all(
+            plan.phase1_work_mode is OnlineCoreWorkMode.FORWARD_WEIGHT_UPDATE
+            and plan.future_backward_work_mode
+            is OnlineCoreWorkMode.BACKWARD_WEIGHT_UPDATE
+            for plan in plans
+        )
+        assert [plan.logical_sync_targets for plan in plans] == [
+            (forward_nodes[1].name, gradient_nodes[0].name),
+            (forward_nodes[0].name, gradient_nodes[1].name),
+        ]
+
+    def test_update_stage_plan_analysis_rejects_malformed_stage_counts(self):
+        graph = compile_to_paiir(mark_online(OnlineLinear()), make_vec_8d())
+        graph = graph.clone_shallow()
+        update = single_online_node(graph, OnlineCoreSemanticMode.UPDATE)
+        graph.remove_node(update.name)
+
+        with pytest.raises(
+            ValueError,
+            match="expects one gradient node and one update node per forward node",
+        ):
+            analyze_online_update_stage_plans(graph)
+
+    def test_update_stage_plan_analysis_rejects_malformed_stage_topology(self):
+        graph = compile_to_paiir(mark_online(OnlineLinear()), make_vec_8d())
+        graph = graph.clone_shallow()
+        forward = single_online_node(graph, OnlineCoreSemanticMode.FORWARD)
+        loss = single_online_node(graph, OnlineCoreSemanticMode.LOSS)
+        gradient = single_online_node(graph, OnlineCoreSemanticMode.GRADIENT)
+        graph.edges = [
+            edge
+            for edge in graph.edges
+            if not (edge.src == loss.name and edge.dst == gradient.name)
+        ]
+        graph.add_edge(forward.name, gradient.name)
+
+        with pytest.raises(
+            ValueError,
+            match="first gradient node must consume the loss node directly",
+        ):
+            analyze_online_update_stage_plans(graph)
+
+    def test_compile_refines_update_output_width_to_update_type(self):
+        graph = compile_to_paiir(mark_online(OnlineLinear()), make_vec_8d())
+        update_nodes = _online_nodes_by_mode(graph, OnlineCoreSemanticMode.UPDATE)
+
+        assert len(update_nodes) == 1
+        assert update_nodes[0].core_params.output_width is OnlineCoreUpdateType.WEIGHT
+
+    def test_compile_refines_biased_linear_update_output_width(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(8, 4, bias=True)
+
+            def forward(self, x):
+                return self.linear(x)
+
+        graph = compile_to_paiir(mark_online(Model()), make_vec_8d())
+        update_nodes = _online_nodes_by_mode(graph, OnlineCoreSemanticMode.UPDATE)
+
+        assert len(update_nodes) == 1
+        assert (
+            update_nodes[0].core_params.output_width
+            is OnlineCoreUpdateType.WEIGHT_BIAS
+        )
+
+    def test_has_online_nodes_distinguishes_online_and_offline_graphs(self):
+        online_graph = torch_to_paiir(mark_online(OnlineLinear()), make_vec_8d())
+        offline_graph = torch_to_paiir(OnlineLinear().eval(), make_vec_8d())
+
+        assert has_online_nodes(online_graph) is True
+        assert has_online_nodes(offline_graph) is False
+
+    def test_compile_online_graph_refines_missing_online_defaults(self):
+        graph = torch_to_paiir(mark_online(OnlineLinear()), make_vec_8d())
+        gradient = single_online_node(graph, OnlineCoreSemanticMode.GRADIENT)
+        update = single_online_node(graph, OnlineCoreSemanticMode.UPDATE)
+
+        gradient.core_params.gradient_role = None
+        update.core_params.update_direction = None
+
+        compile_online_graph(graph)
+
+        assert gradient.core_params.gradient_role is OnlineGradientRole.OUTPUT
+        assert gradient.core_params.tick_start == 1
+        assert gradient.core_params.tick_duration == 0
+        assert gradient.core_params.tick_initial == 1
+        assert update.core_params.update_direction is OnlineUpdateDirection.FORWARD
+        assert update.core_params.work_mode is OnlineCoreWorkMode.FORWARD_WEIGHT_UPDATE
+
+    @pytest.mark.parametrize(
+        ("compile_kwargs", "expected_duration", "expected_initial"),
+        [
+            ({}, 0, 1),
+            ({"auto_reset": False}, 1, 0),
+            ({"timesteps": 7}, 0, 7),
+            ({"timesteps": 7, "auto_reset": False}, 7, 0),
+        ],
+        ids=[
+            "default_auto_reset",
+            "manual_reset_default_timesteps",
+            "multi_step_auto_reset",
+            "multi_step_manual_reset",
+        ],
+    )
+    def test_compile_maps_online_timesteps_and_auto_reset(
+        self, compile_kwargs, expected_duration, expected_initial
+    ):
+        graph = compile_to_paiir(
+            mark_online(OnlineLinear()), make_vec_8d(), **compile_kwargs
+        )
+
+        for node in _online_nodes(graph):
+            assert node.core_params.tick_start == 1
+            assert node.core_params.tick_duration == expected_duration
+            assert node.core_params.tick_initial == expected_initial
+
+    def test_compile_preserves_explicit_online_tick_start(self):
+        graph = compile_to_paiir(
+            mark_online(OnlineLinear(), tick_start=5), make_vec_8d()
+        )
+
+        for node in _online_nodes(graph):
+            assert node.core_params.tick_start == 5
+
+    @pytest.mark.parametrize(
+        ("compile_kwargs", "match"),
+        [
+            (
+                {"input_formats": {"InputNode_0": (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)}},
+                "input_formats",
+            ),
+            ({"enable_avgpool_calibration": True}, "enable_avgpool_calibration"),
+            ({"enable_split_avgpool_lif": True}, "enable_split_avgpool_lif"),
+            (
+                {"enable_delayed_avgpool_division": False},
+                "enable_delayed_avgpool_division",
+            ),
+            ({"output_approx": "sum_approx_if_avgpool"}, "output_approx"),
+        ],
+        ids=[
+            "input_formats",
+            "avgpool_calibration",
+            "split_avgpool_lif",
+            "delayed_avgpool_division",
+            "output_approx",
+        ],
+    )
+    def test_compile_rejects_offline_only_compile_options_for_online_graph(
+        self, compile_kwargs, match
+    ):
+        with pytest.raises(ValueError, match=match):
+            compile_to_paiir(mark_online(OnlineLinear()), make_vec_8d(), **compile_kwargs)
+
+    def test_compile_allows_transform_before_first_online_forward(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(6, 4)
+
+            def forward(self, x):
+                return self.linear(torch.flatten(x, 1))
+
+        graph = compile_to_paiir(mark_online(Model()), torch.randn(1, 2, 3))
+
+        assert len(find_nodes(graph, TransformOp)) == 1
+        assert len(find_nodes(graph, OnlineCoreOp)) == 4
+
+    def test_compile_rejects_non_online_compute_after_online_forward(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(8, 4)
+                self.relu = nn.ReLU()
+
+            def forward(self, x):
+                return self.relu(self.linear(x))
+
+        with pytest.raises(
+            GraphValidationError,
+            match="supports only TransformOp as a non-online interior node",
+        ):
+            compile_to_paiir(mark_online(Model()), make_vec_8d())
+
+    def test_compile_rejects_transform_after_online_forward(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(8, 4)
+
+            def forward(self, x):
+                x = self.linear(x)
+                x = x.reshape(x.size(0), 2, 2)
+                return x.flatten(1)
+
+        with pytest.raises(
+            GraphValidationError,
+            match="TransformOp after the first online forward node",
+        ):
+            compile_to_paiir(mark_online(Model()), make_vec_8d())
+
+    def test_compile_rejects_non_ann_online_mode(self):
+        model = mark_online(OnlineLinear(), snn_mode=OnlineSNNMode.SNN_LIF)
+
+        with pytest.raises(GraphValidationError, match="ANN_NO_ACT only"):
+            compile_to_paiir(model, make_vec_8d())
+
+    def test_compile_rejects_invalid_online_timing_field(self):
+        model = mark_online(OnlineLinear(), busy_cycle=1)
+
+        with pytest.raises(GraphValidationError, match="busy_cycle must be in"):
+            compile_to_paiir(model, make_vec_8d())
+
+    def test_compile_rejects_out_of_range_axon_skew(self):
+        model = mark_online(
+            OnlineLinear(),
+            axon_skew=OnlineCoreRegLimV2.AXON_SKEW_MAX + 1,
+        )
+
+        with pytest.raises(GraphValidationError, match="axon_skew must be in"):
+            compile_to_paiir(model, make_vec_8d())
+
+    def test_compile_rejects_negative_neuron_number(self):
+        model = mark_online(OnlineLinear(), neuron_number=-1)
+
+        with pytest.raises(GraphValidationError, match="neuron_number must be in"):
+            compile_to_paiir(model, make_vec_8d())
+
+    def test_compile_allows_offline_to_online_graph_entry(self):
+        graph = compile_to_paiir(
+            mark_online(OnlineLinear(), input_core=OnlineCoreType.OFFLINE),
+            make_vec_8d(),
+        )
+
+        forward = single_online_node(graph, OnlineCoreSemanticMode.FORWARD)
+        assert forward.core_params.input_core is OnlineCoreType.OFFLINE
+
+        for node in _online_nodes(graph):
+            if node is forward:
+                continue
+            assert node.core_params.input_core is OnlineCoreType.ONLINE
+            assert node.core_params.output_core is OnlineCoreType.ONLINE
+
+    def test_compile_rejects_interior_offline_to_online_boundary(self):
+        model = mark_online(TwoLayerOnlineLinear(), input_core=OnlineCoreType.OFFLINE)
+
+        with pytest.raises(
+            GraphValidationError,
+            match="supports OFFLINE -> ONLINE at the graph entry only",
+        ):
+            compile_to_paiir(model, make_vec_8d())
+
+    def test_compile_allows_online_offline_output_boundary_on_graph_exit(self):
+        graph = compile_to_paiir(
+            mark_online(OnlineLinear(), output_core=OnlineCoreType.OFFLINE),
+            make_vec_8d(),
+        )
+
+        forward = single_online_node(graph, OnlineCoreSemanticMode.FORWARD)
+        assert forward.core_params.output_core is OnlineCoreType.OFFLINE
+
+        for node in _online_nodes(graph):
+            if node is forward:
+                continue
+            assert node.core_params.input_core is OnlineCoreType.ONLINE
+            assert node.core_params.output_core is OnlineCoreType.ONLINE
+
+    def test_compile_allows_online_offline_output_boundary_on_last_forward_only(self):
+        model = TwoLayerOnlineLinear()
+        mark_online(model.linear1, recursive=False)
+        mark_online(
+            model.linear2,
+            recursive=False,
+            output_core=OnlineCoreType.OFFLINE,
+        )
+        graph = compile_to_paiir(model, make_vec_8d())
+
+        forward_nodes = _online_nodes_by_mode(graph, OnlineCoreSemanticMode.FORWARD)
+        assert len(forward_nodes) == 2
+        assert forward_nodes[0].core_params.output_core is OnlineCoreType.ONLINE
+        assert forward_nodes[1].core_params.output_core is OnlineCoreType.OFFLINE
+
+        for node in _online_nodes(graph):
+            if node.core_params.semantic_mode is OnlineCoreSemanticMode.FORWARD:
+                continue
+            assert node.core_params.output_core is OnlineCoreType.ONLINE
+
+    def test_compile_rejects_interior_online_offline_output_boundary(self):
+        model = mark_online(TwoLayerOnlineLinear(), output_core=OnlineCoreType.OFFLINE)
+
+        with pytest.raises(
+            GraphValidationError,
+            match="supports ONLINE -> OFFLINE at the graph exit only",
+        ):
+            compile_to_paiir(model, make_vec_8d())
+
+    def test_compile_rejects_cross_thread_online_chain(self):
+        model = TwoLayerOnlineLinear()
+        mark_online(model.linear1, recursive=False, thread_number=0)
+        mark_online(model.linear2, recursive=False, thread_number=1)
+
+        with pytest.raises(
+            GraphValidationError,
+            match="thread_number must match across the current online serial path",
+        ):
+            compile_to_paiir(model, make_vec_8d())
+
+    def test_compile_rejects_non_fp16_online_input_width(self):
+        model = mark_online(OnlineLinear(), input_width=OnlineDataWidth.TYPE_INT8)
+
+        with pytest.raises(GraphValidationError, match="fp16 input_width only"):
+            compile_to_paiir(model, make_vec_8d())
+
+    def test_compile_rejects_non_fp16_online_output_width(self):
+        model = mark_online(OnlineLinear(), output_width=OnlineDataWidth.TYPE_UINT8)
+
+        with pytest.raises(GraphValidationError, match="fp16 output_width only"):
+            compile_to_paiir(model, make_vec_8d())
+
+    def test_compile_allows_unified_non_default_online_lcn(self):
+        graph = compile_to_paiir(
+            mark_online(OnlineLinear(), **uniform_online_lcn_kwargs(LCN_EX.LCN_2X)),
+            make_vec_8d(),
+        )
+
+        for node in _online_nodes(graph):
+            params = node.core_params
+            assert params.lcn_at is LCN_EX.LCN_2X
+            assert params.lcn_mp is LCN_EX.LCN_2X
+            assert params.lcn_lg is LCN_EX.LCN_2X
+            assert params.target_lcn_at is LCN_EX.LCN_2X
+            assert params.target_lcn_mp is LCN_EX.LCN_2X
+            assert params.target_lcn_lg is LCN_EX.LCN_2X
+
+    def test_compile_rejects_partial_non_default_online_lcn(self):
+        model = mark_online(OnlineLinear(), lcn_at=LCN_EX.LCN_2X)
+
+        with pytest.raises(
+            GraphValidationError,
+            match="supports one explicit unified LCN only",
+        ):
+            compile_to_paiir(model, make_vec_8d())
+
+    def test_compile_allows_explicit_test_core_route(self):
+        graph = compile_to_paiir(
+            mark_online(OnlineLinear(), test_core_xy=1, test_core_x=-1, test_core_y=0),
+            make_vec_8d(),
+        )
+
+        for node in _online_nodes(graph):
+            params = node.core_params
+            assert (params.test_core_xy, params.test_core_x, params.test_core_y) == (
+                1,
+                -1,
+                0,
+            )
+
+    def test_compile_rejects_out_of_range_test_core_route(self):
+        model = mark_online(
+            OnlineLinear(),
+            test_core_x=OnlineCoreRegLimV2.TEST_CORE_COORD_MAX + 1,
+        )
+
+        with pytest.raises(GraphValidationError, match="test_core_x must be in"):
+            compile_to_paiir(model, make_vec_8d())
+
+    def test_compile_rejects_unassigned_update_target_route(self):
+        model = mark_online(OnlineLinear(), update_core_x=1)
+
+        with pytest.raises(GraphValidationError, match="update_core_x.*must remain 0"):
+            compile_to_paiir(model, make_vec_8d())
+
+    def test_compile_rejects_out_of_range_update_target_route(self):
+        model = mark_online(
+            OnlineLinear(),
+            update_core_x=OnlineCoreRegLimV2.TEST_CORE_COORD_MAX + 1,
+        )
+
+        with pytest.raises(GraphValidationError, match="update_core_x must be in"):
+            compile_to_paiir(model, make_vec_8d())
+
+    def test_compile_rejects_unassigned_global_route_field(self):
+        model = mark_online(OnlineLinear(), global_send=1)
+
+        with pytest.raises(GraphValidationError, match="global_send.*must remain 0"):
+            compile_to_paiir(model, make_vec_8d())
+
+    def test_compile_rejects_invalid_tick_window(self):
+        model = mark_online(OnlineLinear(), tick_start=-1)
+
+        with pytest.raises(GraphValidationError, match="tick_start must be in"):
+            compile_to_paiir(model, make_vec_8d())
+
+    def test_validate_online_compile_rejects_offline_graph_entry(self):
+        graph = torch_to_paiir(OnlineLinear().eval(), make_vec_8d())
+
+        with pytest.raises(
+            GraphValidationError,
+            match="requires at least one OnlineCoreOp node",
+        ):
+            validate_online_compiled_graph(graph)
+
+    def test_validate_online_compile_rejects_unmaterialized_work_mode(self):
+        graph = torch_to_paiir(mark_online(OnlineLinear()), make_vec_8d())
+
+        with pytest.raises(
+            GraphValidationError,
+            match="work_mode was not materialized|update_direction is required",
+        ):
+            validate_online_compiled_graph(graph)
+
+    def test_validate_online_compile_rejects_gradient_role_mismatch(self):
+        graph = compile_to_paiir(mark_online(OnlineLinear()), make_vec_8d())
+        gradient = single_online_node(graph, OnlineCoreSemanticMode.GRADIENT)
+        gradient.core_params.gradient_role = OnlineGradientRole.HIDDEN
+
+        with pytest.raises(
+            GraphValidationError,
+            match="gradient_role must be 'output'",
+        ):
+            validate_online_compiled_graph(graph)
+
+    def test_validate_online_compile_surfaces_malformed_update_stage_planning(self):
+        graph = compile_to_paiir(mark_online(OnlineLinear()), make_vec_8d())
+        graph = graph.clone_shallow()
+        update = single_online_node(graph, OnlineCoreSemanticMode.UPDATE)
+        graph.remove_node(update.name)
+
+        with pytest.raises(
+            GraphValidationError,
+            match="expects one update node per forward node",
+        ):
+            validate_online_compiled_graph(graph)
+
+    def test_validate_online_compile_rejects_backward_weight_update(self):
+        graph = compile_to_paiir(mark_online(OnlineLinear()), make_vec_8d())
+        update = single_online_node(graph, OnlineCoreSemanticMode.UPDATE)
+        update.core_params.update_direction = OnlineUpdateDirection.BACKWARD
+        update.core_params.work_mode = None
+
+        with pytest.raises(
+            GraphValidationError,
+            match="BACKWARD_WEIGHT_UPDATE remains a later phase",
+        ):
+            validate_online_compiled_graph(graph)
+
+    def test_validate_online_compile_backward_update_error_mentions_bound_peers(self):
+        graph = compile_to_paiir(mark_online(OnlineLinear()), make_vec_8d())
+        update = single_online_node(graph, OnlineCoreSemanticMode.UPDATE)
+        gradient = single_online_node(graph, OnlineCoreSemanticMode.GRADIENT)
+        forward = single_online_node(graph, OnlineCoreSemanticMode.FORWARD)
+        update.core_params.update_direction = OnlineUpdateDirection.BACKWARD
+        update.core_params.work_mode = None
+
+        with pytest.raises(
+            GraphValidationError,
+            match=(
+                rf"BACKWARD_WEIGHT_UPDATE remains a later phase.*"
+                rf"forward='{forward.name}'.*"
+                rf"backward_peer='{gradient.name}'"
+            ),
+        ):
+            validate_online_compiled_graph(graph)
+
+    def test_validate_online_compile_rejects_kahan_update_output_width(self):
+        graph = compile_to_paiir(mark_online(OnlineLinear()), make_vec_8d())
+        update = single_online_node(graph, OnlineCoreSemanticMode.UPDATE)
+        update.core_params.output_width = OnlineCoreUpdateType.KAHAN_WEIGHT
+
+        with pytest.raises(
+            GraphValidationError,
+            match="KAHAN_WEIGHT remains a later phase",
+        ):
+            validate_online_compiled_graph(graph)
+
+    def test_validate_online_compile_rejects_update_core_routing_as_later_phase(self):
+        graph = compile_to_paiir(mark_online(OnlineLinear()), make_vec_8d())
+        update = single_online_node(graph, OnlineCoreSemanticMode.UPDATE)
+        forward = single_online_node(graph, OnlineCoreSemanticMode.FORWARD)
+        gradient = single_online_node(graph, OnlineCoreSemanticMode.GRADIENT)
+        update.core_params.update_core_x = 1
+
+        with pytest.raises(
+            GraphValidationError,
+            match=(
+                r"update_core_x remains a later phase because "
+                r"logical update layer 0 must synchronize "
+                rf"forward='{forward.name}'.*"
+                rf"backward_peer='{gradient.name}'.*"
+                r"single update-core route address"
+            ),
+        ):
+            validate_online_compiled_graph(graph)
+
+    def test_validate_online_compile_rejects_update_global_signal_as_later_phase(self):
+        graph = compile_to_paiir(mark_online(OnlineLinear()), make_vec_8d())
+        update = single_online_node(graph, OnlineCoreSemanticMode.UPDATE)
+        forward = single_online_node(graph, OnlineCoreSemanticMode.FORWARD)
+        gradient = single_online_node(graph, OnlineCoreSemanticMode.GRADIENT)
+        update.core_params.global_send = 1
+
+        with pytest.raises(
+            GraphValidationError,
+            match=(
+                r"global_send remains a later phase because "
+                r"logical update layer 0 must synchronize "
+                rf"forward='{forward.name}'.*"
+                rf"backward_peer='{gradient.name}'.*"
+                r"single global signaling bitmap"
+            ),
+        ):
+            validate_online_compiled_graph(graph)
+
+    def test_compile_rejects_backward_update_requested_from_mark_online(self):
+        model = mark_online(
+            OnlineLinear(), update_direction=OnlineUpdateDirection.BACKWARD
+        )
+
+        with pytest.raises(
+            GraphValidationError,
+            match="BACKWARD_WEIGHT_UPDATE remains a later phase",
+        ):
+            compile_to_paiir(model, make_vec_8d())
+
+    def test_validate_online_compile_rejects_prebound_backward_update_work_mode(self):
+        graph = compile_to_paiir(mark_online(OnlineLinear()), make_vec_8d())
+        update = single_online_node(graph, OnlineCoreSemanticMode.UPDATE)
+        update.core_params.update_direction = OnlineUpdateDirection.FORWARD
+        update.core_params.work_mode = OnlineCoreWorkMode.BACKWARD_WEIGHT_UPDATE
+
+        with pytest.raises(
+            GraphValidationError,
+            match=(
+                "requires \\(update_direction='forward', "
+                "work_mode=FORWARD_WEIGHT_UPDATE\\)"
+            ),
+        ):
+            validate_online_compiled_graph(graph)
+
+    def test_validate_online_compile_rejects_unset_update_direction_even_if_work_mode_prebound(
+        self,
+    ):
+        graph = compile_to_paiir(mark_online(OnlineLinear()), make_vec_8d())
+        update = single_online_node(graph, OnlineCoreSemanticMode.UPDATE)
+        update.core_params.update_direction = None
+        update.core_params.work_mode = OnlineCoreWorkMode.FORWARD_WEIGHT_UPDATE
+
+        with pytest.raises(
+            GraphValidationError,
+            match="requires \\(update_direction='forward', work_mode=FORWARD_WEIGHT_UPDATE\\)",
+        ):
+            validate_online_compiled_graph(graph)
+
+    def test_validate_online_compile_rejects_pool_gradient_mode(self):
+        graph = compile_to_paiir(mark_online(OnlineLinear()), make_vec_8d())
+        gradient = single_online_node(graph, OnlineCoreSemanticMode.GRADIENT)
+        gradient.core_params.semantic_mode = OnlineCoreSemanticMode.POOL_GRADIENT
+        gradient.core_params.work_mode = None
+
+        with pytest.raises(
+            GraphValidationError,
+            match="pool-gradient online compile is not wired",
+        ):
+            validate_online_compiled_graph(graph)
+
+    def test_validate_online_compile_rejects_loss_compute_module(self):
+        graph = compile_to_paiir(mark_online(OnlineLinear()), make_vec_8d())
+        loss = single_online_node(graph, OnlineCoreSemanticMode.LOSS)
+        loss.comp = nn.Linear(4, 4, bias=False)
+
+        with pytest.raises(
+            GraphValidationError,
+            match="loss stage must not carry a compute module",
+        ):
+            validate_online_compiled_graph(graph)
+
+
 class TestUnsupported32BitConsumers:
     def test_compile_rejects_weighted_consumer_of_potential_domain(self):
         with pytest.raises(
@@ -394,6 +1112,18 @@ class TestCompileBasic:
         comp_types = [type(node.comp) for node in find_nodes(graph, StandaloneCompOp)]
         assert any(issubclass(comp_type, nn.MaxPool2d) for comp_type in comp_types)
         assert any(issubclass(comp_type, nn.Linear) for comp_type in comp_types)
+
+    def test_spikingjelly_mnist_validation_net_compile_smoke(self):
+        graph = compile_to_paiir(SJMNISTValidationNet(), make_img_1ch_28x28())
+
+        linear_nodes = [
+            node
+            for node in find_nodes(graph, StandaloneCompOp)
+            if isinstance(node.comp, nn.Linear)
+        ]
+        assert len(linear_nodes) >= 1
+        assert len(find_nodes(graph, SequentialOp)) >= 1
+        assert len(offline_nodes(graph)) >= 2
 
     def test_VotingLayer_compile_smoke(self):
         graph = compile_to_paiir(VotingLayerCompileSmoke(), torch.randn(1, 8))

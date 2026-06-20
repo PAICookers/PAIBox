@@ -1,12 +1,20 @@
+from __future__ import annotations
+
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from paicorelib import CoordXY, CoordZXYOffset
+from paicorelib import CoordXY, CoordZXYOffset, find_coordxy_shortest_path
 
 from paibox.paiir import PAIIRGraph
 from paibox.paiir.ir import OfflineCoreOp
+from paibox.paiir.ir.op_node import OnlineCoreOp
+from paibox.paiir.pipeline.online import (
+    has_online_nodes,
+    validate_online_compiled_graph,
+)
 
-from .coreplacement import CorePlacement, OfflineCorePlacementV2
+from .coreplacement import CorePlacement, OfflineCorePlacementV2, OnlineCorePlacementV2
 from .export.cheader import export_cheader_files, export_cheader_merged
 from .export.npy import export_frame_npy
 from .export.proto import export_compile_artifacts
@@ -18,22 +26,21 @@ from .export.utils import (
     make_frame_records,
     resolve_platform_exports,
 )
-from .global_signal import set_global_signal
-from .group_tile import tile_groups
-from .op_node import AllNode, InputElem, Neuron, RemapElem, SourceElem, build_nodes
-from .output_completion import (
-    OutputCompletionPlan,
-    OutputProducer,
-    select_output_completion_plan,
-)
-from .output_routes import OutputCpuIngressPlan
-from .rg_build import build_groups
-from .route_solver import HIVE, route_solve
-from .routing import InputGroup, OutputGroup, RemapGroup, RoutingGroup, toposort_for_rg
 
+if TYPE_CHECKING:
+    from .op_node import AllNode
+    from .output_completion import OutputCompletionPlan, OutputProducer
+    from .output_routes import OutputCpuIngressPlan
+    from .routing import InputGroup, OutputGroup, RemapGroup, RoutingGroup
+
+
+_ONLINE_COORD_AXIS_LIMIT = 32
 
 class Mapper:
     def __init__(self) -> None:
+        self._reset_state()
+
+    def _reset_state(self) -> None:
         self.groups: list[RoutingGroup | RemapGroup] = []
         self.routing_groups: list[RoutingGroup] = []
         self.next_rg_group: dict[int, list[int]] = {}
@@ -69,7 +76,7 @@ class Mapper:
                 visited.add(name)
 
                 node = pai_graph.nodes[name]
-                if isinstance(node, OfflineCoreOp):
+                if isinstance(node, (OfflineCoreOp, OnlineCoreOp)):
                     cp = node.core_params
                     if cp.tick_initial > 0:
                         inferred.add(cp.tick_initial)
@@ -85,14 +92,35 @@ class Mapper:
             resolved = int(timesteps)
         else:
             output_timesteps = _collect_output_timesteps()
+            if has_online_nodes(pai_graph) and len(output_timesteps) > 1:
+                ordered = sorted(output_timesteps)
+                raise ValueError(
+                    "online compile could not infer one runtime timesteps value "
+                    f"from outputs; got conflicting tick windows {ordered}. "
+                    "Pass Mapper.compile(..., timesteps=...), or keep online "
+                    "output tick settings consistent."
+                )
             resolved = next(iter(output_timesteps)) if len(output_timesteps) == 1 else 1
 
         if resolved <= 0:
             raise ValueError(f"'timesteps' must be positive, got {resolved}.")
 
         for name, node in pai_graph.nodes.items():
-            if not isinstance(node, OfflineCoreOp):
+            if not isinstance(node, (OfflineCoreOp, OnlineCoreOp)):
                 continue
+
+            if (
+                isinstance(node, OnlineCoreOp)
+                and node.core_params.tick_duration == 0
+                and node.core_params.tick_initial > 0
+                and node.core_params.tick_initial != resolved
+            ):
+                raise ValueError(
+                    f"'timesteps' ({resolved}) conflicts with auto-reset "
+                    f"tick_initial ({node.core_params.tick_initial}) of online "
+                    f"core node '{name}'. Recompile the graph with matching "
+                    "timesteps, or omit Mapper.compile(..., timesteps=...)."
+                )
 
             tick_duration = node.core_params.tick_duration
             if tick_duration != 0 and tick_duration < resolved:
@@ -104,16 +132,22 @@ class Mapper:
         return resolved
 
     def generate_routing_groups(self, pai_graph: PAIIRGraph) -> None:
+        from .op_node import build_nodes
+        from .rg_build import build_groups
+
         self.nodes = build_nodes(pai_graph)
         self.groups, self.input_groups, self.output_groups = build_groups(self.nodes)
 
     def set_rough_dest(self) -> None:
+        from .op_node import InputElem, Neuron, RemapElem
+        from .routing import InputGroup, RemapGroup, RoutingGroup
+
         # determine which routing group each neuron sends to
         source_groups: list[InputGroup | RemapGroup | RoutingGroup] = []
         source_groups.extend(self.input_groups)
         source_groups.extend(self.groups)
 
-        dest_groups: list[RemapGroup | RoutingGroup | OutputGroup] = []
+        dest_groups: list[RemapGroup | RoutingGroup] = []
         dest_groups.extend(self.groups)
         dest_groups.extend(self.output_groups)
 
@@ -122,7 +156,7 @@ class Mapper:
                 grp.set_lcn()
 
         for src_grp in source_groups:
-            useless_elems: list[SourceElem] = []
+            useless_elems = []
             for elem in src_grp.raw_elems:
                 dest_found = False
                 # print(f"\nSetting rough dest for neuron {neu} in group {group.name}:")
@@ -155,6 +189,8 @@ class Mapper:
             src_grp.update_raw_elems()
 
     def routing(self, assign=False) -> None:
+        from .route_solver import route_solve
+
         print("\nTrying to solve routing")
         for rg in self.routing_groups:
             print(f"\tRouting Group {rg.name} requires {rg.n_core_required} cores.")
@@ -298,6 +334,9 @@ class Mapper:
                 cp.set_auto_core_config()
 
     def _collect_output_producers(self) -> list[OutputProducer]:
+        from .output_completion import OutputProducer
+        from .routing import OutputGroup
+
         producer_weights: dict[tuple[CoordXY, CoordXY], int] = {}
         for rg in self.routing_groups:
             for cp in rg.core_placements:
@@ -325,6 +364,9 @@ class Mapper:
 
     def build_output_completion_plan(self) -> OutputCompletionPlan:
         """Select DATA routes and a global signal root before dest encoding."""
+        from .output_completion import select_output_completion_plan
+        from .route_solver import HIVE
+
         used_core_coords = {cp.coord for cp in self.coreplacements}
         empty_offline_coords = {
             CoordXY(x, y) for x, y in HIVE if CoordXY(x, y) not in used_core_coords
@@ -347,6 +389,7 @@ class Mapper:
         export_merged_frames: bool = True,
         export_proto_python: bool = True,
         debug: bool = False,
+        online_graph: PAIIRGraph | None = None,
     ) -> None:
         """Export all requested backend artifacts to the output directory."""
         out = Path(output_path)
@@ -380,6 +423,74 @@ class Mapper:
             self.coreplacements,
             self.global_starts,
             frame_records,
+            online_graph,
+        )
+
+    def _resolve_output_path(self, output_path: str | Path | None) -> Path:
+        if output_path is not None:
+            return Path(output_path)
+
+        env_output_path = os.environ.get("PAIBOX_OUTPUT_PATH")
+        if env_output_path is not None:
+            return Path(env_output_path) / "frame_out"
+
+        return Path.cwd() / "output"
+
+    def _compile_online(
+        self,
+        pai_graph: PAIIRGraph,
+        output_path: str | Path | None,
+        literal_format: LiteralFormat,
+        timesteps: int | None,
+        target_platform: TargetPlatform,
+        word_order: WordOrder,
+        export_merged_frames: bool,
+        export_proto_python: bool,
+        debug: bool,
+    ) -> None:
+        self._reset_state()
+        self.timesteps = self._resolve_timesteps(pai_graph, timesteps)
+
+        validate_online_compiled_graph(pai_graph)
+
+        thread_roots: dict[int, CoordXY] = {}
+        online_nodes = [
+            pai_graph.nodes[name]
+            for name in pai_graph.topo_sort()
+            if isinstance(pai_graph.nodes[name], OnlineCoreOp)
+        ]
+        for idx, node in enumerate(online_nodes):
+            assert isinstance(node, OnlineCoreOp)
+            if idx >= _ONLINE_COORD_AXIS_LIMIT**2:
+                raise ValueError(
+                    "current online placement stub supports at most "
+                    f"{_ONLINE_COORD_AXIS_LIMIT**2} online cores, got {len(online_nodes)}"
+                )
+            placement = OnlineCorePlacementV2(
+                node.core_params,
+                n_timestep=self.timesteps,
+                node_names=(node.name,),
+            )
+            placement._coord = CoordXY(
+                idx % _ONLINE_COORD_AXIS_LIMIT,
+                idx // _ONLINE_COORD_AXIS_LIMIT,
+            )
+            placement.set_auto_core_config()
+            self.coreplacements.append(placement)
+            thread_roots.setdefault(node.core_params.thread_number, placement.coord)
+
+        for thread_id, coord in thread_roots.items():
+            self.global_starts[thread_id] = find_coordxy_shortest_path(coord)[0]
+
+        self.export_artifacts(
+            self._resolve_output_path(output_path),
+            literal_format,
+            target_platform,
+            word_order,
+            export_merged_frames,
+            export_proto_python,
+            debug,
+            pai_graph,
         )
 
     def compile(
@@ -435,10 +546,33 @@ class Mapper:
                 multiple cores if free cores are available and routing remains
                 valid. Defaults to ``False``.
         """
+        if has_online_nodes(pai_graph):
+            self._compile_online(
+                pai_graph,
+                output_path,
+                literal_format,
+                timesteps,
+                target_platform,
+                word_order,
+                export_merged_frames,
+                export_proto_python,
+                debug,
+            )
+            return
+
         self.timesteps = self._resolve_timesteps(pai_graph, timesteps)
 
         # determine raw_neus in routing groups, other properties remain unset
         self.generate_routing_groups(pai_graph)
+        from .global_signal import set_global_signal
+        from .group_tile import tile_groups
+        from .routing import (
+            InputGroup,
+            OutputGroup,
+            RemapGroup,
+            RoutingGroup,
+            toposort_for_rg,
+        )
 
         all_groups: list[RoutingGroup | InputGroup | OutputGroup | RemapGroup] = []
         all_groups.extend(self.input_groups)
@@ -511,15 +645,8 @@ class Mapper:
         )
 
         # export to hardware executable format
-        if output_path is None:
-            env_output_path = os.environ.get("PAIBOX_OUTPUT_PATH")
-            if env_output_path is not None:
-                output_path = Path(env_output_path) / "frame_out"
-            else:
-                output_path = Path.cwd() / "output"
-
         self.export_artifacts(
-            output_path,
+            self._resolve_output_path(output_path),
             literal_format,
             target_platform,
             word_order,

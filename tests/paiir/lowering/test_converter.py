@@ -6,11 +6,17 @@ from collections.abc import Callable
 import pytest
 import torch
 import torch.nn.functional as F
+from paicorelib import OnlineCoreUpdateType, OnlineCoreWorkMode
 from spikingjelly.activation_based import layer
 from spikingjelly.activation_based import neuron as sj
 from torch import Tensor, nn
 
 from paibox.paiir.exceptions import UnsupportedOpError, UnsupportedOpWarning
+from paibox.paiir.ir.calc_params import (
+    OnlineCoreSemanticMode,
+    OnlineGradientRole,
+    OnlineUpdateDirection,
+)
 from paibox.paiir.ir.core_neuron import (
     ANNNodeV25,
     IFNodeV25,
@@ -18,6 +24,7 @@ from paibox.paiir.ir.core_neuron import (
 )
 from paibox.paiir.ir.lut_activation import LutCustom, LutReLU
 from paibox.paiir.ir.op_node import (
+    OnlineCoreOp,
     PadOp,
     SequentialOp,
     SplitOp,
@@ -26,6 +33,7 @@ from paibox.paiir.ir.op_node import (
 )
 from paibox.paiir.lowering.converter import (
     build_default_module_map,
+    mark_online,
     register_module,
     register_neuron,
     torch_to_paiir,
@@ -435,6 +443,208 @@ class TestRegisterNeuron:
             seq_nodes[0].act.thres_pos, torch.tensor([1.0, 2.0, 3.0, 4.0])
         )
         assert isinstance(seq_nodes[0].neuron_params.thres_pos, torch.Tensor)
+
+
+class TestOnlineMarking:
+    def test_mark_online_linear_expands_to_minimal_training_graph(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(8, 4)
+
+            def forward(self, x):
+                return self.linear(x)
+
+        graph = torch_to_paiir(mark_online(Model()), make_vec_8d())
+        graph.lint()
+
+        online_nodes = [
+            graph.nodes[name]
+            for name in graph.topo_sort()
+            if isinstance(graph.nodes[name], OnlineCoreOp)
+        ]
+        assert len(online_nodes) == 4
+        assert [node.core_params.semantic_mode.value for node in online_nodes] == [
+            "forward",
+            "loss",
+            "gradient",
+            "update",
+        ]
+        assert isinstance(online_nodes[0].comp, nn.Linear)
+        assert online_nodes[1].comp is None
+        assert online_nodes[2].core_params.gradient_role.value == "output"
+        assert len(graph.output_nodes()) == 2
+
+    def test_mark_online_subtree_tags_supported_descendants_only(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(8, 4)
+                self.act = nn.ReLU()
+
+            def forward(self, x):
+                return self.act(self.linear(x))
+
+        graph = torch_to_paiir(mark_online(Model()), make_vec_8d())
+
+        assert len([n for n in graph.nodes.values() if isinstance(n, OnlineCoreOp)]) == 4
+        assert len(
+            [n for n in graph.nodes.values() if isinstance(n, StandaloneActOp)]
+        ) == 1
+
+    def test_two_layer_online_chain_expands_loss_gradient_update_stages(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear1 = nn.Linear(8, 6)
+                self.linear2 = nn.Linear(6, 4)
+
+            def forward(self, x):
+                return self.linear2(self.linear1(x))
+
+        graph = torch_to_paiir(mark_online(Model()), make_vec_8d())
+        graph.lint()
+        online_nodes = [
+            graph.nodes[name]
+            for name in graph.topo_sort()
+            if isinstance(graph.nodes[name], OnlineCoreOp)
+        ]
+
+        assert [node.core_params.semantic_mode.value for node in online_nodes] == [
+            "forward",
+            "forward",
+            "loss",
+            "gradient",
+            "gradient",
+            "update",
+            "update",
+        ]
+        gradient_nodes = [
+            node
+            for node in online_nodes
+            if node.core_params.semantic_mode.value == "gradient"
+        ]
+        assert [node.core_params.gradient_role.value for node in gradient_nodes] == [
+            "output",
+            "hidden",
+        ]
+
+    def test_online_training_expansion_rejects_branched_online_path(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.left = nn.Linear(8, 4)
+                self.right = nn.Linear(8, 4)
+
+            def forward(self, x):
+                return self.left(x) + self.right(x)
+
+        with pytest.raises(NotImplementedError, match="single serial online path"):
+            torch_to_paiir(mark_online(Model()), make_vec_8d())
+
+    def test_mark_online_rejects_empty_subtree(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.act = nn.ReLU()
+
+            def forward(self, x):
+                return self.act(x)
+
+        with pytest.raises(ValueError, match="nn.Linear only"):
+            mark_online(Model())
+
+    def test_mark_online_non_recursive_rejects_unsupported_module(self):
+        with pytest.raises(ValueError, match="direct marking of nn.Linear only"):
+            mark_online(nn.ReLU(), recursive=False)
+
+    def test_mark_online_rejects_non_field_override_name(self):
+        with pytest.raises(TypeError, match="unknown online-core parameter"):
+            mark_online(
+                nn.Linear(8, 4),
+                recursive=False,
+                validate_tick_params=True,
+            )
+
+    def test_mark_online_rejects_linear_subclass_until_explicitly_supported(self):
+        class LinearSubclass(nn.Linear):
+            pass
+
+        with pytest.raises(ValueError, match="direct marking of nn.Linear only"):
+            mark_online(LinearSubclass(8, 4), recursive=False)
+
+    def test_mark_online_rejects_non_forward_semantic_override(self):
+        with pytest.raises(ValueError, match="semantic_mode='forward' only"):
+            mark_online(
+                nn.Linear(8, 4),
+                recursive=False,
+                semantic_mode=OnlineCoreSemanticMode.UPDATE,
+            )
+
+    def test_mark_online_rejects_gradient_role_override(self):
+        with pytest.raises(ValueError, match="does not accept gradient_role"):
+            mark_online(
+                nn.Linear(8, 4),
+                recursive=False,
+                gradient_role=OnlineGradientRole.OUTPUT,
+            )
+
+    def test_mark_online_rejects_prebound_work_mode(self):
+        with pytest.raises(ValueError, match="does not accept prebound work_mode"):
+            mark_online(
+                nn.Linear(8, 4),
+                recursive=False,
+                work_mode=OnlineCoreWorkMode.BACKWARD_WEIGHT_UPDATE,
+            )
+
+    def test_mark_online_rejects_update_stage_output_width_override(self):
+        with pytest.raises(
+            ValueError, match="does not accept update-stage output_width"
+        ):
+            mark_online(
+                nn.Linear(8, 4),
+                recursive=False,
+                output_width=OnlineCoreUpdateType.KAHAN_WEIGHT,
+            )
+
+    def test_online_training_expansion_preserves_update_direction_hint(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(8, 4)
+
+            def forward(self, x):
+                return self.linear(x)
+
+        graph = torch_to_paiir(
+            mark_online(Model(), update_direction=OnlineUpdateDirection.BACKWARD),
+            make_vec_8d(),
+        )
+        update_nodes = [
+            node
+            for node in graph.nodes.values()
+            if isinstance(node, OnlineCoreOp)
+            and node.core_params.semantic_mode is OnlineCoreSemanticMode.UPDATE
+        ]
+
+        assert len(update_nodes) == 1
+        assert (
+            update_nodes[0].core_params.update_direction
+            is OnlineUpdateDirection.BACKWARD
+        )
+
+    def test_online_training_expansion_rejects_multi_output_graph(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(8, 4)
+
+            def forward(self, x):
+                y = self.linear(x)
+                return y, y
+
+        with pytest.raises(NotImplementedError, match="single-output graphs only"):
+            torch_to_paiir(mark_online(Model()), make_vec_8d())
 
 
 class ExplicitQuantConv(nn.Module):
