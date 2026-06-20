@@ -14,9 +14,11 @@ from paicorelib import (
     DataSign,
     DataWidth,
     NeuronType,
+    OfflineNeuRegLimV2,
     WeightCompressType,
     find_coordxy_shortest_path,
 )
+from spikingjelly.activation_based import neuron
 from torch import nn
 
 from paibox.backendv2 import routing as routing_mod
@@ -183,6 +185,24 @@ class DefaultSparseHalfReuseLinear(nn.Module):
 
     def forward(self, x):
         return self.linear(x)
+
+
+class ConvIfAvgPoolWithNegativeFoldAxonCandidate(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.conv = nn.Conv2d(6, 32, 3, padding=1, bias=True)
+        self.ifn = neuron.IFNode(v_threshold=127.0)
+        self.avg = nn.AvgPool2d(2)
+        with torch.no_grad():
+            self.conv.weight.zero_()
+            self.conv.bias.zero_()
+            for oc in range(32):
+                channels = [(oc + i) % 6 for i in range(2 + oc % 5)]
+                for idx, ic in enumerate(channels):
+                    self.conv.weight[oc, ic, 1, 1] = 1 if idx % 2 == 0 else -1
+
+    def forward(self, x):
+        return self.avg(self.ifn(self.conv(x)))
 
 
 class Uint8HighIndexDenseCandidateLinear(nn.Module):
@@ -515,6 +535,36 @@ def test_mapper_default_sparse_csc_half_reuse_is_true_sparse_csc(tmp_path):
     assert placements[1].neu_attrs_part1.weight_address_end == (
         placements[0].neu_attrs_part1.weight_address_end
     )
+
+
+def test_mapper_skips_negative_fold_axon_skew_candidate(tmp_path):
+    graph = compile_to_paiir(
+        ConvIfAvgPoolWithNegativeFoldAxonCandidate().eval(),
+        torch.zeros(1, 6, 16, 16),
+        input_formats={"InputNode_0": (DataSign.UNSIGNED, DataWidth.WIDTH_8BIT)},
+        timesteps=1,
+        auto_reset=True,
+        output_approx="sum_approx_if_avgpool",
+        strict=True,
+    )
+    mapper = Mapper()
+    mapper.compile(graph, tmp_path, target_platform="x86", debug=False)
+
+    assert mapper.coreplacements
+    placements = _shared_sparse_linear_neuron_placements(mapper)
+    folded_attrs = [
+        placement.folded_neu_attrs_part1
+        for placement in placements
+        if placement.folded_neu_attrs_part1 is not None
+    ]
+    assert folded_attrs
+    for attrs in folded_attrs:
+        assert 0 <= attrs.fold_axon_y <= OfflineNeuRegLimV2.FOLD_AXON_MAX
+        assert 0 <= attrs.fold_axon_x <= OfflineNeuRegLimV2.FOLD_AXON_MAX
+        assert 0 <= attrs.fold_axon_xy <= OfflineNeuRegLimV2.FOLD_AXON_MAX
+        assert 0 <= attrs.fold_skew_y <= OfflineNeuRegLimV2.FOLD_SKEW_MAX
+        assert 0 <= attrs.fold_skew_x <= OfflineNeuRegLimV2.FOLD_SKEW_MAX
+        assert 0 <= attrs.fold_skew_xy <= OfflineNeuRegLimV2.FOLD_SKEW_MAX
 
 
 def test_mapper_does_not_fold_neurons_with_different_part2_attrs(tmp_path):
