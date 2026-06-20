@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from paicorelib import CoordXY, CoordZXYOffset
+from paicorelib import CoordXY, CoordZXYOffset, find_coordxy_shortest_path
 
 from .core_config import TEST_DEST_CORE
 from .global_signal import (
@@ -43,6 +43,16 @@ class EmptyRelayCore:
 
 
 @dataclass(frozen=True)
+class OutputCompletionScore:
+    data_penalty: int
+    control_loop_cost: int
+    cpu_to_root_path_len: int
+    complete_path_len: int
+    global_signal_tree_max_depth: int
+    global_signal_tree_total_edges: int
+
+
+@dataclass(frozen=True)
 class OutputCompletionPlan:
     output_routes: tuple[OutputRouteDecision, ...]
     control_offset: CoordZXYOffset
@@ -50,10 +60,7 @@ class OutputCompletionPlan:
     global_signal_root: CoordXY
     root_kind: RootKind
     relay_cores: tuple[EmptyRelayCore, ...]
-    data_penalty: int
-    global_signal_tree_max_depth: int
-    global_signal_tree_total_edges: int
-    complete_path_len: int
+    score: OutputCompletionScore
     diagnostics: tuple[str, ...]
 
     @property
@@ -102,9 +109,7 @@ class _RootSuffixCandidate:
     control_offset: CoordZXYOffset
     root_kind: RootKind
     relay_cores: tuple[EmptyRelayCore, ...]
-    data_penalty: int
-    global_signal_tree_max_depth: int
-    global_signal_tree_total_edges: int
+    score: OutputCompletionScore
 
 
 def _is_in_global_route_grid(coord: CoordXY) -> bool:
@@ -254,6 +259,16 @@ def select_output_completion_plan(
             default=TEST_DEST_CORE,
         )
         control_offset = candidate_offsets(root, TEST_DEST_CORE)[0]
+        cpu_to_root_path_len = find_coordxy_shortest_path(root)[1]
+        complete_path_len = route_len(control_offset)
+        score = OutputCompletionScore(
+            data_penalty=0,
+            control_loop_cost=cpu_to_root_path_len + complete_path_len,
+            cpu_to_root_path_len=cpu_to_root_path_len,
+            complete_path_len=complete_path_len,
+            global_signal_tree_max_depth=0,
+            global_signal_tree_total_edges=0,
+        )
         return OutputCompletionPlan(
             output_routes=(),
             control_offset=control_offset,
@@ -261,10 +276,7 @@ def select_output_completion_plan(
             global_signal_root=root,
             root_kind="used" if root in used_core_coords else "empty_offline",
             relay_cores=(),
-            data_penalty=0,
-            global_signal_tree_max_depth=0,
-            global_signal_tree_total_edges=0,
-            complete_path_len=route_len(control_offset),
+            score=score,
             diagnostics=tuple(diagnostics),
         )
 
@@ -312,6 +324,19 @@ def select_output_completion_plan(
             producer.weight * choice.penalty
             for producer, choice in zip(producers_tuple, choices, strict=True)
         )
+        cpu_to_root_path_len = find_coordxy_shortest_path(root)[1]
+        complete_path_len = len(suffix) - 1
+        control_loop_cost = (
+            cpu_to_root_path_len + 2 * global_signal_tree.max_depth + complete_path_len
+        )
+        score = OutputCompletionScore(
+            data_penalty=data_penalty,
+            control_loop_cost=control_loop_cost,
+            cpu_to_root_path_len=cpu_to_root_path_len,
+            complete_path_len=complete_path_len,
+            global_signal_tree_max_depth=global_signal_tree.max_depth,
+            global_signal_tree_total_edges=global_signal_tree.total_edges,
+        )
         candidates.append(
             _RootSuffixCandidate(
                 root=root,
@@ -320,9 +345,7 @@ def select_output_completion_plan(
                 control_offset=control_offset,
                 root_kind=root_kind,
                 relay_cores=relay_cores,
-                data_penalty=data_penalty,
-                global_signal_tree_max_depth=global_signal_tree.max_depth,
-                global_signal_tree_total_edges=global_signal_tree.total_edges,
+                score=score,
             )
         )
 
@@ -339,21 +362,21 @@ def select_output_completion_plan(
     selected = min(
         candidates,
         key=lambda candidate: (
-            candidate.data_penalty,
+            candidate.score.data_penalty,
             1 if candidate.root_kind != "used" else 0,
             1 if candidate.root_kind == "empty_online" else 0,
-            candidate.global_signal_tree_max_depth,
-            candidate.global_signal_tree_total_edges,
-            len(candidate.suffix) - 1,
+            candidate.score.control_loop_cost,
+            candidate.score.global_signal_tree_total_edges,
             candidate.root.x,
             candidate.root.y,
         ),
     )
 
-    if selected.data_penalty > 0:
+    if selected.score.data_penalty > 0:
         diagnostics.append(
             "selected minimum-penalty fallback because no zero-penalty common "
-            f"DATA suffix root was feasible; data_penalty={selected.data_penalty}."
+            "DATA suffix root was feasible; data_penalty="
+            f"{selected.score.data_penalty}."
         )
 
     output_routes = tuple(
@@ -367,9 +390,6 @@ def select_output_completion_plan(
         global_signal_root=selected.root,
         root_kind=selected.root_kind,
         relay_cores=selected.relay_cores,
-        data_penalty=selected.data_penalty,
-        global_signal_tree_max_depth=selected.global_signal_tree_max_depth,
-        global_signal_tree_total_edges=selected.global_signal_tree_total_edges,
-        complete_path_len=len(selected.suffix) - 1,
+        score=selected.score,
         diagnostics=tuple(diagnostics),
     )
