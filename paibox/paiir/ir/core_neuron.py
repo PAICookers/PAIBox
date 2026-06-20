@@ -51,7 +51,7 @@ from spikingjelly.activation_based.base import MemoryModule
 from torch import Tensor
 
 from ...exceptions import AutoOptimizationWarning
-from .calc_params import DEFAULT_NEG_THRESHOLD, LutData, NeuronParams
+from .calc_params import DEFAULT_NEG_THRESHOLD, NeuronParams
 from .lut_activation import LutActivation
 
 __all__ = [
@@ -141,11 +141,11 @@ class CoreNeuronV25(MemoryModule):
         self.thres_pos_mode = thres_pos_mode
         # Default thres_neg_mode:
         #   SNN (lut=None) -> FLOOR (negative V clamped, single-sided firing)
-        #   ANN unsigned (output_sign=0) -> FLOOR (negative region unused)
-        #   ANN signed   (output_sign=1) -> FIRE  (both sides active)
+        #   ANN unsigned LUT -> FLOOR (negative region unused)
+        #   ANN signed LUT   -> FIRE  (both sides active)
         if thres_neg_mode is not None:
             self.thres_neg_mode = thres_neg_mode
-        elif lut is not None and lut.output_sign == 1:
+        elif lut is not None and lut.output_signed:
             self.thres_neg_mode = ThresholdNegMode.FIRE
         else:
             self.thres_neg_mode = ThresholdNegMode.FLOOR
@@ -238,15 +238,15 @@ class CoreNeuronV25(MemoryModule):
         return self.is_snn and self.tau > 1
 
     @property
-    def output_sign(self) -> int:
+    def output_sign(self) -> bool:
         """Return the output sign for data format inference.
 
-        ANN mode: delegates to ``self.lut.output_sign``.
-        SNN mode: signed if negative threshold fires, unsigned otherwise.
+        ANN mode: delegates to ``self.lut.output_signed``.
+        SNN mode: True if negative threshold fires, False otherwise.
         """
         if self.lut is not None:
-            return self.lut.output_sign
-        return 1 if self.thres_neg_mode == ThresholdNegMode.FIRE else 0
+            return self.lut.output_signed
+        return self.thres_neg_mode == ThresholdNegMode.FIRE
 
     def extra_repr(self) -> str:
         parts = [
@@ -526,14 +526,6 @@ class CoreNeuronV25(MemoryModule):
             kwargs["leak_v"] += bias
 
         return NeuronParams(**kwargs)
-
-    def export_lut(self) -> LutData | None:
-        """Export LUT table data for backend consumption.
-
-        Returns ``None`` for SNN mode (no LUT).
-        """
-        return self.lut.export_lut() if self.lut is not None else None
-
 
 def _resolve_reset(v_reset: float | None) -> tuple[float, RM]:
     """Determine reset mode from *v_reset*.

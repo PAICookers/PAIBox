@@ -229,10 +229,10 @@ class OfflineCorePlacementV2(CorePlacement):
 
         frame_type2: FrameArrayType | None = None
         # frame_type_2: lut config
-        if self.frontend_core_config.lut_data is not None:
-            # assert self.frontend_core_config.snn_ann == SNNMode.ANN, "lut_data should only be provided for ANN mode"
-            potential_tensor = self.frontend_core_config.lut_data.thresholds
-            activation_tensor = self.frontend_core_config.lut_data.values
+        if self.frontend_core_config.hw_lut_data is not None:
+            # hw_lut_data is already validated for PAICORE 2.5 SRAM packing.
+            potential_tensor = self.frontend_core_config.hw_lut_data.thresholds
+            activation_tensor = self.frontend_core_config.hw_lut_data.values
             potentials = potential_tensor.numpy()
             activations = activation_tensor.numpy()
 

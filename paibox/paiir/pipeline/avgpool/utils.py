@@ -6,12 +6,14 @@ from typing import TypeAlias, TypeGuard
 import torch
 import torch.nn as nn
 
+from ...ir.calc_params import LUT_TABLE_SIZE
 from ...ir.lut_activation import LutCustom
 from ...nn import SumPool1d, SumPool2d
 
 __all__ = [
     "ValueCodeRange",
-    "build_range_identity_lut",
+    "build_integer_identity_lut",
+    "build_integer_interval_lut",
     "build_sum_pool",
     "get_avgpool_divisor",
     "get_pool_window_size",
@@ -24,18 +26,61 @@ PoolWindowModule: TypeAlias = nn.AvgPool1d | nn.AvgPool2d | SumPool1d | SumPool2
 ValueCodeRange: TypeAlias = tuple[int, int]
 
 
-def build_range_identity_lut(code_range: ValueCodeRange) -> LutCustom:
-    """Build a 256-entry identity LUT over a known integer code range."""
-    code_min, code_max = code_range
-    codes = torch.arange(code_min, code_max + 1, dtype=torch.int32)
-    pad_count = 256 - codes.numel()
-    if pad_count < 0:
-        raise ValueError(f"identity LUT code range too large: {code_range}")
-    if pad_count:
-        pad = torch.full((pad_count,), code_max, dtype=torch.int32)
-        codes = torch.cat((codes, pad))
+_INT32_MAX = torch.iinfo(torch.int32).max
+_INT32_MIN = torch.iinfo(torch.int32).min
 
-    return LutCustom(codes, codes, output_sign=1 if code_min < 0 else 0, is_float=False)
+
+def build_integer_interval_lut(
+    thres: list[int], values: list[int], output_signed: bool | None = None
+) -> LutCustom:
+    """Build a logical integer interval LUT for AvgPool deployment rewrites."""
+    if len(thres) != len(values):
+        raise ValueError(
+            "integer interval LUT thres & values must have the same length"
+        )
+    if len(thres) > LUT_TABLE_SIZE:
+        raise ValueError(
+            f"integer interval LUT supports at most {LUT_TABLE_SIZE} intervals, got "
+            f"{len(thres)}"
+        )
+    if min(thres) < _INT32_MIN or max(thres) > _INT32_MAX:
+        raise ValueError("integer interval LUT thres must fit int32")
+    if any(b < a for a, b in zip(thres, thres[1:])):
+        raise ValueError("integer interval LUT thres must be monotonic")
+
+    resolved_output_signed = min(values) < 0 if output_signed is None else output_signed
+    thresholds = torch.tensor(thres, dtype=torch.int32)
+    lut_values = torch.tensor(values, dtype=torch.int32)
+    if len(thres) < LUT_TABLE_SIZE:
+        pad_count = LUT_TABLE_SIZE - len(thres)
+        thresholds = torch.cat(
+            (
+                thresholds,
+                torch.full((pad_count,), thres[-1], dtype=torch.int32),
+            )
+        )
+        lut_values = torch.cat(
+            (
+                lut_values,
+                torch.full((pad_count,), values[-1], dtype=torch.int32),
+            )
+        )
+
+    return LutCustom(thresholds, lut_values, resolved_output_signed, is_float=False)
+
+
+def build_integer_identity_lut(code_min: int, code_max: int) -> LutCustom:
+    """Build a logical integer identity LUT for AvgPool deployment rewrites."""
+    if code_min > code_max:
+        raise ValueError(
+            f"identity LUT requires code_min <= code_max, got "
+            f"{code_min} > {code_max}"
+        )
+    if code_max - code_min + 1 > LUT_TABLE_SIZE:
+        raise ValueError(f"identity LUT code range too large: ({code_min}, {code_max})")
+
+    codes = list(range(code_min, code_max + 1))
+    return build_integer_interval_lut(codes, codes, output_signed=code_min < 0)
 
 
 def is_avgpool(comp: nn.Module) -> TypeGuard[nn.AvgPool1d | nn.AvgPool2d]:

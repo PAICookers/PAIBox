@@ -14,9 +14,9 @@ import torch
 from paicorelib import DataSign, DataWidth, SNNMode, ThresholdNegMode
 from torch import nn
 
-from .calc_params import LutData, NeuronParams
+from .calc_params import LUT_TABLE_SIZE, LutData, NeuronParams
 from .core_neuron import ANNNodeV25, IFNodeV25
-from .lut_activation import LutCustom
+from .lut_activation import LutCustom, _build_hw_lut_data_from_logical_lut
 from .signal_domain import SignalDomain
 from .value_code import ValueCodeRange, code_range_for_format
 
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "MaxPoolExportKind",
-    "build_identity_lut_data",
+    "build_identity_hw_lut_data",
     "build_identity_lut_neuron_params",
     "build_spike_identity_neuron_params",
     "is_maxpool_comp",
@@ -120,32 +120,66 @@ def build_spike_identity_neuron_params(export: MaxPoolExportKind) -> NeuronParam
     return act.to_neuron_params()
 
 
-def _build_identity_lut(
-    sign: DataSign, width: DataWidth, known_range: ValueCodeRange | None
-) -> LutCustom:
-    """Build an exact integer identity LUT over the effective input code range."""
-    lo, hi = (
-        known_range if known_range is not None else code_range_for_format(sign, width)
+def _build_identity_lut_data(code_min: int, code_max: int) -> tuple[LutData, bool]:
+    if code_min > code_max:
+        raise ValueError(
+            f"identity LUT requires code_min <= code_max, got "
+            f"{code_min} > {code_max}"
+        )
+
+    code_count = code_max - code_min + 1
+    if code_count > LUT_TABLE_SIZE:
+        raise ValueError(f"identity LUT code range too large: ({code_min}, {code_max})")
+
+    codes = torch.arange(code_min, code_max + 1, dtype=torch.int32)
+    thresholds = codes
+    values = codes
+    if code_count < LUT_TABLE_SIZE:
+        pad_count = LUT_TABLE_SIZE - code_count
+        thresholds = torch.cat(
+            (
+                thresholds,
+                torch.full((pad_count,), code_max, dtype=torch.int32),
+            )
+        )
+        values = torch.cat(
+            (
+                values,
+                torch.full((pad_count,), code_max, dtype=torch.int32),
+            )
+        )
+
+    return LutData(thresholds, values, is_float=False), code_min < 0
+
+
+def _build_identity_lut(code_min: int, code_max: int) -> LutCustom:
+    logical_lut, output_signed = _build_identity_lut_data(code_min, code_max)
+    return LutCustom(
+        logical_lut.thresholds,
+        logical_lut.values,
+        output_signed,
+        is_float=False,
     )
-    output_sign = 1 if lo < 0 else 0
-    values = torch.full((256,), hi, dtype=torch.int32)
-    thresholds = torch.full((256,), hi, dtype=torch.int32)
-
-    codes = torch.arange(lo, hi + 1, dtype=torch.int32)
-    values[: codes.numel()] = codes
-    thresholds[: codes.numel()] = codes
-    return LutCustom(thresholds, values, output_sign=output_sign)
 
 
-def build_identity_lut_data(
-    sign: DataSign, width: DataWidth, known_range: ValueCodeRange | None
+def build_identity_hw_lut_data(
+    sign: DataSign,
+    width: DataWidth,
+    known_range: ValueCodeRange | None,
+    output_data_sign: DataSign,
+    output_width: DataWidth,
 ) -> LutData:
-    """Export the standalone MaxPool identity LUT as backend-visible table data."""
-    return _build_identity_lut(sign, width, known_range).export_lut()
+    """Build hardware SRAM LUT data for standalone MaxPool identity export."""
+    lo, hi = code_range_for_format(sign, width) if known_range is None else known_range
+    logical_lut, _ = _build_identity_lut_data(lo, hi)
+    return _build_hw_lut_data_from_logical_lut(
+        logical_lut, output_data_sign, output_width
+    )
 
 
 def build_identity_lut_neuron_params(
     sign: DataSign, width: DataWidth, known_range: ValueCodeRange | None
 ) -> NeuronParams:
     """Build ANN-mode neuron params that pair with the identity LUT export path."""
-    return ANNNodeV25(_build_identity_lut(sign, width, known_range)).to_neuron_params()
+    lo, hi = code_range_for_format(sign, width) if known_range is None else known_range
+    return ANNNodeV25(_build_identity_lut(lo, hi)).to_neuron_params()

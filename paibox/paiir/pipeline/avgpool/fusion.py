@@ -3,7 +3,6 @@
 import math
 from typing import cast
 
-import torch
 from paicorelib import (
     DataSign,
     DataWidth,
@@ -13,6 +12,7 @@ from paicorelib import (
 )
 
 from ...exceptions import UnsupportedFusionError
+from ...ir.calc_params import LUT_TABLE_SIZE
 from ...ir.core_neuron import ANNNodeV25
 from ...ir.graph import PAIIRGraph
 from ...ir.lut_activation import LutCustom
@@ -31,7 +31,14 @@ from .compensation import (
 )
 from .deploy_scheme import AvgPoolDeployScheme, select_avgpool_lif_candidate
 from .metadata import AvgPoolDeployMetadata
-from .utils import build_sum_pool, get_avgpool_divisor, get_pool_window_size, is_avgpool
+from .utils import (
+    build_integer_identity_lut,
+    build_integer_interval_lut,
+    build_sum_pool,
+    get_avgpool_divisor,
+    get_pool_window_size,
+    is_avgpool,
+)
 
 __all__ = [
     "_try_handle_avgpool_activation",
@@ -108,14 +115,10 @@ def _build_split_avgpool_core1_lut(
         # Core 2 then restores the original AvgPool+LIF dynamics by scaling all
         # voltage-domain parameters into the same sum domain.
         if out_width == DataWidth.WIDTH_1BIT:
-            thresholds = torch.arange(256, dtype=torch.int32)
-            values = torch.arange(256, dtype=torch.uint8)
-            return LutCustom(thresholds, values, output_sign=0, is_float=False)
+            return build_integer_identity_lut(0, 255)
 
         if out_width == DataWidth.WIDTH_2BIT:
-            thresholds = torch.arange(-128, 128, dtype=torch.int32)
-            values = torch.arange(-128, 128, dtype=torch.int8)
-            return LutCustom(thresholds, values, output_sign=1, is_float=False)
+            return build_integer_identity_lut(-128, 127)
 
         raise UnsupportedFusionError(
             "exact-sum split-core AvgPool LUT is only supported for 1-bit or 2-bit "
@@ -126,11 +129,9 @@ def _build_split_avgpool_core1_lut(
         # IF split-core path: Core 1 converts the pooled sum into the downstream
         # IF input domain. The LUT therefore behaves like a thresholded mapper
         # rather than a raw sum pass-through.
-        thresholds = torch.arange(256, dtype=torch.int32) * avg_divisor
-        values = torch.cat(
-            [torch.zeros(1, dtype=torch.int8), torch.ones(255, dtype=torch.int8)]
-        )
-        return LutCustom(thresholds, values, output_sign=0, is_float=False)
+        starts = [idx * avg_divisor for idx in range(LUT_TABLE_SIZE)]
+        values = [0 if idx == 0 else 1 for idx in range(LUT_TABLE_SIZE)]
+        return build_integer_interval_lut(starts, values, output_signed=False)
 
     if out_width == DataWidth.WIDTH_2BIT:
         raise UnsupportedFusionError(
