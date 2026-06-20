@@ -406,7 +406,7 @@ def test_mapper_builds_output_completion_plan_without_full_compile(monkeypatch):
 
     assert plan.global_signal_root == CoordXY(0, 2)
     assert plan.root_kind == "empty_offline"
-    assert plan.data_penalty == 2
+    assert plan.score.data_penalty == 2
     assert {route.target_coord for route in plan.output_routes} == {CoordXY(0, 0)}
 
 
