@@ -18,6 +18,7 @@ from paicorelib import (
     OfflineNeuFoldedAttrsV2Part2,
     OfflineNeuFullAttrsV2Part1,
     OfflineNeuFullAttrsV2Part2,
+    OfflineNeuRegLimV2,
     WeightCompressType,
     find_coordxy_shortest_path,
 )
@@ -51,6 +52,24 @@ from .op_node import (
 from .weight import Weight
 
 FANIN_BASE = 512
+FOLD_WEIGHT_SKEW_MAX = OfflineNeuRegLimV2.FOLD_SKEW_MAX
+FOLD_AXON_MAX = OfflineNeuRegLimV2.FOLD_AXON_MAX
+
+
+def _first_invalid_fold_field(
+    skews: list[int], bit_num: int, field_max: int
+) -> tuple[int, int] | None:
+    field_values = [skew * bit_num for skew in skews]
+    if any(not 0 <= field_value <= field_max for field_value in field_values):
+        return next(
+            (
+                (skew, field_value)
+                for skew, field_value in zip(skews, field_values)
+                if not 0 <= field_value <= field_max
+            ),
+            None,
+        )
+    return None
 
 
 class Group:
@@ -583,22 +602,26 @@ class RoutingGroup(
                 print(f"{prefix}    fold_range: {ranges}")
                 print(f"{prefix}    fold_weight_skews: {fold_weight_skews}")
                 print(f"{prefix}    fold_axon_skews: {fold_axon_skews}")
-                skip_fold = False
-                for skew in fold_weight_skews:
-                    if skew * self.input_bit_num > 2047:
-                        print(
-                            f"{prefix}Fold weight skew {skew} is too large for input bit num {self.input_bit_num}, skipping fold."
-                        )
-                        skip_fold = True
-                        break
-                for skew in fold_axon_skews:
-                    if skew * dest_group.input_bit_num > 2047:
-                        print(
-                            f"{prefix}Fold axon skew {skew} is too large for input bit num {self.input_bit_num}, skipping fold."
-                        )
-                        skip_fold = True
-                        break
-                if skip_fold:
+                invalid_weight = _first_invalid_fold_field(
+                    fold_weight_skews, self.input_bit_num, FOLD_WEIGHT_SKEW_MAX
+                )
+                if invalid_weight is not None:
+                    skew, field_value = invalid_weight
+                    print(
+                        f"{prefix}Fold weight skew {skew} maps to {field_value}, "
+                        f"outside [0, {FOLD_WEIGHT_SKEW_MAX}], skipping fold."
+                    )
+                    continue
+
+                invalid_axon = _first_invalid_fold_field(
+                    fold_axon_skews, dest_group.input_bit_num, FOLD_AXON_MAX
+                )
+                if invalid_axon is not None:
+                    skew, field_value = invalid_axon
+                    print(
+                        f"{prefix}Fold axon skew {skew} maps to {field_value}, "
+                        f"outside [0, {FOLD_AXON_MAX}], skipping fold."
+                    )
                     continue
 
                 attrs_part2s = [neu.attrs_part2() for neu in sub_neurons]

@@ -3,7 +3,7 @@ import math
 import numpy as np
 
 
-def get_skew_info(offsets: list[int]):
+def get_skew_info(offsets: list[int]) -> tuple[list[int], list[int]] | None:
     offset_diff = np.diff(offsets)
     diff_num = len(np.unique(offset_diff))
     if diff_num > 3:
@@ -15,9 +15,9 @@ def get_skew_info(offsets: list[int]):
         ranges = [len(offsets)]
         return skews, ranges
 
-    skews = []
-    ranges = []
-    distances = []
+    skews: list[int] = []
+    ranges: list[int] = []
+    distances: list[int] = []
     for i, diff in enumerate(offset_diff):
         if len(skews) == 0:
             skews.append(diff.item())
@@ -40,38 +40,31 @@ def get_skew_info(offsets: list[int]):
                 else:
                     continue
 
-    skews = skews
-
     last_distance = len(offsets)
     for i in reversed(range(len(distances))):
         if last_distance % distances[i] != 0:
             return None
         ranges.insert(0, last_distance // distances[i])
         last_distance = distances[i]
-    ranges = ranges
     return skews, ranges
 
 
-def closest_factor(n, partition_num) -> int:
+def closest_factor(n: int, partition_num: int) -> int:
     if partition_num == 1:
         return n
     if n <= 0:
         raise ValueError("n must be a positive integer.")
 
-    # 1. 计算立方根并取整作为起点
     start = int(math.pow(n, 1 / partition_num))
-
-    # 2. 从起点向 1 递减搜索
-    for i in range(start, 0, -1):
-        if n % i == 0:
-            return i
-    return 1  # 如果没有找到任何因数，返回 1
+    return next((i for i in range(start, 0, -1) if n % i == 0), 1)
 
 
-def process_exceed(ranges, weight_skews, axon_addr_skews):
-    processed_ranges = []
-    processed_weight_skews = []
-    processed_axon_addr_skews = []
+def process_exceed(
+    ranges: list[int], weight_skews: list[int], axon_addr_skews: list[int]
+) -> tuple[list[int], list[int], list[int]] | None:
+    processed_ranges: list[int] = []
+    processed_weight_skews: list[int] = []
+    processed_axon_addr_skews: list[int] = []
     remain_space = 3 - len(ranges)
     for i, range_ in enumerate(ranges):
         if range_ < 2048:
@@ -84,8 +77,8 @@ def process_exceed(ranges, weight_skews, axon_addr_skews):
                 return None
             remain_num = range_
             for j in range(num_partition):
-                patial_num = num_partition - j
-                factor = closest_factor(remain_num, patial_num)
+                partial_num = num_partition - j
+                factor = closest_factor(remain_num, partial_num)
                 if factor < 2048:
                     processed_ranges.append(factor)
                     processed_weight_skews.append(weight_skews[i])
@@ -105,7 +98,9 @@ def process_exceed(ranges, weight_skews, axon_addr_skews):
     return processed_ranges, processed_weight_skews, processed_axon_addr_skews
 
 
-def get_fold_info(weight_offsets: list[int], axon_addr_offsets: list[int]):
+def get_fold_info(
+    weight_offsets: list[int], axon_addr_offsets: list[int]
+) -> tuple[list[int], list[int], list[int]] | None:
     """Return fold ranges with weight-skew and axon-skew sequences.
 
     The public contract is `(ranges, weight_skews, axon_addr_skews)`. Keep every
