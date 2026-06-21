@@ -22,11 +22,19 @@ from spikingjelly.activation_based import neuron
 from torch import nn
 
 from paibox.backendv2 import routing as routing_mod
-from paibox.backendv2.coreplacement import OfflineCorePlacementV2
+from paibox.backendv2.coreplacement import (
+    EmptyOfflineCorePlacementV2,
+    EmptyOnlineCorePlacementV2,
+    OfflineCorePlacementV2,
+)
 from paibox.backendv2.export.utils import export_framearray_to_int32
 from paibox.backendv2.mapper import Mapper
 from paibox.backendv2.op_node import SourceElem
-from paibox.backendv2.output_completion import OutputProducer
+from paibox.backendv2.output_completion_planner import (
+    EmptyRelayCore,
+    OutputCompletionPlan,
+    OutputProducer,
+)
 from paibox.backendv2.proto import get_schema_version
 from paibox.backendv2.proto.compile_artifacts_pb2 import (
     CompileArtifacts,
@@ -404,10 +412,59 @@ def test_mapper_builds_output_completion_plan_without_full_compile(monkeypatch):
 
     plan = mapper.build_output_completion_plan()
 
-    assert plan.global_signal_root == CoordXY(0, 2)
-    assert plan.root_kind == "empty_offline"
-    assert plan.score.data_penalty == 2
+    assert plan.global_signal_root == CoordXY(2, 4)
+    assert plan.completion_join_point == CoordXY(0, 2)
     assert {route.target_coord for route in plan.output_routes} == {CoordXY(0, 0)}
+    assert plan.output_route_offsets()[
+        (CoordXY(4, 2), CoordXY(0, 0))
+    ] == CoordZXYOffset(0, -4, -2)
+    assert {core.coord for core in plan.required_route_cores} == {
+        CoordXY(0, 2),
+    }
+
+
+def test_mapper_adds_selected_empty_output_completion_core(monkeypatch):
+    mapper = Mapper()
+    producer_coords = [CoordXY(0, 3), CoordXY(2, 2)]
+    mapper.coreplacements = []
+    for coord in producer_coords:
+        core = OfflineCorePlacementV2()
+        core._coord = coord
+        mapper.coreplacements.append(core)
+
+    monkeypatch.setattr(
+        mapper,
+        "_collect_output_producers",
+        lambda: [OutputProducer(coord, CoordXY(0, 0), 1) for coord in producer_coords],
+    )
+
+    plan = mapper.build_output_completion_plan()
+    mapper.add_output_completion_route_cores(plan)
+
+    required_core = next(cp for cp in mapper.coreplacements if cp.coord == CoordXY(0, 2))
+    assert isinstance(required_core, EmptyOfflineCorePlacementV2)
+    assert all(cp.coord != CoordXY(0, 1) for cp in mapper.coreplacements)
+
+
+def test_mapper_adds_required_online_output_completion_route_cores(monkeypatch):
+    mapper = Mapper()
+    existing_core = OfflineCorePlacementV2()
+    existing_core._coord = CoordXY(1, 1)
+    mapper.coreplacements = [existing_core]
+    plan = OutputCompletionPlan(
+        (),
+        CoordZXYOffset(0, -1, -1),
+        ("y", -1),
+        CoordXY(1, 1),
+        CoordXY(1, 1),
+        (EmptyRelayCore(CoordXY(2, 1), "online"),),
+        (),
+    )
+
+    mapper.add_output_completion_route_cores(plan)
+
+    required_core = next(cp for cp in mapper.coreplacements if cp.coord == CoordXY(2, 1))
+    assert isinstance(required_core, EmptyOnlineCorePlacementV2)
 
 
 def test_mapper_does_not_broadcast_root_control_offset_to_all_cores():
@@ -447,13 +504,14 @@ def test_mapper_default_auto_strategy_mixes_sparse_and_dense_csc(tmp_path):
     mapper = Mapper()
     mapper.compile(graph, tmp_path, target_platform="x86", debug=False)
 
-    core = mapper.coreplacements[0]
+    compute_cores = [core for core in mapper.coreplacements if core.neus]
+    core = compute_cores[0]
     placements = _shared_sparse_linear_neuron_placements(mapper)
 
-    assert {c.frontend_core_config.input_width for c in mapper.coreplacements} == {
+    assert {c.frontend_core_config.input_width for c in compute_cores} == {
         DataWidth.WIDTH_1BIT
     }
-    assert {c.default_core_config.csc_accelerate for c in mapper.coreplacements} == {
+    assert {c.default_core_config.csc_accelerate for c in compute_cores} == {
         CSCAccelerateMode.ENABLE
     }
     assert [weight.compress for weight in core.weights] == [True, True, False]
@@ -501,13 +559,14 @@ def test_mapper_default_sparse_csc_half_reuse_is_true_sparse_csc(tmp_path):
     mapper = Mapper()
     mapper.compile(graph, tmp_path, target_platform="x86", debug=False)
 
-    core = mapper.coreplacements[0]
+    compute_cores = [core for core in mapper.coreplacements if core.neus]
+    core = compute_cores[0]
     placements = _shared_sparse_linear_neuron_placements(mapper)
 
-    assert {c.frontend_core_config.input_width for c in mapper.coreplacements} == {
+    assert {c.frontend_core_config.input_width for c in compute_cores} == {
         DataWidth.WIDTH_1BIT
     }
-    assert {c.default_core_config.csc_accelerate for c in mapper.coreplacements} == {
+    assert {c.default_core_config.csc_accelerate for c in compute_cores} == {
         CSCAccelerateMode.ENABLE
     }
     assert len(core.weights) == 1

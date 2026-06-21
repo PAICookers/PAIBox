@@ -1,3 +1,4 @@
+import pytest
 from paicorelib import (
     CoordXY,
     CoordZXYOffset,
@@ -170,3 +171,20 @@ def test_empty_online_core_exports_minimal_online_frame1():
     assert frame1 is not None
     assert frame2 is None
     assert frame3 is None
+
+
+@pytest.mark.parametrize(
+    "accessor",
+    [
+        lambda core: core.n_sram_required,
+        lambda core: core.weight_sram_required,
+        lambda core: core.neuron_sram_required,
+        lambda core: core.output_width,
+    ],
+)
+def test_empty_online_core_unsupported_properties_raise(accessor):
+    core = EmptyOnlineCorePlacementV2()
+    core._coord = CoordXY(1, 2)
+
+    with pytest.raises(NotImplementedError):
+        accessor(core)
