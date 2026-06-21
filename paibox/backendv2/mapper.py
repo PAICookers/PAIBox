@@ -6,7 +6,12 @@ from paicorelib import CoordXY, CoordZXYOffset
 from paibox.paiir import PAIIRGraph
 from paibox.paiir.ir import OfflineCoreOp
 
-from .coreplacement import CorePlacement, OfflineCorePlacementV2
+from .coreplacement import (
+    CorePlacement,
+    EmptyOfflineCorePlacementV2,
+    EmptyOnlineCorePlacementV2,
+    OfflineCorePlacementV2,
+)
 from .export.cheader import export_cheader_files, export_cheader_merged
 from .export.npy import export_frame_npy
 from .export.proto import export_compile_artifacts
@@ -21,14 +26,14 @@ from .export.utils import (
 from .global_signal import set_global_signal
 from .group_tile import tile_groups
 from .op_node import AllNode, InputElem, Neuron, RemapElem, SourceElem, build_nodes
-from .output_completion import (
+from .output_completion_planner import (
     OutputCompletionPlan,
+    OutputCpuIngressPlan,
     OutputProducer,
     select_output_completion_plan,
 )
-from .output_routes import OutputCpuIngressPlan
 from .rg_build import build_groups
-from .route_solver import HIVE, route_solve
+from .route_solver import OFFLINE_CORE_COORDS, ONLINE_CORE_COORDS, route_solve
 from .routing import InputGroup, OutputGroup, RemapGroup, RoutingGroup, toposort_for_rg
 
 
@@ -323,20 +328,46 @@ class Mapper:
             )
         ]
 
-    def build_output_completion_plan(self) -> OutputCompletionPlan:
+    def build_output_completion_plan(
+        self, allow_empty_online_relay_core: bool = False
+    ) -> OutputCompletionPlan:
         """Select DATA routes and a global signal root before dest encoding."""
-        used_core_coords = {cp.coord for cp in self.coreplacements}
+        configured_thread_core_coords = {cp.coord for cp in self.coreplacements}
         empty_offline_coords = {
-            CoordXY(x, y) for x, y in HIVE if CoordXY(x, y) not in used_core_coords
+            coord
+            for coord in OFFLINE_CORE_COORDS
+            if coord not in configured_thread_core_coords
         }
+        available_empty_online_coords = (
+            {
+                coord
+                for coord in ONLINE_CORE_COORDS
+                if coord not in configured_thread_core_coords
+            }
+            if allow_empty_online_relay_core
+            else set()
+        )
         return select_output_completion_plan(
             self._collect_output_producers(),
-            used_core_coords,
+            configured_thread_core_coords,
             empty_offline_coords,
-            set(),
-            allow_empty_online=False,
-            empty_online_frame_supported=False,
+            available_empty_online_coords,
+            allow_empty_online_relay_core,
         )
+
+    def add_output_completion_route_cores(self, plan: OutputCompletionPlan) -> None:
+        """Add empty thread-membership cores selected by output completion."""
+        existing_coords = {cp.coord for cp in self.coreplacements}
+        for relay_core in plan.required_route_cores:
+            if relay_core.coord in existing_coords:
+                continue
+            if relay_core.kind == "online":
+                empty_core = EmptyOnlineCorePlacementV2()
+            else:
+                empty_core = EmptyOfflineCorePlacementV2()
+            empty_core._coord = relay_core.coord
+            self.coreplacements.append(empty_core)
+            existing_coords.add(relay_core.coord)
 
     def export_artifacts(
         self,
@@ -395,6 +426,7 @@ class Mapper:
         export_proto_python: bool = True,
         debug: bool = False,
         unrolling: bool = False,
+        allow_empty_online_relay_core: bool = False,
     ) -> None:
         """Compile a PAIIR graph and export backendv2 deployment artifacts.
 
@@ -434,6 +466,9 @@ class Mapper:
                 ``True``, cores with high compute pressure are split into
                 multiple cores if free cores are available and routing remains
                 valid. Defaults to ``False``.
+            allow_empty_online_relay_core: Whether output completion may use
+                empty online cores in y=0/1 as source/relay/thread-membership
+                shells. Defaults to ``False``.
         """
         self.timesteps = self._resolve_timesteps(pai_graph, timesteps)
 
@@ -492,7 +527,10 @@ class Mapper:
         for rg in self.routing_groups:
             self.coreplacements.extend(rg.core_placements)
 
-        self.output_completion_plan = self.build_output_completion_plan()
+        self.output_completion_plan = self.build_output_completion_plan(
+            allow_empty_online_relay_core
+        )
+        self.add_output_completion_route_cores(self.output_completion_plan)
 
         self.coreplacements, self.global_starts = set_global_signal(
             self.coreplacements,
