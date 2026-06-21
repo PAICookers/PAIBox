@@ -441,7 +441,9 @@ def test_mapper_adds_selected_empty_output_completion_core(monkeypatch):
     plan = mapper.build_output_completion_plan()
     mapper.add_output_completion_route_cores(plan)
 
-    required_core = next(cp for cp in mapper.coreplacements if cp.coord == CoordXY(0, 2))
+    required_core = next(
+        cp for cp in mapper.coreplacements if cp.coord == CoordXY(0, 2)
+    )
     assert isinstance(required_core, EmptyOfflineCorePlacementV2)
     assert all(cp.coord != CoordXY(0, 1) for cp in mapper.coreplacements)
 
@@ -463,7 +465,9 @@ def test_mapper_adds_required_online_output_completion_route_cores(monkeypatch):
 
     mapper.add_output_completion_route_cores(plan)
 
-    required_core = next(cp for cp in mapper.coreplacements if cp.coord == CoordXY(2, 1))
+    required_core = next(
+        cp for cp in mapper.coreplacements if cp.coord == CoordXY(2, 1)
+    )
     assert isinstance(required_core, EmptyOnlineCorePlacementV2)
 
 

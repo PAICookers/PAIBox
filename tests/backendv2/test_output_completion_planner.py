@@ -235,9 +235,7 @@ def test_blocks01_producers_share_offline_join_with_online_transit_disabled():
     assert plan.completion_join_point == CoordXY(0, 2)
     assert _kind_map(plan.required_route_cores) == {CoordXY(0, 2): "offline"}
     for route in plan.output_routes:
-        assert CoordXY(0, 1) in route_coord_path(
-            route.producer_coord, route.offset
-        )
+        assert CoordXY(0, 1) in route_coord_path(route.producer_coord, route.offset)
     _assert_shared_join_suffix(plan)
 
 
@@ -290,9 +288,7 @@ def test_validate_rejects_missing_required_thread_core():
     producers = (OutputProducer(CoordXY(0, 3)), OutputProducer(CoordXY(2, 2)))
     plan = OutputCompletionPlan(
         (
-            OutputRouteDecision(
-                CoordXY(0, 3), CoordXY(0, 0), CoordZXYOffset(0, 0, -3)
-            ),
+            OutputRouteDecision(CoordXY(0, 3), CoordXY(0, 0), CoordZXYOffset(0, 0, -3)),
             OutputRouteDecision(
                 CoordXY(2, 2), CoordXY(0, 0), CoordZXYOffset(0, -2, -2)
             ),
