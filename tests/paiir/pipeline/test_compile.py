@@ -536,8 +536,7 @@ class TestOnlineCompile:
 
         assert len(update_nodes) == 1
         assert (
-            update_nodes[0].core_params.output_width
-            is OnlineCoreUpdateType.WEIGHT_BIAS
+            update_nodes[0].core_params.output_width is OnlineCoreUpdateType.WEIGHT_BIAS
         )
 
     def test_has_online_nodes_distinguishes_online_and_offline_graphs(self):
@@ -603,7 +602,11 @@ class TestOnlineCompile:
         ("compile_kwargs", "match"),
         [
             (
-                {"input_formats": {"InputNode_0": (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)}},
+                {
+                    "input_formats": {
+                        "InputNode_0": (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)
+                    }
+                },
                 "input_formats",
             ),
             ({"enable_avgpool_calibration": True}, "enable_avgpool_calibration"),
@@ -626,7 +629,9 @@ class TestOnlineCompile:
         self, compile_kwargs, match
     ):
         with pytest.raises(ValueError, match=match):
-            compile_to_paiir(mark_online(OnlineLinear()), make_vec_8d(), **compile_kwargs)
+            compile_to_paiir(
+                mark_online(OnlineLinear()), make_vec_8d(), **compile_kwargs
+            )
 
     def test_compile_allows_transform_before_first_online_forward(self):
         class Model(nn.Module):

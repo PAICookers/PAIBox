@@ -76,9 +76,7 @@ def expand_online_training_graph(graph: PAIIRGraph) -> PAIIRGraph:
     for idx, forward_name in enumerate(reversed(online_names)):
         forward_node = graph.nodes[forward_name]
         assert isinstance(forward_node, OnlineCoreOp)
-        role = (
-            OnlineGradientRole.OUTPUT if idx == 0 else OnlineGradientRole.HIDDEN
-        )
+        role = OnlineGradientRole.OUTPUT if idx == 0 else OnlineGradientRole.HIDDEN
         tail_layout = _single_output_layout(expanded.nodes[tail_name])
         grad_output_layouts = (
             forward_node.input_layouts if forward_node.input_layouts else (tail_layout,)
@@ -116,9 +114,7 @@ def expand_online_training_graph(graph: PAIIRGraph) -> PAIIRGraph:
     return expanded
 
 
-def _validate_online_forward_path(
-    graph: PAIIRGraph, online_names: list[str]
-) -> None:
+def _validate_online_forward_path(graph: PAIIRGraph, online_names: list[str]) -> None:
     if len(online_names) <= 1:
         return
 

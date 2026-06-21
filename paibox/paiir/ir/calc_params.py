@@ -10,10 +10,10 @@ from enum import Enum
 
 import torch
 from paicorelib import (
-    CSCAccelerateMode,
     LCN_EX,
     RM,
     AddPotentialMode,
+    CSCAccelerateMode,
     DataSign,
     DataWidth,
     LateralInhibitionMode,
@@ -21,16 +21,16 @@ from paicorelib import (
     LeakMultiComparisonOrder,
     LeakMultiInputMode,
     LeakMultiMode,
-    OutputType,
-    PoolingMode,
-    SNNMode,
-    ThresholdNegMode,
-    ThresholdPosMode,
     OnlineCoreType,
     OnlineCoreUpdateType,
     OnlineCoreWorkMode,
     OnlineDataWidth,
     OnlineSNNMode,
+    OutputType,
+    PoolingMode,
+    SNNMode,
+    ThresholdNegMode,
+    ThresholdPosMode,
     ZeroOutputMode,
 )
 from torch import Tensor
@@ -343,9 +343,7 @@ class OnlineCoreParams:
                 return OnlineCoreWorkMode.FORWARD_WEIGHT_UPDATE
             if self.update_direction is OnlineUpdateDirection.BACKWARD:
                 return OnlineCoreWorkMode.BACKWARD_WEIGHT_UPDATE
-            raise ValueError(
-                "update_direction is required for semantic_mode='update'"
-            )
+            raise ValueError("update_direction is required for semantic_mode='update'")
 
         raise AssertionError(f"unexpected online semantic mode: {self.semantic_mode}")
 

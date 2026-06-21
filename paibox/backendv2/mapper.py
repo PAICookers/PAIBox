@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 
 _ONLINE_COORD_AXIS_LIMIT = 32
 
+
 class Mapper:
     def __init__(self) -> None:
         self._reset_state()

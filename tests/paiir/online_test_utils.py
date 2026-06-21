@@ -72,7 +72,9 @@ def last_online_forward_node(graph) -> OnlineCoreOp:
 
 def single_online_node(graph, semantic_mode: OnlineCoreSemanticMode) -> OnlineCoreOp:
     nodes = [
-        node for node in online_nodes(graph) if node.core_params.semantic_mode is semantic_mode
+        node
+        for node in online_nodes(graph)
+        if node.core_params.semantic_mode is semantic_mode
     ]
     assert len(nodes) == 1
     return nodes[0]

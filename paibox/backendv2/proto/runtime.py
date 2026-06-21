@@ -391,9 +391,7 @@ def _coord_from_offset_tuple(offset: tuple[int, int, int]) -> CoordXY:
     return CoordXY(offset[0] + offset[1], offset[0] + offset[2])
 
 
-def _coord_after_offset(
-    start_coord: CoordXY, offset: tuple[int, int, int]
-) -> CoordXY:
+def _coord_after_offset(start_coord: CoordXY, offset: tuple[int, int, int]) -> CoordXY:
     return CoordXY(
         start_coord.x + offset[0] + offset[1],
         start_coord.y + offset[0] + offset[2],
@@ -444,7 +442,9 @@ def _route_stays_in_online_grid(
                 return False
         return True
 
-    if offset.z != 0 and not walk(abs(offset.z), 1 if offset.z > 0 else -1, 1 if offset.z > 0 else -1):
+    if offset.z != 0 and not walk(
+        abs(offset.z), 1 if offset.z > 0 else -1, 1 if offset.z > 0 else -1
+    ):
         return False
     if offset.x != 0 and not walk(abs(offset.x), 1 if offset.x > 0 else -1, 0):
         return False
@@ -457,8 +457,12 @@ def _route_stays_in_online_grid(
 def _online_output_boundaries_by_name(
     artifacts: CompileArtifacts, *, thread_id: int | None = None
 ) -> dict[str, OnlineOutputBoundaryInfo]:
-    frames = np.fromiter(iter_config_frame_u64(artifacts.config_frames), dtype=np.uint64)
-    total_core_ticks = sum(len(thread.core_ticks) for thread in artifacts.io_mapping.threads)
+    frames = np.fromiter(
+        iter_config_frame_u64(artifacts.config_frames), dtype=np.uint64
+    )
+    total_core_ticks = sum(
+        len(thread.core_ticks) for thread in artifacts.io_mapping.threads
+    )
     expected_frames = total_core_ticks * _ONLINE_CORE_EXPORT_NFRAMES
     if total_core_ticks == 0 or frames.size != expected_frames:
         return {}
@@ -514,7 +518,9 @@ def build_output_mapping_tables(
                         f"{axon_bit_idx}."
                     )
 
-                dtype = int(entry.dtype) if entry.HasField("dtype") else DataType.NOT_SET
+                dtype = (
+                    int(entry.dtype) if entry.HasField("dtype") else DataType.NOT_SET
+                )
                 entries_by_axon[axon_bit_idx] = OutputEntryInfo(
                     int(entry.elem_idx),
                     int(entry.copy_id),
@@ -573,7 +579,9 @@ def _normalize_tick_relatives(
     return arr
 
 
-def _require_single_data_dtype(table: OutputMappingTable, output_name: str) -> int | None:
+def _require_single_data_dtype(
+    table: OutputMappingTable, output_name: str
+) -> int | None:
     dtype_codes = {entry.dtype for entry in table.entries_by_axon.values()}
     if not dtype_codes:
         return None
@@ -632,9 +640,15 @@ def _parse_signed_triplet(
     frame: int, *, base_offset: int, x_offset: int, y_offset: int
 ) -> tuple[int, int, int]:
     return (
-        _sign_magnitude_to_int(_extract_bits(frame, base_offset, FFV2.GENERAL_CORE_XY_ADDR_MASK)),
-        _sign_magnitude_to_int(_extract_bits(frame, x_offset, FFV2.GENERAL_CORE_X_ADDR_MASK)),
-        _sign_magnitude_to_int(_extract_bits(frame, y_offset, FFV2.GENERAL_CORE_Y_ADDR_MASK)),
+        _sign_magnitude_to_int(
+            _extract_bits(frame, base_offset, FFV2.GENERAL_CORE_XY_ADDR_MASK)
+        ),
+        _sign_magnitude_to_int(
+            _extract_bits(frame, x_offset, FFV2.GENERAL_CORE_X_ADDR_MASK)
+        ),
+        _sign_magnitude_to_int(
+            _extract_bits(frame, y_offset, FFV2.GENERAL_CORE_Y_ADDR_MASK)
+        ),
     )
 
 
@@ -668,9 +682,7 @@ def encode_online_data_output_frames(
     axon_indices = np.asarray(
         [axon_bit_idx for axon_bit_idx, _ in ordered_entries], dtype=np.uint64
     )
-    payload = flat_data[
-        [entry.elem_idx for _, entry in ordered_entries]
-    ]
+    payload = flat_data[[entry.elem_idx for _, entry in ordered_entries]]
     ticks = _normalize_tick_relatives(tick_relatives, len(ordered_entries), output_name)
     boundary = table.boundary
     packet_core_offset = _core_offset_value(
@@ -874,7 +886,9 @@ def _validate_online_boundary_output_package_header(
     header: OnlineOutputPackageHeaderInfo,
     route_kind: Literal["data", "control"],
 ) -> None:
-    expected_core_offset = _require_output_boundary_route(table, output_name, route_kind)
+    expected_core_offset = _require_output_boundary_route(
+        table, output_name, route_kind
+    )
     if header.core_offset != expected_core_offset:
         raise ValueError(
             f"output mapping '{output_name}' expects boundary route '{route_kind}' "

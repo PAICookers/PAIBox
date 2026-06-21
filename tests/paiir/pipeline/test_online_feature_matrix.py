@@ -197,7 +197,9 @@ class TestOnlineBoundarySemanticsReport:
         expected_output_core: OnlineCoreType,
         expected_transform_count: int,
     ):
-        graph = compile_to_paiir(mark_online(model_factory(), **mark_overrides), sample_factory())
+        graph = compile_to_paiir(
+            mark_online(model_factory(), **mark_overrides), sample_factory()
+        )
         forward = first_online_forward_node(graph)
         last_forward = last_online_forward_node(graph)
         transform_count = len(find_transform_nodes(graph))
@@ -288,7 +290,8 @@ class TestOnlineExportBridgeReport:
         expected_first_input_core: OnlineCoreType,
         expected_last_output_core: OnlineCoreType,
     ):
-        export_dir, graph, mapper = export_online_graph(DEBUG_EXPORT_ROOT,
+        export_dir, graph, mapper = export_online_graph(
+            DEBUG_EXPORT_ROOT,
             case_name,
             model_factory(),
             sample_input=sample_factory(),
@@ -298,7 +301,8 @@ class TestOnlineExportBridgeReport:
         thread = artifacts.io_mapping.threads[0]
         first_core = mapper.coreplacements[0].core_config
         placements_by_name = {
-            core_placement.node_names[0]: core_placement for core_placement in mapper.coreplacements
+            core_placement.node_names[0]: core_placement
+            for core_placement in mapper.coreplacements
         }
         last_forward = last_online_forward_node(graph)
         last_forward_core = placements_by_name[last_forward.name].core_config
@@ -310,7 +314,10 @@ class TestOnlineExportBridgeReport:
         print("输入映射条目：", len(thread.input_mappings.items[0].entries))
         print("输出映射条目：", len(thread.output_mappings.items[0].entries))
         print("首个在线核输入边界：", _online_core_type_name(first_core.input_core))
-        print("末层在线核输出边界：", _online_core_type_name(last_forward_core.output_core))
+        print(
+            "末层在线核输出边界：",
+            _online_core_type_name(last_forward_core.output_core),
+        )
 
         assert len(mapper.coreplacements) == expected_cores
         assert len(thread.core_ticks) == expected_cores
@@ -375,7 +382,8 @@ class TestOnlineRuntimeMappingReport:
         expected_target_lcn: LCN_EX,
     ):
         sample_input = sample_factory()
-        export_dir, _, _ = export_online_graph(DEBUG_EXPORT_ROOT,
+        export_dir, _, _ = export_online_graph(
+            DEBUG_EXPORT_ROOT,
             case_name,
             model_factory(),
             sample_input=sample_input,
@@ -402,7 +410,9 @@ class TestOnlineRuntimeMappingReport:
                 output_mapping.name,
                 np.ones(tuple(output_mapping.shape.size), dtype=np.float16),
             )
-        max_tick_relative = max(int(entry.tick_relative) for entry in input_mapping.entries)
+        max_tick_relative = max(
+            int(entry.tick_relative) for entry in input_mapping.entries
+        )
 
         _print_case_header("输入映射与运行时编解码", case_name)
         print("target_lcn：", int(thread.output_mappings.target_lcn))

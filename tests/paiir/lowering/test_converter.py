@@ -487,10 +487,13 @@ class TestOnlineMarking:
 
         graph = torch_to_paiir(mark_online(Model()), make_vec_8d())
 
-        assert len([n for n in graph.nodes.values() if isinstance(n, OnlineCoreOp)]) == 4
-        assert len(
-            [n for n in graph.nodes.values() if isinstance(n, StandaloneActOp)]
-        ) == 1
+        assert (
+            len([n for n in graph.nodes.values() if isinstance(n, OnlineCoreOp)]) == 4
+        )
+        assert (
+            len([n for n in graph.nodes.values() if isinstance(n, StandaloneActOp)])
+            == 1
+        )
 
     def test_two_layer_online_chain_expands_loss_gradient_update_stages(self):
         class Model(nn.Module):

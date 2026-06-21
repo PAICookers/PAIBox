@@ -67,10 +67,7 @@ class OnlineUpdateStagePlan:
     @property
     def logical_sync_target_summary(self) -> str:
         forward_name, backward_peer_name = self.logical_sync_targets
-        return (
-            f"forward='{forward_name}' and "
-            f"backward_peer='{backward_peer_name}'"
-        )
+        return f"forward='{forward_name}' and backward_peer='{backward_peer_name}'"
 
 
 def has_online_nodes(graph: PAIIRGraph) -> bool:
@@ -164,9 +161,7 @@ def refine_online_work_modes(graph: PAIIRGraph) -> None:
     phase that stage is compiled as the layer's forward-weight update, while
     the mirrored backward-weight synchronization remains a later backend step.
     """
-    gradient_names = _online_stage_names(
-        graph, OnlineCoreSemanticMode.GRADIENT
-    )
+    gradient_names = _online_stage_names(graph, OnlineCoreSemanticMode.GRADIENT)
     for idx, name in enumerate(gradient_names):
         node = graph.nodes[name]
         assert isinstance(node, OnlineCoreOp)
@@ -761,8 +756,7 @@ def _validate_online_lcn_fields(name: str, params: OnlineCoreParams) -> list[str
         value = getattr(params, field)
         if not isinstance(value, LCN_EX):
             errors.append(
-                f"'{name}': {field} must be an LCN_EX value, got "
-                f"{type(value).__name__}"
+                f"'{name}': {field} must be an LCN_EX value, got {type(value).__name__}"
             )
             continue
         values[field] = value
@@ -901,7 +895,9 @@ def _validate_phase1_update_contract(
 
 def _online_node_names(graph: PAIIRGraph) -> list[str]:
     return [
-        name for name in graph.topo_sort() if isinstance(graph.nodes[name], OnlineCoreOp)
+        name
+        for name in graph.topo_sort()
+        if isinstance(graph.nodes[name], OnlineCoreOp)
     ]
 
 

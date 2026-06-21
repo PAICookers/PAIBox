@@ -1109,7 +1109,9 @@ def mark_online(
     **overrides: Any,
 ) -> _M:
     """Mark a module or module subtree for online-core lowering."""
-    params = copy.deepcopy(core_params) if core_params is not None else OnlineCoreParams()
+    params = (
+        copy.deepcopy(core_params) if core_params is not None else OnlineCoreParams()
+    )
     for key, value in overrides.items():
         if key not in _ONLINE_PARAM_NAMES:
             raise TypeError(f"unknown online-core parameter: {key}")

@@ -472,7 +472,9 @@ def _export_online_input_mapping(
     target_lcn = int(first_forward.core_params.lcn_at)
     core_offset, _ = find_coordxy_shortest_path(first_forward_placement.coord)
     expected_shape = (
-        first_forward.input_layouts[0].shape if first_forward.input_layouts else torch.Size()
+        first_forward.input_layouts[0].shape
+        if first_forward.input_layouts
+        else torch.Size()
     )
     source_to_target = _input_source_to_target_positions(
         input_node, transforms, expected_shape
@@ -714,7 +716,9 @@ def _export_offline_thread_io_mapping(
                 output_ticks_by_name[output_name] = set()
 
             output_mapping = output_mappings_by_name[output_name]
-            output_ticks_by_name[output_name].add(_tick_tuple_from_source_elem(elem, groups))
+            output_ticks_by_name[output_name].add(
+                _tick_tuple_from_source_elem(elem, groups)
+            )
             _set_mapping_bit_width(
                 output_mapping, "output", output_name, elem.output_bit_num
             )
@@ -734,7 +738,9 @@ def _export_offline_thread_io_mapping(
     for output_name, output_mapping in output_mappings_by_name.items():
         _set_tick_params(
             output_mapping.tick,
-            _require_single_tick(output_ticks_by_name[output_name], "output", output_name),
+            _require_single_tick(
+                output_ticks_by_name[output_name], "output", output_name
+            ),
         )
 
 

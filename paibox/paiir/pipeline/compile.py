@@ -37,12 +37,12 @@ from torch import Tensor, nn
 
 from ..ir.graph import PAIIRGraph
 from ..lowering.converter import torch_to_paiir
-from .online import compile_online_graph, has_online_nodes
 from .avgpool import rewrite_delayed_avgpool_division, rewrite_standalone_avgpools
 from .avgpool.standalone_rewrite import OutputApprox
 from .data_format import DataFormat
 from .layout_chain_canonicalization import canonicalize_layout_chains
 from .layout_cross_node_elision import commute_pre_activation_transforms
+from .online import compile_online_graph, has_online_nodes
 from .pad_folding import fold_zero_pad_into_convs
 from .passes import (
     analyze_graph,

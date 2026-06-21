@@ -105,7 +105,9 @@ def _load_junit_results() -> tuple[list[TestCaseResult], dict[str, float | int]]
         feature_key = parts[-1]
         module_path = "/".join(parts[:-1]) + ".py"
         nodeid = f"{module_path}::{feature_key}::{test_name}"
-        case_name = test_name[test_name.index("[") + 1 : -1] if "[" in test_name else test_name
+        case_name = (
+            test_name[test_name.index("[") + 1 : -1] if "[" in test_name else test_name
+        )
 
         if testcase.find("failure") is not None:
             status = "failed"
@@ -213,12 +215,16 @@ def _write_markdown_report(
     lines.append(f"- 生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append(f"- 测试文件：`{TEST_FILE.as_posix()}`")
     lines.append(f"- 运行命令：`{command}`")
-    lines.append("- 说明：以下用例覆盖真实的在线编译、导出、映射与运行时辅助路径，不是单纯展示输出。")
+    lines.append(
+        "- 说明：以下用例覆盖真实的在线编译、导出、映射与运行时辅助路径，不是单纯展示输出。"
+    )
     lines.append("")
     lines.append("## 总体结果")
     lines.append("")
     lines.append(f"- 用例总数：{summary['tests']}")
-    lines.append(f"- 通过：{summary['tests'] - summary['failures'] - summary['errors'] - summary['skipped']}")
+    lines.append(
+        f"- 通过：{summary['tests'] - summary['failures'] - summary['errors'] - summary['skipped']}"
+    )
     lines.append(f"- 失败：{summary['failures']}")
     lines.append(f"- 错误：{summary['errors']}")
     lines.append(f"- 跳过：{summary['skipped']}")
@@ -231,9 +237,7 @@ def _write_markdown_report(
     for feature_key in _ordered_feature_keys(feature_groups):
         items = feature_groups[feature_key]
         passed = sum(1 for item in items if item.status == "passed")
-        lines.append(
-            f"| {_feature_title(feature_key)} | {len(items)} | {passed} |"
-        )
+        lines.append(f"| {_feature_title(feature_key)} | {len(items)} | {passed} |")
     lines.append("")
     lines.append("## 详细结果")
     lines.append("")

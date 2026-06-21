@@ -181,8 +181,7 @@ def test_mapper_import_does_not_pull_offline_routing_stack():
         "paibox.backendv2.route_solver",
         "paibox.backendv2.routing",
     )
-    script = textwrap.dedent(
-        f"""
+    script = textwrap.dedent(f"""
         import importlib.abc
         import sys
 
@@ -197,8 +196,7 @@ def test_mapper_import_does_not_pull_offline_routing_stack():
         sys.meta_path.insert(0, Blocker())
         from paibox.backendv2.mapper import Mapper
         assert Mapper.__name__ == "Mapper"
-        """
-    )
+        """)
     result = subprocess.run(
         [sys.executable, "-c", script],
         cwd=repo_root,
@@ -220,16 +218,21 @@ def test_mapper_compile_exports_online_runtime_params_and_control_frames_from_pu
     thread = artifacts.io_mapping.threads[0]
 
     assert mapper.timesteps == 7
-    assert {core_placement.n_timestep for core_placement in mapper.coreplacements} == {7}
-    assert {core_placement.core_params.tick_start for core_placement in mapper.coreplacements} == {
-        1
+    assert {core_placement.n_timestep for core_placement in mapper.coreplacements} == {
+        7
     }
     assert {
-        core_placement.core_params.tick_duration for core_placement in mapper.coreplacements
+        core_placement.core_params.tick_start
+        for core_placement in mapper.coreplacements
+    } == {1}
+    assert {
+        core_placement.core_params.tick_duration
+        for core_placement in mapper.coreplacements
     } == {7}
-    assert {core_placement.core_params.tick_initial for core_placement in mapper.coreplacements} == {
-        0
-    }
+    assert {
+        core_placement.core_params.tick_initial
+        for core_placement in mapper.coreplacements
+    } == {0}
     assert int(thread.runtime.timesteps) == 7
     assert int(thread.runtime.tick_depth) == 1
     assert int(thread.runtime.sync_steps) == 7
@@ -254,7 +257,9 @@ def test_mapper_compile_rejects_mismatched_online_auto_reset_timesteps_override(
     mapper = Mapper()
 
     with pytest.raises(ValueError, match="conflicts with auto-reset tick_initial"):
-        mapper.compile(graph, DEBUG_EXPORT_ROOT / "mismatched_online_timesteps", timesteps=10)
+        mapper.compile(
+            graph, DEBUG_EXPORT_ROOT / "mismatched_online_timesteps", timesteps=10
+        )
 
 
 def test_mapper_compile_rejects_conflicting_online_output_tick_inference():
@@ -318,7 +323,9 @@ def test_mapper_compile_preserves_online_work_mode_order_for_two_layers():
         TwoLayerOnlineLinear(),
     )
 
-    core_configs = [core_placement.core_config for core_placement in mapper.coreplacements]
+    core_configs = [
+        core_placement.core_config for core_placement in mapper.coreplacements
+    ]
 
     assert [core_config.work_mode for core_config in core_configs] == [
         OnlineCoreWorkMode.FORWARD_INFERENCE,
@@ -336,7 +343,9 @@ def test_mapper_compile_preserves_online_work_mode_order_for_two_layers():
         assert core_config.update_core_y == 0
         assert core_config.global_send == 0
         assert core_config.global_receive == 0
-        test_offset, _ = find_coordxy_shortest_path(TEST_DEST_CORE, core_placement.coord)
+        test_offset, _ = find_coordxy_shortest_path(
+            TEST_DEST_CORE, core_placement.coord
+        )
         assert (
             core_config.test_core_xy,
             core_config.test_core_x,
@@ -359,7 +368,11 @@ def test_mapper_compile_preserves_explicit_online_test_core_route():
 
     for core_placement in mapper.coreplacements:
         core_config = core_placement.core_config
-        assert (core_config.test_core_xy, core_config.test_core_x, core_config.test_core_y) == (
+        assert (
+            core_config.test_core_xy,
+            core_config.test_core_x,
+            core_config.test_core_y,
+        ) == (
             1,
             -1,
             0,
@@ -459,7 +472,9 @@ def test_mapper_compile_exports_unified_non_default_online_lcn_input_mapping():
     )
     artifacts = load_compile_artifacts(export_dir / "proto" / "config.pb")
 
-    core_configs = [core_placement.core_config for core_placement in mapper.coreplacements]
+    core_configs = [
+        core_placement.core_config for core_placement in mapper.coreplacements
+    ]
     assert {core_config.lcn_at for core_config in core_configs} == {LCN_EX.LCN_2X}
     assert {core_config.target_lcn_at for core_config in core_configs} == {
         LCN_EX.LCN_2X
@@ -681,10 +696,13 @@ def test_build_output_mapping_tables_attach_output_route_plan_for_offline_bounda
     assert boundary.data_ingress_side == terminal_route_side(
         CoordZXYOffset(*boundary.data_route_offset)
     )
-    assert route_coord_path(
-        producer_coord,
-        CoordZXYOffset(*boundary.data_route_offset),
-    )[-1] == TEST_DEST_CORE
+    assert (
+        route_coord_path(
+            producer_coord,
+            CoordZXYOffset(*boundary.data_route_offset),
+        )[-1]
+        == TEST_DEST_CORE
+    )
 
 
 def test_build_output_mapping_tables_preserve_explicit_boundary_target_coord():
@@ -712,10 +730,13 @@ def test_build_output_mapping_tables_preserve_explicit_boundary_target_coord():
     assert boundary.target_coord == (expected_target.x, expected_target.y)
     assert boundary.data_route_offset is not None
     assert boundary.control_ingress_side == boundary.data_ingress_side
-    assert route_coord_path(
-        producer_coord,
-        CoordZXYOffset(*boundary.data_route_offset),
-    )[-1] == expected_target
+    assert (
+        route_coord_path(
+            producer_coord,
+            CoordZXYOffset(*boundary.data_route_offset),
+        )[-1]
+        == expected_target
+    )
 
 
 def test_build_output_mapping_tables_keep_last_forward_output_for_two_layers():
@@ -908,7 +929,9 @@ def test_encode_online_boundary_output_frames_reject_missing_data_route():
     table = output_tables[output_name]
 
     assert table.boundary is not None
-    table.boundary = replace(table.boundary, data_route_offset=None, data_ingress_side=None)
+    table.boundary = replace(
+        table.boundary, data_route_offset=None, data_ingress_side=None
+    )
 
     with pytest.raises(ValueError, match="has no aligned data-route offset"):
         encode_online_boundary_output_frames(
@@ -1352,7 +1375,9 @@ def test_encode_online_input_frames_supports_mnist_flatten_linear_mapping():
         shutil.rmtree(export_dir)
     export_dir.mkdir(parents=True, exist_ok=True)
 
-    graph = compile_to_paiir(mark_online(MNISTFlattenOnlineLinear()), make_img_1ch_28x28())
+    graph = compile_to_paiir(
+        mark_online(MNISTFlattenOnlineLinear()), make_img_1ch_28x28()
+    )
     mapper = Mapper()
     mapper.compile(graph, export_dir, target_platform="x86", debug=True)
     artifacts = load_compile_artifacts(export_dir)
