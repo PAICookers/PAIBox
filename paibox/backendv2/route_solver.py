@@ -28,6 +28,34 @@ for i in range(X_START, X_END):
 HIVE_LIST = list(HIVE)
 HIVE_INDEX = {h: i for i, h in enumerate(HIVE_LIST)}
 
+# CPU is outside the configurable-core pools. The row bands below match the
+# hardware split used by backendv2 planning: y >= 2 are offline cores, while
+# y in {0, 1} (except the CPU) are online cores.
+CPU_COORD = CoordXY(0, 0)
+OFFLINE_CORE_COORDS = frozenset(CoordXY(x, y) for x, y in HIVE)
+ONLINE_CORE_COORDS = frozenset(
+    CoordXY(x, y)
+    for x in range(G_X_MIN, G_X_MAX + 1)
+    for y in range(G_Y_MIN, min(G_Y_MAX, 1) + 1)
+    if (x, y) != (CPU_COORD.x, CPU_COORD.y)
+)
+
+
+def is_global_route_coord(coord: CoordXY) -> bool:
+    return G_X_MIN <= coord.x <= G_X_MAX and G_Y_MIN <= coord.y <= G_Y_MAX
+
+
+def is_offline_core_coord(coord: CoordXY) -> bool:
+    return coord in OFFLINE_CORE_COORDS
+
+
+def is_online_core_coord(coord: CoordXY) -> bool:
+    return coord in ONLINE_CORE_COORDS
+
+
+def is_configurable_thread_core_coord(coord: CoordXY) -> bool:
+    return is_offline_core_coord(coord) or is_online_core_coord(coord)
+
 
 # ---------------- Shape 枚举 ----------------
 def get_shapes_by_area():
