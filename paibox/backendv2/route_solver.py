@@ -105,16 +105,12 @@ class RouteSolver:
     def _generate_placements(self):
         """为每个 area 枚举所有可行放置方案。"""
         for area_id, area in enumerate(self.areas):
-            chosen_area_size, shapes, bboxes = self._find_shapes_for_area(
-                area_id, area
-            )
+            chosen_area_size, shapes, bboxes = self._find_shapes_for_area(area_id, area)
             for shape_id, shape in enumerate(shapes):
                 sb = bboxes[shape_id]
                 self._try_place_shape(area_id, chosen_area_size, shape_id, shape, sb)
 
-    def _find_shapes_for_area(
-        self, area_id: int, area: int
-    ) -> tuple[int, list, list]:
+    def _find_shapes_for_area(self, area_id: int, area: int) -> tuple[int, list, list]:
         """找到 >= 需求面积的最小可用形状集合。"""
         for selected_area in range(area, MAX_AREA + 1):
             if selected_area in SHAPES_BY_AREA:
@@ -192,9 +188,7 @@ class RouteSolver:
         """每个 HIVE 格子最多被覆盖一次，且覆盖状态与 placement 选择一致。"""
         N = len(self.placements)
         for h_idx in range(len(HIVE_LIST)):
-            covering = [
-                self.x[i] for i in range(N) if h_idx in self.placement_cells[i]
-            ]
+            covering = [self.x[i] for i in range(N) if h_idx in self.placement_cells[i]]
             self.model.Add(sum(covering) == self.y[h_idx])
             self.model.Add(self.y[h_idx] <= 1)
 
