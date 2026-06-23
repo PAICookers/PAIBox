@@ -123,8 +123,7 @@ def build_spike_identity_neuron_params(export: MaxPoolExportKind) -> NeuronParam
 def _build_identity_lut_data(code_min: int, code_max: int) -> tuple[LutData, bool]:
     if code_min > code_max:
         raise ValueError(
-            f"identity LUT requires code_min <= code_max, got "
-            f"{code_min} > {code_max}"
+            f"identity LUT requires code_min <= code_max, got {code_min} > {code_max}"
         )
 
     code_count = code_max - code_min + 1

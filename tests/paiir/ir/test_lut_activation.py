@@ -38,7 +38,9 @@ def _low_range_identity_lut() -> LutCustom:
     return LutCustom.from_intervals(levels, levels, output_signed=False)
 
 
-def _assert_value_block(values: torch.Tensor, start: int, stop: int, value: int) -> None:
+def _assert_value_block(
+    values: torch.Tensor, start: int, stop: int, value: int
+) -> None:
     assert values[start:stop].tolist() == [value] * (stop - start)
 
 
@@ -331,9 +333,7 @@ class TestHardwareLutExport:
         lut = LutCustom.from_intervals(levels, levels, output_signed=False)
 
         hardware = lut.to_hw_lut_data(DataSign.UNSIGNED, DataWidth.WIDTH_4BIT)
-        values, indices = _lookup_hw_lut_data(
-            hardware, DataWidth.WIDTH_4BIT, levels
-        )
+        values, indices = _lookup_hw_lut_data(hardware, DataWidth.WIDTH_4BIT, levels)
 
         assert indices.tolist() == list(range(0, LUT_TABLE_SIZE, 16))
         assert values.tolist() == list(range(16))

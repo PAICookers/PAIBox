@@ -73,8 +73,7 @@ def build_integer_identity_lut(code_min: int, code_max: int) -> LutCustom:
     """Build a logical integer identity LUT for AvgPool deployment rewrites."""
     if code_min > code_max:
         raise ValueError(
-            f"identity LUT requires code_min <= code_max, got "
-            f"{code_min} > {code_max}"
+            f"identity LUT requires code_min <= code_max, got {code_min} > {code_max}"
         )
     if code_max - code_min + 1 > LUT_TABLE_SIZE:
         raise ValueError(f"identity LUT code range too large: ({code_min}, {code_max})")

@@ -946,11 +946,11 @@ class LutData:
 
 输出格式（由激活模块决定）：
 
-| 模式 | 条件                      | 输出格式                          |
-| ---- | ------------------------- | --------------------------------- |
-| SNN  | `thres_neg_mode == FIRE`  | SIGNED, WIDTH_2BIT（{-1, 0, +1}） |
-| SNN  | `thres_neg_mode == FLOOR` | UNSIGNED, WIDTH_1BIT（{0, 1}）    |
-| ANN  | `output_signed=True`      | SIGNED，默认 int8；位宽可在硬件 SAR 等价且值域可表示时保守优化 |
+| 模式 | 条件                      | 输出格式                                                          |
+| ---- | ------------------------- | ----------------------------------------------------------------- |
+| SNN  | `thres_neg_mode == FIRE`  | SIGNED, WIDTH_2BIT（{-1, 0, +1}）                                 |
+| SNN  | `thres_neg_mode == FLOOR` | UNSIGNED, WIDTH_1BIT（{0, 1}）                                    |
+| ANN  | `output_signed=True`      | SIGNED，默认 int8；位宽可在硬件 SAR 等价且值域可表示时保守优化    |
 | ANN  | `output_signed=False`     | UNSIGNED，默认 uint8；位宽可在硬件 SAR 等价且值域可表示时保守优化 |
 
 权重格式：从量化权重的实际值范围推断最窄的 `(DataSign, DataWidth)` 组合。

@@ -199,9 +199,7 @@ def _build_exact_sum_carrier(
 ) -> SequentialOp:
     """Build the exact-sum carrier that replaces one standalone AvgPool."""
     sum_pool = build_sum_pool(comp)
-    return SequentialOp(
-        sum_pool, ANNNodeV25(build_integer_identity_lut(*code_range))
-    )
+    return SequentialOp(sum_pool, ANNNodeV25(build_integer_identity_lut(*code_range)))
 
 
 def _is_source_transparent_node(node: PAIIRNode) -> bool:

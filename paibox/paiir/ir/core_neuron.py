@@ -527,6 +527,7 @@ class CoreNeuronV25(MemoryModule):
 
         return NeuronParams(**kwargs)
 
+
 def _resolve_reset(v_reset: float | None) -> tuple[float, RM]:
     """Determine reset mode from *v_reset*.
 

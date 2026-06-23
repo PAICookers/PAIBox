@@ -120,8 +120,7 @@ def _prepare_integer_lut(
 ) -> _PreparedIntegerLut:
     if table.thresholds.numel() != LUT_TABLE_SIZE:
         raise ValueError(
-            f"expected {LUT_TABLE_SIZE} LUT thresholds, got "
-            f"{table.thresholds.numel()}"
+            f"expected {LUT_TABLE_SIZE} LUT thresholds, got {table.thresholds.numel()}"
         )
     if table.values.numel() != LUT_TABLE_SIZE:
         raise ValueError(
@@ -501,9 +500,7 @@ class LutReLU(LutActivation):
             ]  # skip 0, include max
             thres_t = torch.cat(
                 [
-                    torch.tensor(
-                        [float(self.min_val), 0.0], dtype=pos_thres.dtype
-                    ),
+                    torch.tensor([float(self.min_val), 0.0], dtype=pos_thres.dtype),
                     pos_thres[: LUT_TABLE_SIZE - 2],
                 ]
             )
@@ -610,9 +607,10 @@ class LutLinear(LutActivation):
             if self.max_val > self.min_val
             else 0
         )
-        midpoints = self.min_val + (
-            torch.arange(LUT_TABLE_SIZE, dtype=thres_t.dtype) + 0.5
-        ) * step
+        midpoints = (
+            self.min_val
+            + (torch.arange(LUT_TABLE_SIZE, dtype=thres_t.dtype) + 0.5) * step
+        )
         values = (
             (_INT8_MIN + (midpoints - self.min_val) * slope).round().to(torch.int32)
         )
