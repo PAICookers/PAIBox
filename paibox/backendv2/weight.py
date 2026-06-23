@@ -1,4 +1,4 @@
-from __future__ import annotations
+from collections.abc import Sequence
 
 import numpy as np
 from paicorelib import (
@@ -71,11 +71,11 @@ class Weight:
                 )
             return (n_non_zero + n_weight_per_sram - 1) // n_weight_per_sram
 
-    def to_package(self) -> FrameArrayType:
-        frames = OfflineFrameGenV2.gen_config_frame3_weight_pkg(
-            weight=np.array(self.processed_weights),
-            input_width=self.input_width,
-            weight_width=self.weight_width,
-            csc_compress=self.compress,
+    def to_package(self, weight_skews: Sequence[int] | None = None) -> FrameArrayType:
+        return OfflineFrameGenV2.gen_config_frame3_weight_pkg(
+            np.array(self.processed_weights),
+            self.input_width,
+            self.weight_width,
+            self.compress,
+            weight_skews=weight_skews,
         )
-        return frames

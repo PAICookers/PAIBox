@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Literal
 
 from paicorelib import CoordXY, CoordZXYOffset
 
@@ -427,6 +428,9 @@ class Mapper:
         debug: bool = False,
         unrolling: bool = False,
         allow_empty_online_relay_core: bool = False,
+        csc_tail_overflow_fix: Literal[
+            "weight_indice_padding", "fanin_margin"
+        ] = "weight_indice_padding",
     ) -> None:
         """Compile a PAIIR graph and export backendv2 deployment artifacts.
 
@@ -469,6 +473,13 @@ class Mapper:
             allow_empty_online_relay_core: Whether output completion may use
                 empty online cores in y=0/1 as source/relay/thread-membership
                 shells. Defaults to ``False``.
+            csc_tail_overflow_fix: Software workaround for the PAICORE 2.5
+                offline CSC tail-index overflow bug. ``"weight_indice_padding"``
+                keeps full fanin and relies on paicorelib to encode zero-payload
+                padding so the hardware's internal ``+1`` lands on the real tail
+                weight address instead of wrapping from ``65535`` to ``0``.
+                ``"fanin_margin"`` is a conservative fallback that reserves one
+                fanin slot during tiling and avoids generating the boundary case.
         """
         self.timesteps = self._resolve_timesteps(pai_graph, timesteps)
 
@@ -483,7 +494,7 @@ class Mapper:
         # determine which rg each neuron sends to
         # dests and input_list set
         # other properties remain unset
-        all_groups = tile_groups(all_groups)
+        all_groups = tile_groups(all_groups, csc_tail_overflow_fix)
 
         self.input_groups = []
         self.groups = []
