@@ -18,6 +18,7 @@ from paibox.backendv2.get_weight import (
     group_shift_weights_optimized,
 )
 from paibox.backendv2.op_node import CoreOpNode, InNode
+from paibox.backendv2.weight import Weight
 from paibox.paiir.ir.ir_base import InputNode
 from paibox.paiir.ir.op_node import StandaloneCompOp
 
@@ -314,7 +315,32 @@ def test_choose_weight_strategy_single_tap_uses_sparse_when_sram_smaller():
     assert selected.compress
     assert selected.raw_weights == weight.tolist()
     assert compress == WeightCompressType.SPARSE
-    assert selected.to_package().size == 2
+    assert selected.to_package(weight_skews=(0,)).size == 2
+
+
+@pytest.mark.parametrize(
+    ("compress_type", "weight_skews", "raises"),
+    [
+        (WeightCompressType.SPARSE, None, True),
+        (WeightCompressType.SPARSE, (0,), False),
+        (WeightCompressType.DENSE, None, False),
+    ],
+    ids=["sparse-missing-skew", "sparse-with-skew", "dense-no-skew"],
+)
+def test_weight_package_skew_contract(compress_type, weight_skews, raises):
+    weight = Weight(
+        [0, 1, 0] if compress_type == WeightCompressType.SPARSE else [1, 2, 0],
+        compress_type=compress_type,
+        weight_width=DataWidth.WIDTH_1BIT,
+        input_width=DataWidth.WIDTH_1BIT,
+    )
+
+    if raises:
+        with pytest.raises(ValueError, match="weight_skews"):
+            weight.to_package(weight_skews=weight_skews)
+        return
+
+    assert weight.to_package(weight_skews=weight_skews).size > 0
 
 
 def test_choose_weight_strategy_uint8_high_index_uses_sparse_csc_original_row():
