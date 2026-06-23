@@ -43,7 +43,7 @@ dev = [
     "pytest-md>=0.2",
     "pytest-xdist>=3.7.0",
     "orjson>=3.11.6",
-    "paicorelib>=2.0.0b5 ; platform_machine != 'armv7l'",
+    "paicorelib>=2.0.0rc2 ; platform_machine != 'armv7l'",
     "torch>=2.0.0,<2.2.0 ; python_full_version < '3.12'",
     "torch>=2.2.0 ; python_full_version >= '3.12'",
     "spikingjelly>=0.0.0.0.12",
