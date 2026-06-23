@@ -29,23 +29,28 @@ from torch import Tensor
 
 __all__ = [
     "DEFAULT_NEG_THRESHOLD",
+    "LUT_TABLE_SIZE",
     "LutData",
     "OfflineCoreParams",
     "NeuronParams",
     "OnlineCoreParams",
 ]
 
+LUT_TABLE_SIZE = 256
+
 
 @dataclass(frozen=True)
 class LutData:
-    """LUT lookup table data for ANN mode offline cores.
+    """LUT table data container for ANN mode offline cores.
 
-    Contains the 256-entry threshold and value arrays that define
-    the activation function lookup table on chip.
+    The dataclass only stores fixed-size threshold and value arrays. Its
+    semantic role is defined by the owning interface name: PAIIR graph
+    simulation uses logical LUT data, while backend-facing ``hw_lut_data``
+    stores PAICORE 2.5 hardware SRAM LUT data.
     """
 
-    thresholds: Tensor  # shape (256,), bin boundaries
-    values: Tensor  # shape (256,), output values
+    thresholds: Tensor  # shape (LUT_TABLE_SIZE,), bin boundaries
+    values: Tensor  # shape (LUT_TABLE_SIZE,), output values
     is_float: bool = False  # True for float32 thresholds / bfloat16 values
 
     def _tensor_hash(self, t: Tensor) -> int:
@@ -64,7 +69,9 @@ class LutData:
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, LutData):
-            return NotImplemented
+            raise TypeError(
+                f"LutData can only compare with LutData, got {type(other).__name__}"
+            )
         return (
             self.is_float == other.is_float
             and torch.equal(self.thresholds, other.thresholds)

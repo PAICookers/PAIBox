@@ -6,6 +6,7 @@ from paicorelib import RM, ThresholdPosMode
 from spikingjelly.activation_based import functional
 from torch import nn
 
+from paibox.paiir.ir.calc_params import LUT_TABLE_SIZE
 from paibox.paiir.ir.core_neuron import (
     ANNNodeV25,
     CoreNeuronV25,
@@ -248,8 +249,8 @@ class TestCoreNeuronCopying:
         assert cloned._any_pos_spike_at_last_ts is False
 
     def test_ann_clone_clones_lut_without_aliasing(self):
-        thresholds = torch.arange(256, dtype=torch.float32)
-        values = torch.arange(256, dtype=torch.float32)
+        thresholds = torch.arange(LUT_TABLE_SIZE, dtype=torch.int32)
+        values = torch.arange(LUT_TABLE_SIZE, dtype=torch.int32)
         neuron = ANNNodeV25(LutCustom(thresholds, values), leak_v=2.0)
 
         cloned = neuron.clone()
@@ -567,13 +568,13 @@ class TestCoreNeuronV25ANN:
         params = neuron.to_neuron_params(bias=bias)
         assert params.leak_v == 5.0
 
-    def test_ann_export_lut(self):
-        """export_lut() returns LutData for ANN mode."""
+    def test_ann_logical_lut_data(self):
+        """ANN mode keeps logical LUT data on the activation object."""
         neuron = ANNNodeV25(lut=LutReLU())
-        data = neuron.export_lut()
-        assert data is not None
-        assert data.thresholds.shape == (256,)
-        assert data.values.shape == (256,)
+        assert neuron.lut is not None
+        data = neuron.lut.logical_lut_data
+        assert data.thresholds.shape == (LUT_TABLE_SIZE,)
+        assert data.values.shape == (LUT_TABLE_SIZE,)
 
     def test_ann_range_clamp(self):
         """CEILING/FLOOR clamps V before LUT lookup."""

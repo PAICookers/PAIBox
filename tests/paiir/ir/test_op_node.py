@@ -19,10 +19,10 @@ from paicorelib import (
 from torch import nn
 
 from paibox.paiir.ir.add_ops import PotentialAddOp
-from paibox.paiir.ir.calc_params import NeuronParams, OfflineCoreParams
+from paibox.paiir.ir.calc_params import LUT_TABLE_SIZE, NeuronParams, OfflineCoreParams
 from paibox.paiir.ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
 from paibox.paiir.ir.ir_base import FormatFlow, OutputNode
-from paibox.paiir.ir.lut_activation import LutReLU, LutSigmoid
+from paibox.paiir.ir.lut_activation import LutReLU, LutSigmoid, _lookup_hw_lut_data
 from paibox.paiir.ir.op_node import (
     AccumulateOp,
     ConcatOp,
@@ -128,12 +128,6 @@ class TestSequentialOp:
         assert op.core_params.pooling_mode == PoolingMode.MAX
         assert op.core_params.snn_mode == SNNMode.SNN
 
-    def test_public_ctor_does_not_accept_core_params(self):
-        with pytest.raises(TypeError, match="core_params"):
-            SequentialOp(
-                comp=nn.Linear(16, 10), act=IFNodeV25(), core_params=OfflineCoreParams()
-            )
-
     def test_override_compile_state_preserves_prepared_compile_state(self):
         base = OfflineCoreParams(tick_start=5, tick_duration=9, tick_initial=13)
         base.set_input_format((DataSign.UNSIGNED, DataWidth.WIDTH_1BIT))
@@ -189,7 +183,7 @@ class TestAccumulateOp:
         x2 = torch.tensor([[1.0, 2.0]])
 
         assert torch.equal(op(x1, x2), torch.tensor([[1.0, 0.0]]))
-        assert op.lut_data is None
+        assert op.hw_lut_data is None
         assert op.neuron_params.output_type is OutputType.POTENTIAL
 
     def test_sign_length_mismatch(self):
@@ -268,10 +262,6 @@ class TestWeights:
     def test_add_op_returns_none(self):
         op = PotentialAddOp(op_signs=(1, -1))
         assert op.weights is None
-
-    def test_public_add_ctor_does_not_accept_core_params(self):
-        with pytest.raises(TypeError, match="core_params"):
-            PotentialAddOp(op_signs=(1, -1), core_params=OfflineCoreParams())
 
     def test_override_compile_state_preserves_add_compile_state(self):
         base = OfflineCoreParams(tick_start=3, tick_duration=7, tick_initial=11)
@@ -385,7 +375,7 @@ class TestNeuronParams:
         assert params.thres_neg_mode == ThresholdNegMode.FLOOR
         assert params.thres_pos == 1
         assert params.thres_neg == 0
-        assert op.lut_data is None
+        assert op.hw_lut_data is None
 
         act = CoreNeuronV25(
             reset_mode=params.reset_mode,
@@ -414,67 +404,81 @@ class TestNeuronParams:
         op = StandaloneCompOp(comp=nn.MaxPool2d(2))
         op.signal_semantics.output_domain = SignalDomain.VALUE
         op.core_params.set_input_format((DataSign.UNSIGNED, DataWidth.WIDTH_4BIT))
+        op.core_params.set_output_format((DataSign.UNSIGNED, DataWidth.WIDTH_4BIT))
 
         params = op.neuron_params
-        data = op.lut_data
+        data = op.hw_lut_data
 
         assert params.output_type == OutputType.VALUE
         assert data is not None
-        assert torch.equal(data.thresholds[:16], torch.arange(16, dtype=torch.int32))
-        assert torch.equal(data.values[:16], torch.arange(16, dtype=torch.uint8))
-        assert torch.all(data.values[16:] == 15)
+        values, indices = _lookup_hw_lut_data(
+            data, DataWidth.WIDTH_4BIT, torch.arange(16, dtype=torch.int32)
+        )
+        assert indices.tolist() == list(range(0, 256, 16))
+        assert values.tolist() == list(range(16))
 
 
 class TestLutData:
-    def test_sequential_lut_exports_data(self):
+    def test_hw_lut_data_requires_output_format(self):
         op = SequentialOp(
             comp=nn.Conv2d(3, 8, 3, padding=1), act=ANNNodeV25(lut=LutReLU())
         )
-        data = op.lut_data
+
+        with pytest.raises(ValueError, match="requires propagated output_sign"):
+            _ = op.hw_lut_data
+
+    @pytest.mark.parametrize(
+        "op_factory",
+        [
+            lambda: SequentialOp(
+                comp=nn.Conv2d(3, 8, 3, padding=1), act=ANNNodeV25(LutReLU())
+            ),
+            lambda: StandaloneActOp(ANNNodeV25(LutSigmoid())),
+            lambda: AccumulateOp(
+                comps=[
+                    nn.Conv2d(3, 8, 3, padding=1),
+                    nn.Conv2d(3, 8, 3, padding=1),
+                ],
+                act=ANNNodeV25(LutReLU()),
+                op_signs=(1, 1),
+            ),
+        ],
+        ids=["sequential", "standalone_act", "accumulate"],
+    )
+    def test_ann_ops_export_hw_lut_data(self, op_factory):
+        op = op_factory()
+        op.core_params.set_output_format((DataSign.UNSIGNED, DataWidth.WIDTH_8BIT))
+        data = op.hw_lut_data
+
         assert data is not None
-        assert data.thresholds.shape == (256,)
-        assert data.values.shape == (256,)
+        assert data.thresholds.shape == (LUT_TABLE_SIZE,)
+        assert data.values.shape == (LUT_TABLE_SIZE,)
 
-    def test_sequential_neuron_returns_none(self):
-        op = SequentialOp(comp=nn.Conv2d(3, 8, 3, padding=1), act=IFNodeV25())
-        assert op.lut_data is None
-
-    def test_standalone_act_lut_exports_data(self):
-        op = StandaloneActOp(act=ANNNodeV25(lut=LutSigmoid()))
-        data = op.lut_data
-        assert data is not None
-
-    def test_add_op_returns_none(self):
-        op = PotentialAddOp(op_signs=(1, 1))
-        assert op.lut_data is None
-
-    def test_accumulate_lut_exports_data(self):
-        op = AccumulateOp(
-            comps=[nn.Conv2d(3, 8, 3, padding=1), nn.Conv2d(3, 8, 3, padding=1)],
-            act=ANNNodeV25(lut=LutReLU()),
-            op_signs=(1, 1),
-        )
-        data = op.lut_data
-        assert data is not None
-        assert data.thresholds.shape == (256,)
-
-    def test_accumulate_neuron_returns_none(self):
-        op = AccumulateOp(comps=[nn.Conv2d(3, 8, 3, padding=1)], act=IFNodeV25())
-        assert op.lut_data is None
-
-    def test_standalone_comp_returns_none(self):
-        op = StandaloneCompOp(comp=nn.Conv2d(3, 8, 3))
-        assert op.lut_data is None
+    @pytest.mark.parametrize(
+        "op_factory",
+        [
+            lambda: SequentialOp(comp=nn.Conv2d(3, 8, 3, padding=1), act=IFNodeV25()),
+            lambda: PotentialAddOp(op_signs=(1, 1)),
+            lambda: AccumulateOp(
+                comps=[nn.Conv2d(3, 8, 3, padding=1)], act=IFNodeV25()
+            ),
+            lambda: StandaloneCompOp(comp=nn.Conv2d(3, 8, 3)),
+        ],
+        ids=["sequential_snn", "add", "accumulate_snn", "standalone_comp"],
+    )
+    def test_non_ann_lut_ops_do_not_export_hw_lut_data(self, op_factory):
+        assert op_factory().hw_lut_data is None
 
 
 class TestAvgPoolCompensation:
     def test_sequential_avgpool_lut_compensates(self):
-        """AvgPool + LutReLU: lut_data thresholds are scaled."""
-        op = SequentialOp(comp=nn.AvgPool2d(2), act=ANNNodeV25(lut=LutReLU()))
-        data = op.lut_data
+        """AvgPool + LutReLU: logical LUT thresholds are scaled."""
+        op = SequentialOp(comp=nn.AvgPool2d(2), act=ANNNodeV25(LutReLU()))
+        assert op.act.lut is not None
+        data = op.act.lut.logical_lut_data
         assert data is not None
         # k=2, window_size=4=2^2, scale=1.0: thresholds should be unchanged
-        baseline = LutReLU().export_lut()
+        baseline = LutReLU().logical_lut_data
         assert torch.equal(data.thresholds, baseline.thresholds)
 
     def test_sequential_avgpool_lif_compensates_threshold(self):

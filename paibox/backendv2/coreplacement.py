@@ -10,14 +10,15 @@ from paicorelib import (
     CSCAccelerateMode,
     DataWidth,
     FrameArrayType,
+    InputCoreType,
     OfflineCoreRegV2,
     OfflineFrameGenV2,
     OnlineCoreRegV2,
-    OnlineCoreType,
     OnlineCoreWorkMode,
     OnlineDataWidth,
     OnlineFrameGenV2,
     OnlineSNNMode,
+    OutputCoreType,
     PoolingMode,
     WeightCompressType,
     ZeroOutputMode,
@@ -208,6 +209,26 @@ class OfflineCorePlacementV2(CorePlacement):
                     neu.neu_attrs_part1.weight_address_start
                 )
 
+    def _weight_skews(self, weight_idx: int) -> list[int]:
+        skews: list[int] = []
+        for neu_idx, neu in enumerate(self.neus):
+            if self.neu_weight_map.get(neu_idx) != weight_idx:
+                continue
+
+            base_skew = neu.neu_attrs_part1.weight_skew
+            skews.append(base_skew)
+
+            if (folded_attrs := neu.folded_neu_attrs_part1) is not None:
+                skews.extend(
+                    [
+                        base_skew + folded_attrs.fold_skew_y,
+                        base_skew + folded_attrs.fold_skew_x,
+                        base_skew + folded_attrs.fold_skew_xy,
+                    ]
+                )
+
+        return skews or [0]
+
     def set_auto_core_config(self, test_offset: CoordZXYOffset | None = None) -> None:
         if test_offset is None:
             test_offset, _ = find_coordxy_shortest_path(TEST_DEST_CORE, self.coord)
@@ -229,10 +250,10 @@ class OfflineCorePlacementV2(CorePlacement):
 
         frame_type2: FrameArrayType | None = None
         # frame_type_2: lut config
-        if self.frontend_core_config.lut_data is not None:
-            # assert self.frontend_core_config.snn_ann == SNNMode.ANN, "lut_data should only be provided for ANN mode"
-            potential_tensor = self.frontend_core_config.lut_data.thresholds
-            activation_tensor = self.frontend_core_config.lut_data.values
+        if self.frontend_core_config.hw_lut_data is not None:
+            # hw_lut_data is already validated for PAICORE 2.5 SRAM packing.
+            potential_tensor = self.frontend_core_config.hw_lut_data.thresholds
+            activation_tensor = self.frontend_core_config.hw_lut_data.values
             potentials = potential_tensor.numpy()
             activations = activation_tensor.numpy()
 
@@ -244,8 +265,11 @@ class OfflineCorePlacementV2(CorePlacement):
         for neu in self.neus:
             package_arrays.append(neu.to_package())
 
-        for weight in self.weights:
-            package_arrays.append(weight.to_package())
+        for weight_idx, weight in enumerate(self.weights):
+            if weight.compress:
+                package_arrays.append(weight.to_package(self._weight_skews(weight_idx)))
+            else:
+                package_arrays.append(weight.to_package())
 
         packages = np.concatenate(package_arrays, axis=0).astype(FRAME_DTYPE)
 
@@ -307,9 +331,9 @@ class EmptyOnlineCorePlacementV2(CorePlacement):
             add_potential=AddPotentialMode.NORMAL,
             zero_output=ZeroOutputMode.DISABLE,
             work_mode=OnlineCoreWorkMode.FORWARD_INFERENCE,
-            input_core=OnlineCoreType.ONLINE,
+            input_core=InputCoreType.OFFLINE,
             input_width=OnlineDataWidth.TYPE_1BIT,
-            output_core=OnlineCoreType.ONLINE,
+            output_core=OutputCoreType.OFFLINE,
             output_width=OnlineDataWidth.TYPE_1BIT,
             lcn_at=LCN_EX.LCN_1X,
             lcn_mp=LCN_EX.LCN_1X,

@@ -30,7 +30,7 @@ from .core_neuron import CoreNeuronV25
 from .ir_base import FormatFlow, PAIIRNode, TensorLayout
 from .maxpool_export import (
     MaxPoolExportKind,
-    build_identity_lut_data,
+    build_identity_hw_lut_data,
     build_identity_lut_neuron_params,
     build_spike_identity_neuron_params,
     is_maxpool_comp,
@@ -330,9 +330,24 @@ class OfflineCoreOp(OpNode):
             NeuronParams(output_type=OutputType.POTENTIAL)
         )
 
+    def _require_output_format_for_hw_lut(self) -> None:
+        if not self.core_params._output_format_assigned:
+            raise ValueError(
+                f"{type(self).__name__}.hw_lut_data requires propagated "
+                "output_sign/output_width. Run propagate_data_format() first."
+            )
+
+    def _act_hw_lut_data(self, act: CoreNeuronV25 | None) -> LutData | None:
+        if act is None or act.lut is None:
+            return None
+        self._require_output_format_for_hw_lut()
+        return act.lut.to_hw_lut_data(
+            self.core_params.output_sign, self.core_params.output_width
+        )
+
     @property
-    def lut_data(self) -> LutData | None:
-        """LUT table data for ANN mode.
+    def hw_lut_data(self) -> LutData | None:
+        """Hardware SRAM LUT data for backend export.
 
         Default: None (no LUT).
         """
@@ -387,9 +402,9 @@ class SequentialOp(OfflineCoreOp):
         return None
 
     @property
-    def lut_data(self) -> LutData | None:
-        """LUT table data for backend export."""
-        return self.act.export_lut()
+    def hw_lut_data(self) -> LutData | None:
+        """Hardware SRAM LUT data for backend export."""
+        return self._act_hw_lut_data(self.act)
 
     @property
     def neuron_params(self) -> NeuronParams:
@@ -480,11 +495,9 @@ class AccumulateOp(OfflineCoreOp):
         return min(lo for lo, _ in ranges), max(hi for _, hi in ranges)
 
     @property
-    def lut_data(self) -> LutData | None:
-        """LUT table data for backend export."""
-        if self.act is None:
-            return None
-        return self.act.export_lut()
+    def hw_lut_data(self) -> LutData | None:
+        """Hardware SRAM LUT data for backend export."""
+        return self._act_hw_lut_data(self.act)
 
     @property
     def neuron_params(self) -> NeuronParams:
@@ -692,7 +705,7 @@ class StandaloneCompOp(OfflineCoreOp):
         )
 
     @property
-    def lut_data(self) -> LutData | None:
+    def hw_lut_data(self) -> LutData | None:
         """Standalone MaxPool may synthesize an identity LUT for wider VALUE code."""
         if (
             is_maxpool_comp(self.comp)
@@ -700,10 +713,13 @@ class StandaloneCompOp(OfflineCoreOp):
         ):
             export = refresh_maxpool_export_kind(self)
             if export is MaxPoolExportKind.LUT:
-                return build_identity_lut_data(
+                self._require_output_format_for_hw_lut()
+                return build_identity_hw_lut_data(
                     self.core_params.input_sign,
                     self.core_params.input_width,
                     self.signal_semantics.known_code_range,
+                    self.core_params.output_sign,
+                    self.core_params.output_width,
                 )
         return None
 
@@ -742,9 +758,9 @@ class StandaloneActOp(OfflineCoreOp):
         return self.act(_prepare_act_input(self.act, x))
 
     @property
-    def lut_data(self) -> LutData | None:
-        """LUT table data for backend export."""
-        return self.act.export_lut()
+    def hw_lut_data(self) -> LutData | None:
+        """Hardware SRAM LUT data for backend export."""
+        return self._act_hw_lut_data(self.act)
 
     @property
     def neuron_params(self) -> NeuronParams:

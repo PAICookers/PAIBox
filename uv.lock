@@ -1343,7 +1343,7 @@ dev = [
     { name = "orjson", specifier = ">=3.11.6" },
     { name = "ortools", marker = "python_full_version < '3.14'", specifier = "==9.14.6206" },
     { name = "ortools", marker = "python_full_version >= '3.14'", specifier = "==9.15.6755" },
-    { name = "paicorelib", marker = "platform_machine != 'armv7l'", specifier = ">=2.0.0b5" },
+    { name = "paicorelib", marker = "platform_machine != 'armv7l'", specifier = ">=2.0.0rc2" },
     { name = "pytest", specifier = ">=9.0" },
     { name = "pytest-cov", specifier = ">=7.0" },
     { name = "pytest-md", specifier = ">=0.2" },
@@ -1356,16 +1356,16 @@ dev = [
 
 [[package]]
 name = "paicorelib"
-version = "2.0.0b5"
+version = "2.0.0rc2"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version < '3.11' and platform_machine != 'armv7l'" },
     { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version >= '3.11' and platform_machine != 'armv7l'" },
     { name = "pydantic", marker = "platform_machine != 'armv7l'" },
 ]
-sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/39/7b/ca3b4d68b88482bc425539db7502e014383a7113cc4a5dac2a4ba3292092/paicorelib-2.0.0b5.tar.gz", hash = "sha256:4d5fc59654b9167c71a309a6f100f3c59b49bacf490498af930f180b03f3b15b", size = 73560, upload-time = "2026-06-07T05:00:18.569Z" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/3d/cb/3a7104e3cbb992bea8164d828927915b457d4fd98f6560d40e28d061df32/paicorelib-2.0.0rc2.tar.gz", hash = "sha256:559328f5de13d172766f958c7dde310708fd56c675f4a9b84ee0c64b58332881", size = 73900, upload-time = "2026-06-23T10:37:54.012Z" }
 wheels = [
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/a4/17/f6befe24f9d512e804b6ed9daa23d50ce0115b132b74954e03342ebbb174/paicorelib-2.0.0b5-py3-none-any.whl", hash = "sha256:fb9566b45779675cd679c1b5d47e83380ecc18e034d02c209e962137184bd2b3", size = 81796, upload-time = "2026-06-07T05:00:19.74Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/26/8d/162eba6615b7150917fcb7a3a3969db822a2e7d5e147af900109751fbabd/paicorelib-2.0.0rc2-py3-none-any.whl", hash = "sha256:c2db0c190a03a838399fef81130715935d1c42845ec0d4aa40ffb70f072d024a", size = 82270, upload-time = "2026-06-23T10:37:52.429Z" },
 ]
 
 [[package]]

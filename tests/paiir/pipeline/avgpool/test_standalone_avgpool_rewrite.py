@@ -264,7 +264,7 @@ def test_signed_ann_standalone_avgpool_rewrites_to_exact_ann_path() -> None:
     register_neuron(
         SignedAnnIdentity,
         converter=lambda _: ANNNodeV25(
-            LutLinear(min_val=-128, max_val=127, output_sign=1)
+            LutLinear(min_val=-128, max_val=127, output_signed=True)
         ),
     )
 

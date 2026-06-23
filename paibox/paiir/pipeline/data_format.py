@@ -62,7 +62,8 @@ def infer_output_format(act: CoreNeuronV25) -> tuple[DataSign, DataWidth]:
     - SNN mode with ``thres_neg_mode == FLOOR``:
       outputs {0, +1} -> ``UNSIGNED, WIDTH_1BIT``.
     - ANN mode (``lut is not None``) preserves the LUT-declared sign and uses
-      the narrowest width that covers the stored LUT activation codes.
+      the narrowest width whose hardware SAR LUT export is equivalent to the
+      logical integer LUT and can represent its output values.
     - Float LUTs conservatively fall back to 8-bit because the deploy path uses
       integer LUT activation tables.
     """
@@ -73,14 +74,13 @@ def infer_output_format(act: CoreNeuronV25) -> tuple[DataSign, DataWidth]:
         return DataSign.UNSIGNED, DataWidth.WIDTH_1BIT
 
     # ANN mode
-    sign = DataSign.SIGNED if act.output_sign == 1 else DataSign.UNSIGNED
+    sign = DataSign.SIGNED if act.output_sign else DataSign.UNSIGNED
     lut = act.lut
     if lut is None or lut.is_float:
         return sign, DataWidth.WIDTH_8BIT
 
-    value_min = int(lut.lut_values.min().item())
-    value_max = int(lut.lut_values.max().item())
-    return _infer_narrowest_range_format(value_min, value_max, sign, "LUT activation")
+    width = lut.infer_hw_output_width(sign)
+    return sign, width
 
 
 def infer_output_code_range(act: CoreNeuronV25) -> tuple[int, int] | None:

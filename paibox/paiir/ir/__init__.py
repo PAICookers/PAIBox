@@ -10,22 +10,18 @@ and backend deployment:
 - parameter dataclasses used by deployable nodes
 """
 
-from .calc_params import LutData, NeuronParams, OfflineCoreParams, OnlineCoreParams
-from .core_neuron import (
-    ANNNodeV25,
-    CoreNeuronV25,
-    IFNodeV25,
-    LIFNodeV25,
+from .calc_params import (
+    LUT_TABLE_SIZE,
+    LutData,
+    NeuronParams,
+    OfflineCoreParams,
+    OnlineCoreParams,
 )
+from .core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
 from .graph import Edge, PAIIRGraph
 from .ir_base import FormatFlow, InputNode, OutputNode, PAIIRNode, TensorLayout
 from .signal_domain import SignalDomain, SignalSemantics
-from .add_ops import (
-    AddOperandKind,
-    AddOperandSpec,
-    GeneralAddOp,
-    PotentialAddOp,
-)
+from .add_ops import AddOperandKind, AddOperandSpec, GeneralAddOp, PotentialAddOp
 from .lut_activation import (
     LutActivation,
     LutAdaptiveActivation,
@@ -67,6 +63,7 @@ __all__ = [
     "IFNodeV25",
     "InputNode",
     "LIFNodeV25",
+    "LUT_TABLE_SIZE",
     "LayoutStage",
     "LutActivation",
     "LutAdaptiveActivation",

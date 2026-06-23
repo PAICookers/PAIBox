@@ -65,7 +65,8 @@ class Frontend_Core_Config:
     tick_start: int = 1
     tick_duration: int = 0
     tick_initial: int = 0
-    lut_data: LutData | None = None
+    # Hardware SRAM LUT data; graph-level logical LUTs are converted in PAIIR IR.
+    hw_lut_data: LutData | None = None
 
 
 def to_core_reg(

@@ -59,10 +59,9 @@ class TestSplitCoreAvgPoolIF:
         # Identity LUT: thresholds [0, 1, 2, ...] scaled to [0, 9, 18, ...]
         assert sumpool_core.act.lut.thresholds[1] == 9
 
-        # Deployed LUT is the same (already in sum domain)
-        lut_data = sumpool_core.lut_data
-        assert lut_data is not None
-        assert lut_data.thresholds[1] == 9
+        # Logical LUT stays in the sum domain before hardware SRAM export.
+        assert sumpool_core.act.lut is not None
+        assert sumpool_core.act.lut.logical_lut_data.thresholds[1] == 9
 
     def test_core2_no_compensation_needed(self):
         """Core 2 (IF core) uses original threshold, no compensation.
@@ -112,10 +111,9 @@ class TestSplitCoreAvgPoolIF:
         assert sumpool_core.act.lut is not None
         assert sumpool_core.act.lut.thresholds[1] == 4
 
-        # Deployed LUT is the same (already in sum domain)
-        lut_data = sumpool_core.lut_data
-        assert lut_data is not None
-        assert lut_data.thresholds[1] == 4
+        # Logical LUT stays in the sum domain before hardware SRAM export.
+        assert sumpool_core.act.lut is not None
+        assert sumpool_core.act.lut.logical_lut_data.thresholds[1] == 4
 
         # Core 2 has no compensation
         standalone_acts = find_nodes(fused, StandaloneActOp)

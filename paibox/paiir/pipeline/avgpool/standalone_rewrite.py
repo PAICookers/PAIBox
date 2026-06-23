@@ -14,6 +14,7 @@ from paicorelib import DataSign, DataWidth, SNNMode, ThresholdNegMode
 from torch import nn
 
 from ...exceptions import OutputApproxWarning
+from ...ir.calc_params import LUT_TABLE_SIZE
 from ...ir.core_neuron import ANNNodeV25, IFNodeV25
 from ...ir.graph import PAIIRGraph
 from ...ir.ir_base import InputNode, OutputNode, PAIIRNode
@@ -28,7 +29,8 @@ from ..graph_utils import (
     is_standalone_maxpool,
 )
 from .utils import (
-    build_range_identity_lut,
+    build_integer_identity_lut,
+    build_integer_interval_lut,
     build_sum_pool,
     get_avgpool_divisor,
     get_pool_window_size,
@@ -174,11 +176,12 @@ def _build_output_sum_approx_avgpool(
         return None
     if not fits_value_code_range(code_min, code_max):
         return None
-    if code_max - code_min + 1 > 256:
+    if code_max - code_min + 1 > LUT_TABLE_SIZE:
         return None
 
     sum_pool = build_sum_pool(node.comp)
-    act = ANNNodeV25(build_range_identity_lut(code_range))
+    code_min, code_max = code_range
+    act = ANNNodeV25(build_integer_identity_lut(code_min, code_max))
     replacement = SequentialOp(sum_pool, act)
     replacement.name = node_name
 
@@ -342,13 +345,13 @@ def _build_exact_avg_round_lut(
         )
 
     if sign is DataSign.UNSIGNED:
-        codes = torch.arange(256, dtype=torch.int32)
+        codes = torch.arange(LUT_TABLE_SIZE, dtype=torch.int32)
         min_val, max_val = 0, 255
-        output_sign = 0
+        output_signed = False
     else:
         codes = torch.arange(-128, 128, dtype=torch.int32)
         min_val, max_val = -128, 127
-        output_sign = 1
+        output_signed = True
 
     min_sum = min_val * window_size
     max_sum = max_val * window_size
@@ -365,4 +368,6 @@ def _build_exact_avg_round_lut(
             )
         thresholds.append(int(sums[int(idx[0])].item()))
 
-    return LutCustom(torch.tensor(thresholds, dtype=torch.int32), codes, output_sign)
+    return build_integer_interval_lut(
+        thresholds, codes.tolist(), output_signed=output_signed
+    )

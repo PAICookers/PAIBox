@@ -14,7 +14,7 @@ from spikingjelly.activation_based import neuron as sj
 from torch import nn
 
 from paibox.paiir.ir.add_ops import PotentialAddOp
-from paibox.paiir.ir.calc_params import NeuronParams
+from paibox.paiir.ir.calc_params import LUT_TABLE_SIZE, NeuronParams
 from paibox.paiir.ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
 from paibox.paiir.ir.graph import PAIIRGraph
 from paibox.paiir.ir.ir_base import InputNode, OutputNode
@@ -47,11 +47,19 @@ from tests.paiir.conftest import (
 )
 
 
-def _make_custom_lut(values: torch.Tensor, *, output_sign: int) -> LutCustom:
-    repeats = (256 + values.numel() - 1) // values.numel()
-    tiled = values.repeat(repeats)[:256].to(torch.int32)
-    thresholds = torch.arange(256, dtype=torch.int32)
-    return LutCustom(thresholds, tiled, output_sign=output_sign)
+def _make_lut(
+    values: torch.Tensor, *, output_signed: bool, interval: bool
+) -> LutCustom:
+    values = values.to(torch.int32)
+    if interval:
+        pad_count = LUT_TABLE_SIZE - values.numel()
+        thresholds = torch.cat((values, values[-1].repeat(pad_count)))
+        lut_values = thresholds.clone()
+    else:
+        repeats = (LUT_TABLE_SIZE + values.numel() - 1) // values.numel()
+        thresholds = torch.arange(LUT_TABLE_SIZE, dtype=torch.int32)
+        lut_values = values.repeat(repeats)[:LUT_TABLE_SIZE]
+    return LutCustom(thresholds, lut_values, output_signed=output_signed)
 
 
 class TestInferOutputFormat:
@@ -62,9 +70,7 @@ class TestInferOutputFormat:
             (LIFNodeV25(tau=2.0), DataSign.UNSIGNED, DataWidth.WIDTH_1BIT),
             (
                 CoreNeuronV25(
-                    thres_pos=1.0,
-                    thres_neg=-1.0,
-                    thres_neg_mode=ThresholdNegMode.FIRE,
+                    thres_pos=1.0, thres_neg=-1.0, thres_neg_mode=ThresholdNegMode.FIRE
                 ),
                 DataSign.SIGNED,
                 DataWidth.WIDTH_2BIT,
@@ -72,7 +78,7 @@ class TestInferOutputFormat:
             (ANNNodeV25(lut=LutReLU()), DataSign.UNSIGNED, DataWidth.WIDTH_8BIT),
             (ANNNodeV25(lut=LutSigmoid()), DataSign.UNSIGNED, DataWidth.WIDTH_8BIT),
             (
-                ANNNodeV25(lut=LutTanh(output_sign=1)),
+                ANNNodeV25(lut=LutTanh(output_signed=True)),
                 DataSign.SIGNED,
                 DataWidth.WIDTH_8BIT,
             ),
@@ -95,14 +101,9 @@ class TestInferOutputFormat:
         "lut, expected_sign, expected_width",
         [
             (
-                _make_custom_lut(torch.tensor([0, 1]), output_sign=0),
+                _make_lut(torch.tensor([0, 1]), output_signed=False, interval=True),
                 DataSign.UNSIGNED,
                 DataWidth.WIDTH_1BIT,
-            ),
-            (
-                _make_custom_lut(torch.tensor([0, 1, 2, 3]), output_sign=0),
-                DataSign.UNSIGNED,
-                DataWidth.WIDTH_2BIT,
             ),
             (
                 make_multispike4_lut(),
@@ -110,19 +111,20 @@ class TestInferOutputFormat:
                 DataWidth.WIDTH_4BIT,
             ),
             (
-                _make_custom_lut(torch.tensor([-1, 0]), output_sign=1),
+                _make_lut(torch.tensor([-1, 0]), output_signed=True, interval=True),
                 DataSign.SIGNED,
                 DataWidth.WIDTH_1BIT,
             ),
             (
-                _make_custom_lut(torch.tensor([-2, -1, 0, 1]), output_sign=1),
+                _make_lut(
+                    torch.tensor([-2, -1, 0, 1]), output_signed=True, interval=True
+                ),
                 DataSign.SIGNED,
                 DataWidth.WIDTH_2BIT,
             ),
         ],
         ids=[
             "lut_unsigned_binary",
-            "lut_unsigned_quaternary",
             "lut_unsigned_five_level",
             "lut_signed_negative_zero",
             "lut_signed_quaternary",
@@ -134,6 +136,14 @@ class TestInferOutputFormat:
         sign, width = infer_output_format(ANNNodeV25(lut=lut))
         assert sign == expected_sign
         assert width == expected_width
+
+    def test_ann_output_format_falls_back_when_narrow_sar_is_not_equivalent(self):
+        lut = _make_lut(torch.tensor([0, 1]), output_signed=False, interval=False)
+
+        sign, width = infer_output_format(ANNNodeV25(lut=lut))
+
+        assert sign == DataSign.UNSIGNED
+        assert width == DataWidth.WIDTH_8BIT
 
 
 class TestInferWeightFormat:
@@ -397,10 +407,10 @@ class TestPropagateDataFormatANN:
         ) == input_format
         if input_format == (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT):
             assert pool.core_params.snn_mode == SNNMode.SNN
-            assert pool.lut_data is None
+            assert pool.hw_lut_data is None
         else:
             assert pool.core_params.snn_mode == SNNMode.ANN
-            assert pool.lut_data is not None
+            assert pool.hw_lut_data is not None
 
     def test_standalone_maxpool_uses_signed_spike_bypass_for_signed_spike_source(self):
         class SignedSpikeMaxPool(nn.Module):
@@ -432,12 +442,12 @@ class TestPropagateDataFormatANN:
         assert pool.core_params.input_sign == DataSign.SIGNED
         assert pool.core_params.input_width == DataWidth.WIDTH_2BIT
         assert pool.core_params.snn_mode == SNNMode.SNN
-        assert pool.lut_data is None
+        assert pool.hw_lut_data is None
         assert pool.neuron_params.thres_neg_mode == ThresholdNegMode.FIRE
         assert pool.neuron_params.thres_neg == -1.0
 
     def test_subtract_tanh(self):
-        """Two linear branches with subtraction -> tanh: UNSIGNED 8BIT."""
+        """Two linear branches with subtraction -> tanh: SIGNED 8BIT."""
 
         class Model(nn.Module):
             def __init__(self):
@@ -453,7 +463,7 @@ class TestPropagateDataFormatANN:
         accum = find_nodes(fused, AccumulateOp)
         assert len(accum) == 1
         op = accum[0]
-        assert op.core_params.output_sign == DataSign.UNSIGNED
+        assert op.core_params.output_sign == DataSign.SIGNED
         assert op.core_params.output_width == DataWidth.WIDTH_8BIT
 
     def test_custom_lut_width_propagates_to_successor_input(self):

@@ -1696,15 +1696,15 @@ reference = "tsinghua"
 
 [[package]]
 name = "paicorelib"
-version = "2.0.0b5"
+version = "2.0.0rc2"
 description = "Library of PAICORE"
 optional = false
 python-versions = ">=3.10"
 groups = ["dev"]
 markers = "platform_machine != \"armv7l\""
 files = [
-    {file = "paicorelib-2.0.0b5-py3-none-any.whl", hash = "sha256:fb9566b45779675cd679c1b5d47e83380ecc18e034d02c209e962137184bd2b3"},
-    {file = "paicorelib-2.0.0b5.tar.gz", hash = "sha256:4d5fc59654b9167c71a309a6f100f3c59b49bacf490498af930f180b03f3b15b"},
+    {file = "paicorelib-2.0.0rc2-py3-none-any.whl", hash = "sha256:c2db0c190a03a838399fef81130715935d1c42845ec0d4aa40ffb70f072d024a"},
+    {file = "paicorelib-2.0.0rc2.tar.gz", hash = "sha256:559328f5de13d172766f958c7dde310708fd56c675f4a9b84ee0c64b58332881"},
 ]
 
 [package.dependencies]
@@ -3116,4 +3116,4 @@ reference = "tsinghua"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10"
-content-hash = "08838854f51f1dccb5d7986df045ce6a2e227e743a662deeff228106a1c44bd9"
+content-hash = "08cc86bc5ba9840c89cd6bed368f135acba831fd5e3fab0367d055b95569ba57"

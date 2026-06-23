@@ -22,11 +22,19 @@ from spikingjelly.activation_based import neuron
 from torch import nn
 
 from paibox.backendv2 import routing as routing_mod
-from paibox.backendv2.coreplacement import OfflineCorePlacementV2
+from paibox.backendv2.coreplacement import (
+    EmptyOfflineCorePlacementV2,
+    EmptyOnlineCorePlacementV2,
+    OfflineCorePlacementV2,
+)
 from paibox.backendv2.export.utils import export_framearray_to_int32
 from paibox.backendv2.mapper import Mapper
 from paibox.backendv2.op_node import SourceElem
-from paibox.backendv2.output_completion import OutputProducer
+from paibox.backendv2.output_completion_planner import (
+    EmptyThreadCore,
+    OutputCompletionPlan,
+    OutputProducer,
+)
 from paibox.backendv2.proto import get_schema_version
 from paibox.backendv2.proto.compile_artifacts_pb2 import (
     CompileArtifacts,
@@ -36,7 +44,13 @@ from paibox.backendv2.proto.compile_artifacts_pb2 import (
     RuntimeParams,
 )
 from paibox.backendv2.routing import FANIN_BASE, OutputGroup
-from paibox.paiir import ANNNodeV25, LutCustom, compile_to_paiir, register_neuron
+from paibox.paiir import (
+    LUT_TABLE_SIZE,
+    ANNNodeV25,
+    LutCustom,
+    compile_to_paiir,
+    register_neuron,
+)
 from tests.paiir.conftest import ANNClassifier, SimpleCNN, SNNTwoLayer, make_img_3ch_8x8
 from tests.utils import is_ci_env
 
@@ -51,15 +65,15 @@ class FloatOutputIdentityLutCustom(LutCustom):
 class RepeatedWeightDifferentBiasLinearLut(nn.Module):
     def __init__(self) -> None:
         super().__init__()
-        thresholds = torch.arange(256, dtype=torch.int32)
-        values = torch.arange(256, dtype=torch.uint8)
+        thresholds = torch.arange(LUT_TABLE_SIZE, dtype=torch.int32)
+        values = torch.arange(LUT_TABLE_SIZE, dtype=torch.uint8)
         self.linear1 = nn.Linear(4, 4, bias=True)
         self.lut1 = FloatOutputIdentityLutCustom(
-            thresholds, values, output_sign=0, is_float=False
+            thresholds, values, output_signed=False, is_float=False
         )
         self.linear2 = nn.Linear(4, 2, bias=True)
         self.lut2 = FloatOutputIdentityLutCustom(
-            thresholds, values, output_sign=0, is_float=False
+            thresholds, values, output_signed=False, is_float=False
         )
         with torch.no_grad():
             repeated_row = torch.tensor([1, -1, 1, -1], dtype=torch.float32)
@@ -85,7 +99,7 @@ def _register_float_output_identity_lut_custom() -> None:
                 LutCustom(
                     lut.thresholds.detach().clone(),
                     lut.lut_values.detach().clone(),
-                    output_sign=lut.output_sign,
+                    output_signed=lut.output_signed,
                     is_float=lut.is_float,
                 )
             ),
@@ -404,10 +418,97 @@ def test_mapper_builds_output_completion_plan_without_full_compile(monkeypatch):
 
     plan = mapper.build_output_completion_plan()
 
+    assert plan.completion_join_point == CoordXY(0, 2)
     assert plan.global_signal_root == CoordXY(0, 2)
-    assert plan.root_kind == "empty_offline"
-    assert plan.score.data_penalty == 2
     assert {route.target_coord for route in plan.output_routes} == {CoordXY(0, 0)}
+    assert plan.output_route_offsets()[
+        (CoordXY(4, 2), CoordXY(0, 0))
+    ] == CoordZXYOffset(0, -4, -2)
+    assert CoordXY(0, 2) in {core.coord for core in plan.completion_thread_cores}
+    assert CoordXY(0, 1) not in {core.coord for core in plan.completion_thread_cores}
+
+
+def test_mapper_adds_selected_empty_output_completion_core(monkeypatch):
+    mapper = Mapper()
+    producer_coords = [CoordXY(0, 3), CoordXY(2, 2)]
+    mapper.coreplacements = []
+    for coord in producer_coords:
+        core = OfflineCorePlacementV2()
+        core._coord = coord
+        mapper.coreplacements.append(core)
+
+    monkeypatch.setattr(
+        mapper,
+        "_collect_output_producers",
+        lambda: [OutputProducer(coord, CoordXY(0, 0), 1) for coord in producer_coords],
+    )
+
+    plan = mapper.build_output_completion_plan()
+    mapper.add_output_completion_thread_cores(plan)
+
+    required_core = next(
+        cp for cp in mapper.coreplacements if cp.coord == CoordXY(0, 2)
+    )
+    assert isinstance(required_core, EmptyOfflineCorePlacementV2)
+    assert all(cp.coord != CoordXY(0, 1) for cp in mapper.coreplacements)
+
+
+def test_mapper_adds_output_prefix_route_cores(monkeypatch):
+    mapper = Mapper()
+    producer_coords = [
+        CoordXY(0, 2),
+        CoordXY(1, 3),
+        CoordXY(2, 4),
+        CoordXY(3, 5),
+        CoordXY(4, 6),
+        CoordXY(5, 6),
+        CoordXY(5, 5),
+        CoordXY(5, 4),
+        CoordXY(5, 3),
+        CoordXY(5, 2),
+    ]
+    mapper.coreplacements = []
+    for coord in producer_coords:
+        core = OfflineCorePlacementV2()
+        core._coord = coord
+        mapper.coreplacements.append(core)
+
+    monkeypatch.setattr(
+        mapper,
+        "_collect_output_producers",
+        lambda: [OutputProducer(coord, CoordXY(0, 0), 1) for coord in producer_coords],
+    )
+
+    plan = mapper.build_output_completion_plan()
+    mapper.add_output_completion_thread_cores(plan)
+    core_by_coord = {cp.coord: cp for cp in mapper.coreplacements}
+
+    assert CoordXY(4, 5) in core_by_coord
+    assert isinstance(core_by_coord[CoordXY(4, 5)], EmptyOfflineCorePlacementV2)
+    assert CoordXY(0, 1) not in core_by_coord
+
+
+def test_mapper_adds_required_online_output_completion_route_cores(monkeypatch):
+    mapper = Mapper()
+    existing_core = OfflineCorePlacementV2()
+    existing_core._coord = CoordXY(1, 1)
+    mapper.coreplacements = [existing_core]
+    plan = OutputCompletionPlan(
+        (),
+        CoordZXYOffset(0, -1, -1),
+        ("y", -1),
+        CoordXY(1, 1),
+        CoordXY(1, 1),
+        (EmptyThreadCore(CoordXY(2, 1), "online"),),
+        (),
+    )
+
+    mapper.add_output_completion_thread_cores(plan)
+
+    required_core = next(
+        cp for cp in mapper.coreplacements if cp.coord == CoordXY(2, 1)
+    )
+    assert isinstance(required_core, EmptyOnlineCorePlacementV2)
 
 
 def test_mapper_does_not_broadcast_root_control_offset_to_all_cores():
@@ -447,13 +548,14 @@ def test_mapper_default_auto_strategy_mixes_sparse_and_dense_csc(tmp_path):
     mapper = Mapper()
     mapper.compile(graph, tmp_path, target_platform="x86", debug=False)
 
-    core = mapper.coreplacements[0]
+    compute_cores = [core for core in mapper.coreplacements if core.neus]
+    core = compute_cores[0]
     placements = _shared_sparse_linear_neuron_placements(mapper)
 
-    assert {c.frontend_core_config.input_width for c in mapper.coreplacements} == {
+    assert {c.frontend_core_config.input_width for c in compute_cores} == {
         DataWidth.WIDTH_1BIT
     }
-    assert {c.default_core_config.csc_accelerate for c in mapper.coreplacements} == {
+    assert {c.default_core_config.csc_accelerate for c in compute_cores} == {
         CSCAccelerateMode.ENABLE
     }
     assert [weight.compress for weight in core.weights] == [True, True, False]
@@ -501,13 +603,14 @@ def test_mapper_default_sparse_csc_half_reuse_is_true_sparse_csc(tmp_path):
     mapper = Mapper()
     mapper.compile(graph, tmp_path, target_platform="x86", debug=False)
 
-    core = mapper.coreplacements[0]
+    compute_cores = [core for core in mapper.coreplacements if core.neus]
+    core = compute_cores[0]
     placements = _shared_sparse_linear_neuron_placements(mapper)
 
-    assert {c.frontend_core_config.input_width for c in mapper.coreplacements} == {
+    assert {c.frontend_core_config.input_width for c in compute_cores} == {
         DataWidth.WIDTH_1BIT
     }
-    assert {c.default_core_config.csc_accelerate for c in mapper.coreplacements} == {
+    assert {c.default_core_config.csc_accelerate for c in compute_cores} == {
         CSCAccelerateMode.ENABLE
     }
     assert len(core.weights) == 1

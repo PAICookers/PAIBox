@@ -1,12 +1,18 @@
 import os
 from pathlib import Path
+from typing import Literal
 
 from paicorelib import CoordXY, CoordZXYOffset
 
 from paibox.paiir import PAIIRGraph
 from paibox.paiir.ir import OfflineCoreOp
 
-from .coreplacement import CorePlacement, OfflineCorePlacementV2
+from .coreplacement import (
+    CorePlacement,
+    EmptyOfflineCorePlacementV2,
+    EmptyOnlineCorePlacementV2,
+    OfflineCorePlacementV2,
+)
 from .export.cheader import export_cheader_files, export_cheader_merged
 from .export.npy import export_frame_npy
 from .export.proto import export_compile_artifacts
@@ -21,14 +27,14 @@ from .export.utils import (
 from .global_signal import set_global_signal
 from .group_tile import tile_groups
 from .op_node import AllNode, InputElem, Neuron, RemapElem, SourceElem, build_nodes
-from .output_completion import (
+from .output_completion_planner import (
     OutputCompletionPlan,
+    OutputCpuIngressPlan,
     OutputProducer,
     select_output_completion_plan,
 )
-from .output_routes import OutputCpuIngressPlan
 from .rg_build import build_groups
-from .route_solver import HIVE, route_solve
+from .route_solver import OFFLINE_CORE_COORDS, ONLINE_CORE_COORDS, route_solve
 from .routing import InputGroup, OutputGroup, RemapGroup, RoutingGroup, toposort_for_rg
 
 
@@ -323,20 +329,46 @@ class Mapper:
             )
         ]
 
-    def build_output_completion_plan(self) -> OutputCompletionPlan:
+    def build_output_completion_plan(
+        self, allow_empty_online_relay_core: bool = False
+    ) -> OutputCompletionPlan:
         """Select DATA routes and a global signal root before dest encoding."""
-        used_core_coords = {cp.coord for cp in self.coreplacements}
+        configured_thread_core_coords = {cp.coord for cp in self.coreplacements}
         empty_offline_coords = {
-            CoordXY(x, y) for x, y in HIVE if CoordXY(x, y) not in used_core_coords
+            coord
+            for coord in OFFLINE_CORE_COORDS
+            if coord not in configured_thread_core_coords
         }
+        available_empty_online_coords = (
+            {
+                coord
+                for coord in ONLINE_CORE_COORDS
+                if coord not in configured_thread_core_coords
+            }
+            if allow_empty_online_relay_core
+            else set()
+        )
         return select_output_completion_plan(
             self._collect_output_producers(),
-            used_core_coords,
+            configured_thread_core_coords,
             empty_offline_coords,
-            set(),
-            allow_empty_online=False,
-            empty_online_frame_supported=False,
+            available_empty_online_coords,
+            allow_empty_online_relay_core,
         )
+
+    def add_output_completion_thread_cores(self, plan: OutputCompletionPlan) -> None:
+        """Add empty thread-membership cores selected by output completion."""
+        existing_coords = {cp.coord for cp in self.coreplacements}
+        for completion_core in plan.completion_thread_cores:
+            if completion_core.coord in existing_coords:
+                continue
+            if completion_core.kind == "online":
+                empty_core = EmptyOnlineCorePlacementV2()
+            else:
+                empty_core = EmptyOfflineCorePlacementV2()
+            empty_core._coord = completion_core.coord
+            self.coreplacements.append(empty_core)
+            existing_coords.add(completion_core.coord)
 
     def export_artifacts(
         self,
@@ -395,6 +427,10 @@ class Mapper:
         export_proto_python: bool = True,
         debug: bool = False,
         unrolling: bool = False,
+        allow_empty_online_relay_core: bool = False,
+        csc_tail_overflow_fix: Literal[
+            "weight_indice_padding", "fanin_margin"
+        ] = "weight_indice_padding",
     ) -> None:
         """Compile a PAIIR graph and export backendv2 deployment artifacts.
 
@@ -434,6 +470,16 @@ class Mapper:
                 ``True``, cores with high compute pressure are split into
                 multiple cores if free cores are available and routing remains
                 valid. Defaults to ``False``.
+            allow_empty_online_relay_core: Whether output completion may use
+                empty online cores in y=0/1 as source/relay/thread-membership
+                shells. Defaults to ``False``.
+            csc_tail_overflow_fix: Software workaround for the PAICORE 2.5
+                offline CSC tail-index overflow bug. ``"weight_indice_padding"``
+                keeps full fanin and relies on paicorelib to encode zero-payload
+                padding so the hardware's internal ``+1`` lands on the real tail
+                weight address instead of wrapping from ``65535`` to ``0``.
+                ``"fanin_margin"`` is a conservative fallback that reserves one
+                fanin slot during tiling and avoids generating the boundary case.
         """
         self.timesteps = self._resolve_timesteps(pai_graph, timesteps)
 
@@ -448,7 +494,7 @@ class Mapper:
         # determine which rg each neuron sends to
         # dests and input_list set
         # other properties remain unset
-        all_groups = tile_groups(all_groups)
+        all_groups = tile_groups(all_groups, csc_tail_overflow_fix)
 
         self.input_groups = []
         self.groups = []
@@ -492,12 +538,15 @@ class Mapper:
         for rg in self.routing_groups:
             self.coreplacements.extend(rg.core_placements)
 
-        self.output_completion_plan = self.build_output_completion_plan()
+        self.output_completion_plan = self.build_output_completion_plan(
+            allow_empty_online_relay_core
+        )
+        self.add_output_completion_thread_cores(self.output_completion_plan)
 
         self.coreplacements, self.global_starts = set_global_signal(
             self.coreplacements,
             self.output_completion_plan.global_signal_root,
-            self.output_completion_plan.relay_core_kinds(),
+            self.output_completion_plan.empty_thread_core_kinds(),
         )
 
         output_route_plan = self.output_completion_plan.to_cpu_ingress_plan()

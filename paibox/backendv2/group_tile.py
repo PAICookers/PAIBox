@@ -27,6 +27,7 @@ from .routing import (
 )
 
 MAX_LCN = LCN_EX.LCN_128X
+MAX_COMPUTE_FANIN = FANIN_BASE * (1 << MAX_LCN)
 
 Conv = torch.nn.Conv1d | torch.nn.Conv2d
 Pool = SumPool1d | SumPool2d | torch.nn.MaxPool1d | torch.nn.MaxPool2d
@@ -46,6 +47,23 @@ COMP_1D_TYPES = (torch.nn.Conv1d, SumPool1d, torch.nn.MaxPool1d)
 COMP_2D_TYPES = (torch.nn.Conv2d, SumPool2d, torch.nn.MaxPool2d)
 
 POTENTIAL_OP_TYPES = (PotentialAddOp, StandaloneActOp, AccumulateOp)
+
+
+def compute_fanin_limit(margin: int = 0) -> int:
+    """Return the fanin budget used for compute tiling.
+
+    The default margin is zero because PAICORE 2.5 CSC tail overflow is handled
+    by paicorelib's offline CSC padding encoding. A positive margin is only a
+    conservative fallback.
+    """
+    if margin < 0:
+        raise ValueError(f"fanin margin must be non-negative, got {margin}.")
+    if margin >= MAX_COMPUTE_FANIN:
+        raise ValueError(
+            "fanin margin must be smaller than hardware capacity "
+            f"({MAX_COMPUTE_FANIN}), got {margin}."
+        )
+    return MAX_COMPUTE_FANIN - margin
 
 
 @dataclass(frozen=True)
@@ -71,6 +89,7 @@ def build_tile_group(
     dilation: int,
     padding: int,
     stride: int,
+    max_fanin: int,
 ) -> tuple[list[SourceElem], list[RoutingGroup]]:
     input_bit_num = in_node.output_bit_num
     _, c_in, h_in, w_in = in_shape
@@ -88,13 +107,8 @@ def build_tile_group(
         f"input_bit_num={input_bit_num}"
     )
 
-    max_fanin = FANIN_BASE * (2**MAX_LCN.value)
-
     def build_tile_ranges_along_axis(
-        axis_name: Literal["h", "w"],
-        in_len: int,
-        out_len: int,
-        max_axis_len: int,
+        axis_name: Literal["h", "w"], in_len: int, out_len: int, max_axis_len: int
     ) -> tuple[list[Range1D], list[Range1D]]:
         if max_axis_len <= 0:
             raise ValueError(
@@ -248,8 +262,7 @@ def build_tile_group(
 
 
 def try_tile_conv(
-    in_node: SourceNode,
-    out_node: CoreOpNode,
+    in_node: SourceNode, out_node: CoreOpNode, max_fanin: int
 ) -> tuple[list[SourceElem], list[RoutingGroup]]:
     if len(out_node.comps) != 1:
         raise ValueError(
@@ -304,6 +317,7 @@ def try_tile_conv(
             dilation,
             padding,
             stride,
+            max_fanin,
         )
     elif isinstance(comp, COMP_1D_TYPES):
         _kernel_size = _single(comp.kernel_size)
@@ -332,6 +346,7 @@ def try_tile_conv(
             dilation,
             padding,
             stride,
+            max_fanin,
         )
     else:
         raise NotImplementedError(
@@ -341,8 +356,7 @@ def try_tile_conv(
 
 
 def try_tile_potential(
-    in_nodes: list[SourceNode],
-    out_nodes: list[CoreOpNode],
+    in_nodes: list[SourceNode], out_nodes: list[CoreOpNode], max_fanin: int
 ) -> tuple[list[SourceElem], list[RoutingGroup]]:
 
     op_numel = out_nodes[0].shape.numel()
@@ -360,7 +374,6 @@ def try_tile_potential(
             "All input nodes must have the same output bit num for potential tiling."
         )
     tile_groups: list[RoutingGroup] = []
-    max_fanin = FANIN_BASE * (2**MAX_LCN.value)
     max_single_op_numel = max_fanin // (input_bit_num * len(in_nodes))
     for start in range(0, op_numel, max_single_op_numel):
         end = min(start + max_single_op_numel, op_numel)
@@ -381,7 +394,7 @@ def try_tile_potential(
 
 
 def try_tile_group(
-    origin_grp: RoutingGroup,
+    origin_grp: RoutingGroup, max_fanin: int
 ) -> tuple[list[SourceElem], list[RoutingGroup]]:
     print(f"Trying to tile group out lcn limit {origin_grp.name}...")
     print(f"input nodes {origin_grp.input_nodes} and output nodes {origin_grp.nodes}")
@@ -399,12 +412,16 @@ def try_tile_group(
 
     if len(out_nodes) == 1 and isinstance(out_nodes[0].comps[0], TileComp):
         print("Trying to tile convolution/pooling group...")
-        copied_input_elems, tiled_groups = try_tile_conv(in_nodes[0], out_nodes[0])
+        copied_input_elems, tiled_groups = try_tile_conv(
+            in_nodes[0], out_nodes[0], max_fanin
+        )
     elif all(
         isinstance(out_node.raw_node, POTENTIAL_OP_TYPES) for out_node in out_nodes
     ):
         print("Trying to tile potential add group...")
-        copied_input_elems, tiled_groups = try_tile_potential(in_nodes, out_nodes)
+        copied_input_elems, tiled_groups = try_tile_potential(
+            in_nodes, out_nodes, max_fanin
+        )
     else:
         print([isinstance(out_node.comps[0], TileComp) for out_node in out_nodes])
         print(
@@ -426,7 +443,13 @@ def try_tile_group(
 
 def tile_groups(
     groups: list[RoutingGroup | InputGroup | OutputGroup | RemapGroup],
+    csc_tail_overflow_fix: Literal["weight_indice_padding", "fanin_margin"],
 ) -> list[RoutingGroup | InputGroup | OutputGroup | RemapGroup]:
+    if csc_tail_overflow_fix == "weight_indice_padding":
+        max_fanin = MAX_COMPUTE_FANIN
+    else:
+        max_fanin = compute_fanin_limit(margin=1)
+
     group_after_tile: list[RoutingGroup | InputGroup | OutputGroup | RemapGroup] = []
     copy_elems: list[SourceElem] = []
     for grp in groups:
@@ -448,9 +471,8 @@ def tile_groups(
                 input_bit_num == pred_output_bit_nums.pop()
             ), "Input bit num of neurons must match output bit num of input elements."
             max_axon_addr = len(grp.input_list) * input_bit_num
-            lcn = ((max_axon_addr - 1) // FANIN_BASE).bit_length()
-            if lcn > MAX_LCN.value:
-                copied_elems, tile_conv_groups = try_tile_group(grp)
+            if max_axon_addr > max_fanin:
+                copied_elems, tile_conv_groups = try_tile_group(grp, max_fanin)
                 copy_elems.extend(copied_elems)
                 group_after_tile.extend(tile_conv_groups)
             else:

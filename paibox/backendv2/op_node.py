@@ -194,11 +194,11 @@ def conv1d_without_padding(old_conv: nn.Conv1d):
 
 
 def get_frontend_core_conf(
-    core_params: OfflineCoreParams, lut_data: LutData | None
+    core_params: OfflineCoreParams, hw_lut_data: LutData | None
 ) -> Frontend_Core_Config:
     assert core_params.tick_start is not None
     if core_params.snn_mode == SNNMode.SNN:
-        assert lut_data is None, "lut_data should not be provided for SNN mode"
+        assert hw_lut_data is None, "hw_lut_data should not be provided for SNN mode"
 
     return Frontend_Core_Config(
         add_potential=core_params.add_potential,
@@ -214,7 +214,7 @@ def get_frontend_core_conf(
         tick_start=core_params.tick_start,
         tick_duration=core_params.tick_duration,
         tick_initial=core_params.tick_initial,
-        lut_data=lut_data,
+        hw_lut_data=hw_lut_data,
     )
 
 
@@ -406,10 +406,8 @@ class CoreOpNode(BaseNode["OfflineCoreOp"]):
         self.comps: list[nn.Module | None] = []
         self.weights: list[Tensor | None] = []
         # 初始化前端配置
-        lut_data = raw_node.lut_data
-
-        self.frontend_core_config: "Frontend_Core_Config" = get_frontend_core_conf(
-            raw_node.core_params, lut_data
+        self.frontend_core_config = get_frontend_core_conf(
+            raw_node.core_params, raw_node.hw_lut_data
         )
         self.set_comps_and_weights()
 
