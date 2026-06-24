@@ -440,12 +440,10 @@ class RoutingGroup(
         # Weight Strategy
         if weight_info.index not in stored_base_weight:
             # 这个 base weight 还没有存储过，需要存储
-            current_weight_width = frontend_core_conf.weight_width
             base_weight = base_weights[weight_info.index]
-            current_weight_width = frontend_core_conf.weight_width
             selected_weight, weight_compress = choose_weight_strategy(
                 base_weight,
-                current_weight_width,
+                frontend_core_conf.weight_width,
                 frontend_core_conf.input_width,
                 frontend_core_conf.add_potential,
             )
@@ -638,11 +636,10 @@ class RoutingGroup(
                     continue
 
                 if index not in weight_strategy_cache:
-                    current_weight_width = frontend_core_conf.weight_width
                     base_weight = base_weights[index]
                     selected_weight, weight_compress = choose_weight_strategy(
                         base_weight,
-                        current_weight_width,
+                        frontend_core_conf.weight_width,
                         frontend_core_conf.input_width,
                         frontend_core_conf.add_potential,
                     )
