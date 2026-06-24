@@ -561,7 +561,9 @@ def test_mapper_default_auto_strategy_mixes_sparse_and_dense_csc(tmp_path):
     assert [weight.compress for weight in core.weights] == [True, True, False]
     assert np.flatnonzero(core.weights[0].raw_weights).tolist() == [0, 24, 64]
     assert np.flatnonzero(core.weights[1].raw_weights).tolist() == [0, 128]
-    assert core.weights[2].processed_weights == [1, 0, 1, 0, 1, 0, 1, 0, 1]
+    assert np.array_equal(
+        core.weights[2].processed_weights, [1, 0, 1, 0, 1, 0, 1, 0, 1]
+    )
     assert [placement.neu_attrs_part1.weight_skew for placement in placements] == [
         16,
         0,
@@ -723,7 +725,7 @@ def test_mapper_default_uint8_high_index_shifted_base_tie_uses_dense(tmp_path):
     assert core.default_core_config.csc_accelerate == CSCAccelerateMode.ENABLE
     assert len(core.weights) == 1
     assert not core.weights[0].compress
-    assert core.weights[0].processed_weights == [1, 0, 1]
+    np.testing.assert_array_equal(core.weights[0].processed_weights, [1, 0, 1])
     assert [placement.neuron_type for placement in placements] == [
         NeuronType.FULL,
         NeuronType.HALF,
