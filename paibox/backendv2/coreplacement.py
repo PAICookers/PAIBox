@@ -54,7 +54,7 @@ class CorePlacement:
     def max_input_num(self) -> int:
         max_input_num = 0
         for weight in self.weights:
-            input_num = len(weight.processed_weights)
+            input_num = weight.processed_weights.size
             max_input_num = max(max_input_num, input_num)
         return max_input_num
 

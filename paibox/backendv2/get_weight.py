@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -22,6 +20,9 @@ from ..paiir.ir import (
 from ..paiir.nn.pool import SumPool1d, SumPool2d
 from .op_node import CoreOpNode, Neuron, SourceElem, SourceNode
 from .weight import Weight
+
+FLOAT32_EXACT_INT_LIMIT = 1 << 24
+INT32_INDEX_LIMIT = np.iinfo(np.int32).max
 
 
 def feature_shape(shape: torch.Size | tuple[int, ...]) -> tuple[int, ...]:
@@ -121,6 +122,23 @@ def identity_weight_matrix(
     return matrix
 
 
+def _np_index_dtype(max_index: int) -> np.dtype[np.int32 | np.int64]:
+    return np.dtype(np.int32) if max_index <= INT32_INDEX_LIMIT else np.dtype(np.int64)
+
+
+def _torch_index_dtype(max_index: int) -> torch.dtype:
+    return torch.int32 if max_index <= INT32_INDEX_LIMIT else torch.int64
+
+
+def _index_dtype_for_elems(elems_by_target: dict) -> np.dtype[np.int32 | np.int64]:
+    max_index = 0
+    for elems in elems_by_target.values():
+        for first, second in elems:
+            max_index = max(max_index, first, second)
+
+    return _np_index_dtype(max_index)
+
+
 def unfold_input_indices_2d(
     channels: int,
     spatial_shape: tuple[int, int],
@@ -133,11 +151,12 @@ def unfold_input_indices_2d(
     # flattened input indices. Zero means "came from padding".
     height, width = spatial_shape
     n_input = channels * height * width
-    input_ids = torch.arange(1, n_input + 1, dtype=torch.float64).reshape(
+    index_dtype = torch.float32 if n_input <= FLOAT32_EXACT_INT_LIMIT else torch.float64
+    input_ids = torch.arange(1, n_input + 1, dtype=index_dtype).reshape(
         1, channels, height, width
     )
     patches = F.unfold(input_ids, kernel_size, dilation, padding, stride)
-    return patches.to(torch.int64).squeeze(0)
+    return patches.to(_torch_index_dtype(n_input)).squeeze(0)
 
 
 def conv2d_weight_matrix(
@@ -185,15 +204,15 @@ def conv2d_weight_matrix(
             f"Conv unfold mismatch: expected {out_size} output positions, got {patches.shape[1]}."
         )
 
+    kernel_elems = in_channels_per_group * kernel_height * kernel_width
     row_offsets = np.tile(
-        np.arange(out_size, dtype=np.int64),
-        in_channels_per_group * kernel_height * kernel_width,
+        np.arange(out_size, dtype=_np_index_dtype(out_size - 1)), kernel_elems
     )
 
     for out_channel in range(out_channels):
         group_idx = out_channel // out_channels_per_group
         patch_start = group_idx * in_channels_per_group * kernel_height * kernel_width
-        patch_end = patch_start + in_channels_per_group * kernel_height * kernel_width
+        patch_end = patch_start + kernel_elems
 
         # Scatter each kernel coefficient to the input positions that feed the
         # corresponding flattened output locations.
@@ -246,7 +265,9 @@ def pool2d_weight_matrix(
         )
 
     kernel_elems = int(np.prod(kernel_size))
-    row_offsets = np.tile(np.arange(out_size, dtype=np.int64), kernel_elems)
+    row_offsets = np.tile(
+        np.arange(out_size, dtype=_np_index_dtype(out_size - 1)), kernel_elems
+    )
 
     for channel in range(channels):
         patch_start = channel * kernel_elems
@@ -695,10 +716,11 @@ def build_weights(
         input_group[elem.target].append((j, elem.index.idx))
 
     input_map = {}
+    index_dtype = _index_dtype_for_elems(input_group)
 
     for tgt, elems in input_group.items():
-        js = np.fromiter((j for j, _ in elems), dtype=np.int64)
-        idxs = np.fromiter((idx for _, idx in elems), dtype=np.int64)
+        js = np.fromiter((j for j, _ in elems), dtype=index_dtype)
+        idxs = np.fromiter((idx for _, idx in elems), dtype=index_dtype)
         input_map[tgt] = (js, idxs)
 
     for i, neu in enumerate(raw_neus):
@@ -760,9 +782,10 @@ def build_weights_numba(
         input_group[elem.target].append((j, elem.index.idx))
 
     input_map = {}
+    input_index_dtype = _index_dtype_for_elems(input_group)
     for tgt, elems in input_group.items():
-        js = np.fromiter((j for j, _ in elems), dtype=np.int32)
-        idxs = np.fromiter((idx for _, idx in elems), dtype=np.int32)
+        js = np.fromiter((j for j, _ in elems), dtype=input_index_dtype)
+        idxs = np.fromiter((idx for _, idx in elems), dtype=input_index_dtype)
         input_map[tgt] = (js, idxs)
 
     # -------- 2. output grouping --------
@@ -771,9 +794,10 @@ def build_weights_numba(
         output_group[neu.target].append((i, neu.index.idx))
 
     output_map = {}
+    output_index_dtype = _index_dtype_for_elems(output_group)
     for tgt, elems in output_group.items():
-        is_ = np.fromiter((i for i, _ in elems), dtype=np.int32)
-        idxs = np.fromiter((idx for _, idx in elems), dtype=np.int32)
+        is_ = np.fromiter((i for i, _ in elems), dtype=output_index_dtype)
+        idxs = np.fromiter((idx for _, idx in elems), dtype=output_index_dtype)
         output_map[tgt] = (is_, idxs)
 
     # -------- 3. flatten cache + 构建任务 --------
