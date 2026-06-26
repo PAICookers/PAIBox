@@ -1,0 +1,198 @@
+@layer components {
+  .view-controls {
+    width: max-content;
+    min-width: 710px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 10px;
+    padding: 10px 12px;
+    border: 1px solid #d7dee8;
+    border-radius: 8px;
+    background: #ffffff;
+  }
+
+  .view-controls label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #344154;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .view-controls input {
+    width: 14px;
+    height: 14px;
+    margin: 0;
+  }
+
+  .view-controls select,
+  .io-selectors select {
+    min-width: 88px;
+    padding: 4px 6px;
+    border: 1px solid #cfd8e3;
+    border-radius: 5px;
+    background: #ffffff;
+    color: #18202f;
+    font: inherit;
+  }
+
+  .segmented-control {
+    display: inline-flex;
+    overflow: hidden;
+    border: 1px solid #cfd8e3;
+    border-radius: 6px;
+    background: #f7f9fb;
+  }
+
+  .segmented-control button {
+    border: 0;
+    padding: 5px 9px;
+    background: transparent;
+    color: #344154;
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+  }
+
+  .segmented-control button.active {
+    background: #ffffff;
+    color: #111827;
+    font-weight: 700;
+    box-shadow: inset 0 0 0 1px #9eabbc;
+  }
+
+  .badge-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 8px 0 10px;
+  }
+
+  .badge {
+    padding: 3px 7px;
+    border: 1px solid #cfd8e3;
+    border-radius: 999px;
+    background: #f7f9fb;
+    font-size: 12px;
+  }
+
+  .tiny-metric {
+    min-width: 0;
+    padding: 7px 8px;
+    border: 1px solid #d8e0ea;
+    border-radius: 6px;
+    background: #f8fafc;
+  }
+
+  .tiny-metric span {
+    display: block;
+    overflow: hidden;
+    color: #657287;
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tiny-metric strong {
+    display: block;
+    overflow: hidden;
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .kv {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 6px 12px;
+    margin: 0;
+  }
+
+  .kv.compact {
+    grid-template-columns: minmax(120px, 1fr) auto;
+    font-size: 12px;
+  }
+
+  .kv dt {
+    color: #657287;
+  }
+
+  .kv dd {
+    margin: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  .pager {
+    display: grid;
+    grid-template-columns: 1fr auto auto auto;
+    align-items: center;
+    gap: 6px;
+    margin: 12px 0;
+    color: #657287;
+    font-size: 12px;
+  }
+
+  .page-jump {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .page-jump input {
+    width: 58px;
+    min-width: 0;
+    padding: 4px 5px;
+    border: 1px solid #cfd8e3;
+    border-radius: 5px;
+    background: #ffffff;
+    color: #18202f;
+    font: inherit;
+    text-align: right;
+  }
+
+  .detail-note {
+    margin-top: 8px;
+    font-size: 12px;
+  }
+
+  .pager button,
+  .secondary-action {
+    padding: 4px 8px;
+    border: 1px solid #cfd8e3;
+    border-radius: 5px;
+    background: #ffffff;
+  }
+
+  .pager button:disabled {
+    color: #9aa6b5;
+    cursor: not-allowed;
+  }
+
+  .validation-list {
+    display: grid;
+    gap: 6px;
+  }
+
+  .validation {
+    display: grid;
+    gap: 2px;
+    padding: 7px;
+    border-radius: 6px;
+    border: 1px solid #d8e0ea;
+    background: #f8fafc;
+    font-size: 12px;
+  }
+
+  .validation-error {
+    border-color: #ef9a9a;
+    background: #fff1f1;
+  }
+
+  .validation-warning {
+    border-color: #e8c66b;
+    background: #fff8df;
+  }
+}

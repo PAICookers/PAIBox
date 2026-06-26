@@ -1,0 +1,111 @@
+@layer features {
+  .io-selectors {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .io-selectors label {
+    display: grid;
+    gap: 3px;
+    color: #657287;
+    font-size: 11px;
+  }
+
+  .source-plane,
+  .buffer-map {
+    width: 100%;
+    max-height: 320px;
+    border: 1px solid #d8e0ea;
+    border-radius: 6px;
+    background: #ffffff;
+  }
+
+  .source-plane-bg {
+    fill: #f8fafc;
+  }
+
+  .source-plane text,
+  .buffer-map text {
+    fill: #657287;
+    font-size: 11px;
+  }
+
+  .region rect:not(.bbox),
+  .strip-region,
+  .buffer-map rect:not(.source-plane-bg) {
+    fill: rgba(13, 148, 136, 0.58);
+    cursor: pointer;
+  }
+
+  .region.selected rect:not(.bbox),
+  .strip-region.selected {
+    fill: rgba(194, 65, 12, 0.66);
+  }
+
+  .region .bbox {
+    fill: none;
+    stroke: #18202f;
+    stroke-dasharray: 4 3;
+    stroke-width: 0.8;
+    pointer-events: none;
+  }
+
+  .output-strip .strip-region {
+    fill: rgba(217, 119, 6, 0.62);
+  }
+
+  .region-detail {
+    margin-top: 8px;
+    padding: 8px;
+    border: 1px solid #d8e0ea;
+    border-radius: 6px;
+    background: #f8fafc;
+  }
+
+  .tensor-strip {
+    position: relative;
+    min-height: 28px;
+    border: 1px solid #d8e0ea;
+    border-radius: 6px;
+    background: #f8fafc;
+  }
+
+  .tensor-strip > span {
+    position: absolute;
+    top: 8px;
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(13, 148, 136, 0.62);
+  }
+
+  .tensor-strip .strip-axis {
+    height: 26px;
+  }
+
+  .io-entry-table {
+    overflow: auto;
+    border: 1px solid #d8e0ea;
+    border-radius: 6px;
+  }
+
+  .io-entry-row {
+    min-width: 430px;
+    display: grid;
+    grid-template-columns: 58px minmax(120px, 1fr) minmax(88px, auto) minmax(84px, auto);
+    gap: 8px;
+    padding: 5px 7px;
+    border-bottom: 1px solid #edf1f6;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+  }
+
+  .io-entry-head {
+    position: sticky;
+    top: 0;
+    background: #f7f9fb;
+    color: #657287;
+    font-weight: 700;
+  }
+}
