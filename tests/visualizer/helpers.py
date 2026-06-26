@@ -31,12 +31,8 @@ def make_core_frame(
             test_core_xy=(
                 default_test_offset.z if test_core_xy is None else test_core_xy
             ),
-            test_core_x=(
-                default_test_offset.x if test_core_x is None else test_core_x
-            ),
-            test_core_y=(
-                default_test_offset.y if test_core_y is None else test_core_y
-            ),
+            test_core_x=(default_test_offset.x if test_core_x is None else test_core_x),
+            test_core_y=(default_test_offset.y if test_core_y is None else test_core_y),
             global_send=global_send,
             global_receive=global_receive,
         ),

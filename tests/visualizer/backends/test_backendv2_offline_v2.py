@@ -323,9 +323,7 @@ def test_folded_neuron_extra_vjt_records_match_backend_layout() -> None:
         "neuron_type": NeuronType.HALF,
         "vjt": 0,
     }
-    next_neuron = OfflineFrameGenV2.gen_config_frame3_pkg_half(
-        next_dest, next_attrs1
-    )
+    next_neuron = OfflineFrameGenV2.gen_config_frame3_pkg_half(next_dest, next_attrs1)
     neurons = np.concatenate([folded_half, folded_extra, next_neuron])
     weight = OfflineFrameGenV2.gen_config_frame3_weight_pkg(
         np.arange(32, dtype=np.uint8),
@@ -559,14 +557,16 @@ def test_out_of_grid_neuron_destination_route_fails_with_provenance() -> None:
     parsed = parse_frame_stream(np.concatenate([frame3, neuron]))
     core = parsed.cores[(2, 2)]
 
-    with pytest.raises(FrameDecodeError, match="neuron destination route leaves chip grid") as exc_info:
+    with pytest.raises(
+        FrameDecodeError, match="neuron destination route leaves chip grid"
+    ) as exc_info:
         decode_offline_core(
             {"neuron_number": len(neuron) // 2},
             core.packages,
             core_coord=(2, 2),
             grid_width=9,
             grid_height=9,
-    )
+        )
 
     assert exc_info.value.frame_index == core.packages[0].frame_start + 2
     assert exc_info.value.raw_frame == core.packages[0].payloads[1]
@@ -578,7 +578,9 @@ def test_out_of_grid_neuron_destination_route_fails_with_provenance() -> None:
     assert exc_info.value.context["addr_core_x"] == 7
 
 
-def test_intermediate_neuron_route_foothold_fails_even_when_final_target_is_valid() -> None:
+def test_intermediate_neuron_route_foothold_fails_even_when_final_target_is_valid() -> (
+    None
+):
     offset = CoordZXYOffset(0, 0, 8)
     dest = {
         "tick_relative": 1,
@@ -609,7 +611,9 @@ def test_intermediate_neuron_route_foothold_fails_even_when_final_target_is_vali
     parsed = parse_frame_stream(np.concatenate([frame3, neuron]))
     core = parsed.cores[(0, 8)]
 
-    with pytest.raises(FrameDecodeError, match="neuron destination route leaves chip grid") as exc_info:
+    with pytest.raises(
+        FrameDecodeError, match="neuron destination route leaves chip grid"
+    ) as exc_info:
         decode_offline_core(
             {"neuron_number": len(neuron) // 2},
             core.packages,
@@ -657,14 +661,16 @@ def test_neuron_route_copy_foothold_fails_when_multicast_branch_leaves_grid() ->
     parsed = parse_frame_stream(np.concatenate([frame3, neuron]))
     core = parsed.cores[(8, 8)]
 
-    with pytest.raises(FrameDecodeError, match="neuron destination route leaves chip grid") as exc_info:
+    with pytest.raises(
+        FrameDecodeError, match="neuron destination route leaves chip grid"
+    ) as exc_info:
         decode_offline_core(
             {"neuron_number": len(neuron) // 2},
             core.packages,
             core_coord=(8, 8),
             grid_width=9,
             grid_height=9,
-    )
+        )
 
     assert exc_info.value.context["source_core"] == "(8,8)"
     assert exc_info.value.context["target_core"] == "(9,9)"

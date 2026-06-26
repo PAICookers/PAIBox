@@ -285,7 +285,9 @@ def decode_core_config_view(
     return CoreConfigView(groups=groups)
 
 
-def decode_lut_view(core_config: dict[str, int], packages: list[FramePackageInfo]) -> LutView:
+def decode_lut_view(
+    core_config: dict[str, int], packages: list[FramePackageInfo]
+) -> LutView:
     lut_packages = [package for package in packages if package.frame_type == 2]
     if not lut_packages:
         return LutView()
@@ -328,7 +330,9 @@ def decode_lut_view(core_config: dict[str, int], packages: list[FramePackageInfo
     return LutView(present=True, entries=entries, summary=summary)
 
 
-def decode_neurons(core_config: dict[str, int], packages: list[FramePackageInfo]) -> NeuronView:
+def decode_neurons(
+    core_config: dict[str, int], packages: list[FramePackageInfo]
+) -> NeuronView:
     neuron_sram_records = core_config.get("neuron_number", 0)
     if neuron_sram_records <= 0:
         return NeuronView()

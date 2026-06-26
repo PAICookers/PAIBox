@@ -202,7 +202,9 @@ def test_cli_validate_text_and_json(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "errors=0" in result.output
 
-    json_result = runner.invoke(viz_cli, ["validate", "--artifact", str(pb_path), "--json"])
+    json_result = runner.invoke(
+        viz_cli, ["validate", "--artifact", str(pb_path), "--json"]
+    )
     assert json_result.exit_code == 0
     assert json_result.output.strip() == "[]"
 
