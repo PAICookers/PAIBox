@@ -1,0 +1,46 @@
+name: Visualizer UI
+
+on:
+  push:
+    branches:
+      - dev
+    paths:
+      - "tools/visualizer_ui/**"
+      - "paibox/visualizer/static/**"
+      - ".github/workflows/visualizer-ui.yml"
+  pull_request:
+    branches:
+      - main
+      - "dev*"
+    paths:
+      - "tools/visualizer_ui/**"
+      - "paibox/visualizer/static/**"
+      - ".github/workflows/visualizer-ui.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: tools/visualizer_ui
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: tools/visualizer_ui/package-lock.json
+
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build:package
+
+      - name: Verify packaged assets are committed
+        run: git diff --exit-code -- paibox/visualizer/static
+        working-directory: .

@@ -47,6 +47,7 @@ repos:
       - id: pretty-format-json
         # Some json test data are sensitive to the order of keys
         args: ["--autofix", "--indent", "2", "--no-sort-keys"]
+        exclude: ^tools/visualizer_ui/
       - id: no-commit-to-branch
 
   - repo: https://github.com/python-poetry/poetry

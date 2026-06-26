@@ -24,6 +24,8 @@
 
 👉 [用户使用指南](docs/Guide-of-PAIBox.md)
 
+👉 [编译产物可视化](docs/Visualizer.md)
+
 👉 [支持算子](docs/Support-Ops.md)
 
 👉 [高效编写测试项目指南](docs/Guide-of-Test.md)

@@ -1,0 +1,265 @@
+@layer features {
+  .chip-scroll {
+    min-width: 710px;
+    width: max-content;
+    padding: 14px;
+    border: 1px solid #d7dee8;
+    border-radius: 8px;
+    background: #ffffff;
+  }
+
+  .chip-svg {
+    display: block;
+    width: 680px;
+    max-width: none;
+  }
+
+  .core {
+    cursor: pointer;
+    outline: none;
+  }
+
+  .core.muted {
+    opacity: 0.22;
+  }
+
+  .core rect {
+    fill: #f1f4f8;
+    stroke: #c9d3df;
+    stroke-width: 1;
+  }
+
+  .core .core-highlight {
+    fill: none;
+    stroke: #111827;
+    stroke-width: 2.4;
+    stroke-dasharray: 5 3;
+  }
+
+  .core text {
+    pointer-events: none;
+    fill: #2d384a;
+    font-size: 10px;
+    letter-spacing: 0;
+  }
+
+  .core .coord-label {
+    font-weight: 700;
+  }
+
+  .core .tick-label {
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .core .state-label {
+    font-size: 10px;
+  }
+
+  .core-used rect,
+  .core.used rect {
+    fill: #e8f0ff;
+    stroke: #6d8df6;
+  }
+
+  .core-cpu rect {
+    fill: #fff0d8;
+    stroke: #c58a29;
+  }
+
+  .core-online rect {
+    fill: #eaf8ef;
+    stroke: #5fa574;
+  }
+
+  .core-offline.used rect {
+    fill: #e8f0ff;
+    stroke: #5b7cfa;
+  }
+
+  .core.selected rect {
+    stroke: #111827;
+    stroke-width: 2.5;
+  }
+
+  .core.same-tick rect {
+    stroke: #111827;
+    stroke-width: 2;
+  }
+
+  .core-source-halo {
+    fill: none;
+    stroke: #b45309;
+    stroke-width: 2.4;
+    pointer-events: none;
+  }
+
+  .signal-layer {
+    pointer-events: none;
+  }
+
+  .signal-link {
+    stroke: #2643d9;
+    stroke-width: 1.45;
+    stroke-linecap: round;
+    opacity: 0.82;
+  }
+
+  .control-path-layer {
+    pointer-events: none;
+  }
+
+  .control-path-layer line {
+    fill: none;
+    stroke: #b45309;
+    stroke-width: 1.45;
+    stroke-linecap: round;
+    opacity: 0.82;
+  }
+
+  .destination-layer,
+  .cpu-input-layer {
+    pointer-events: none;
+  }
+
+  .destination-layer path,
+  .cpu-input-layer path {
+    fill: none;
+    stroke-dasharray: 5 5;
+    stroke-linecap: round;
+    stroke-width: 1.35;
+    filter: drop-shadow(0 0.5px 0.5px rgb(255 255 255 / 0.75));
+    animation: destination-flow 1100ms linear infinite;
+  }
+
+  .cpu-input-layer path {
+    stroke: #0f766e;
+  }
+
+  .destination-layer text,
+  .cpu-input-layer text {
+    paint-order: stroke;
+    stroke: #ffffff;
+    stroke-width: 3px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .cpu-input-layer text {
+    fill: #0f766e;
+  }
+
+  .destination-layer path {
+    stroke: #c2410c;
+  }
+
+  .destination-layer text {
+    fill: #9a3412;
+  }
+
+  @keyframes destination-flow {
+    to {
+      stroke-dashoffset: -10;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cpu-input-layer path,
+    .destination-layer path {
+      animation: none;
+    }
+  }
+
+  .direction-labels {
+    pointer-events: none;
+  }
+
+  .direction-labels text {
+    paint-order: stroke;
+    fill: #172033;
+    stroke: #ffffff;
+    stroke-width: 3px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .minimap {
+    width: 142px;
+    height: 142px;
+    display: grid;
+    grid-template-columns: repeat(9, 1fr);
+    grid-template-rows: repeat(9, 1fr);
+    gap: 2px;
+    margin-bottom: 20px;
+  }
+
+  .mini-core {
+    border-radius: 2px;
+    background: #e6ebf2;
+    border: 1px solid #d2dbe6;
+  }
+
+  .mini-cpu {
+    background: #f8dba4;
+  }
+
+  .mini-online {
+    background: #bfe7cb;
+  }
+
+  .mini-offline.mini-used {
+    background: #9fb4ff;
+  }
+
+  .mini-selected {
+    outline: 2px solid #111827;
+  }
+
+  .legend-list {
+    display: grid;
+    gap: 6px;
+    margin-bottom: 20px;
+  }
+
+  .legend-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #344154;
+    font-size: 12px;
+  }
+
+  .legend-swatch {
+    width: 16px;
+    height: 16px;
+    border: 1px solid #aab6c5;
+    border-radius: 4px;
+  }
+
+  .role-cpu-swatch {
+    background: #fff0d8;
+    border-color: #c58a29;
+  }
+
+  .role-online-swatch {
+    background: #eaf8ef;
+    border-color: #5fa574;
+  }
+
+  .role-offline-swatch {
+    background: #f1f4f8;
+    border-color: #c9d3df;
+  }
+
+  .thread-select {
+    width: 100%;
+    margin-bottom: 20px;
+    padding: 7px 8px;
+    border: 1px solid #cfd8e3;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #18202f;
+  }
+}

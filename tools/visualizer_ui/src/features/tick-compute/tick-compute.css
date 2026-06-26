@@ -1,0 +1,175 @@
+@layer features {
+  .tick-panel {
+    display: grid;
+    gap: 6px;
+    margin-bottom: 20px;
+  }
+
+  .tick-compute-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  .tick-compute-summary .tiny-metric:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .tick-compute-summary .tiny-metric {
+    padding: 6px 7px;
+  }
+
+  .tick-compute-summary .tiny-metric strong {
+    font-size: 12px;
+  }
+
+  .tick-row {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 44px minmax(74px, 1fr) 30px;
+    align-items: center;
+    gap: 6px;
+    padding: 4px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: #18202f;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .tick-head {
+    padding-block: 2px;
+    color: #657287;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  .tick-head button {
+    min-width: 0;
+    padding: 2px 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    text-transform: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .tick-head button:last-child {
+    justify-content: flex-end;
+    text-align: right;
+  }
+
+  .tick-head button:hover,
+  .tick-head button.active {
+    color: #18202f;
+  }
+
+  .sort-arrows {
+    display: inline-grid;
+    gap: 2px;
+    width: 7px;
+  }
+
+  .sort-up,
+  .sort-down {
+    width: 0;
+    height: 0;
+    border-inline: 4px solid transparent;
+    opacity: 0.28;
+  }
+
+  .sort-up {
+    border-bottom: 5px solid currentColor;
+  }
+
+  .sort-down {
+    border-top: 5px solid currentColor;
+  }
+
+  .sort-up.active,
+  .sort-down.active {
+    opacity: 1;
+  }
+
+  .tick-row.empty {
+    color: #8792a3;
+    opacity: 0.62;
+  }
+
+  .tick-row.active {
+    border-color: #111827;
+    background: #f5f7fa;
+  }
+
+  .tick-swatch {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 auto;
+    border: 1px solid #aab6c5;
+    border-radius: 3px;
+  }
+
+  .tick-name,
+  .tick-count,
+  .tick-sops {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  .tick-name,
+  .tick-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tick-sops {
+    position: relative;
+    overflow: hidden;
+    min-height: 18px;
+    padding: 1px 5px;
+    border-radius: 999px;
+    background: #edf1f6;
+    color: #243044;
+    font-size: 11px;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tick-sops > span {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: inherit;
+    opacity: 0.72;
+  }
+
+  .tick-sops strong {
+    position: relative;
+    z-index: 1;
+    display: block;
+    overflow: hidden;
+    font-weight: 700;
+    text-overflow: ellipsis;
+  }
+
+  .tick-row.empty .tick-sops {
+    color: #8792a3;
+  }
+
+  .tick-count {
+    justify-content: flex-end;
+    text-align: right;
+  }
+}

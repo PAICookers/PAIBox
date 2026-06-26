@@ -614,7 +614,22 @@ mapper.compile(
 - `config_frames.words` 与 `cfg_frames.npy/.h` 使用相同的物理核优先合并顺序
 - `config_frames.word_order` 明确描述了每个 64 位配置帧拆成 32 位 words 时的顺序
 
-### 9.5 `config.pb` 里的 tick 元数据
+### 9.5 用 visualizer 检查编译产物
+
+如果安装了可选可视化依赖，可以直接用 `proto/config.pb` 检查后端最终帧：
+
+```bash
+pip install "paibox[visualizer]"
+paiviz validate --artifact output_path/proto/config.pb
+paiviz --artifact output_path/proto/config.pb
+```
+
+`validate` 只做解析和一致性检查，适合放在调试脚本或 CI smoke 中。默认命令会启动本地 Web UI，
+用于查看 9 x 9 chip map、core config、LUT、神经元、权重、I/O Map 和 raw frame 调试入口。
+
+更多视图说明见 [编译产物可视化](Visualizer.md)。
+
+### 9.6 `config.pb` 里的 tick 元数据
 
 `proto/config.pb` 会随 I/O 映射导出计算核时序信息，供推理应用侧决定何时送入输入、等待输出、或做复位控制。
 
@@ -627,7 +642,7 @@ mapper.compile(
 
 `TickParams` 是内部硬件字段语义，不是公开 `timesteps` 参数语义。`TickParams.tick_duration=0` 表示持续工作，`tick_duration>0` 表示工作 N 个时间步；`tick_initial=0` 表示不自动复位。若同一个输入或输出 tensor 推导出多个不同 tick，导出阶段会报错，应用侧不应假定可以静默合并。
 
-### 9.6 `config.pb` 里的 I/O 数据类型元数据
+### 9.7 `config.pb` 里的 I/O 数据类型元数据
 
 `InputEntry.dtype` 和 `OutputEntry.dtype` 描述普通 DATA payload 的 signedness 与 1/2/4/8-bit 逻辑位宽，取值为 `UINT1/INT1/.../UINT8/INT8`。`bit_width` 保留为兼容字段；新应用应优先使用 `dtype` 做输入编码和 DATA 输出解码，并把 `bit_width` 当作冗余校验。
 
@@ -674,8 +689,10 @@ mapper.compile(
    同时保存 `graph.summary()`。
 4. 用 `Mapper.compile(...)` 导出平台相关帧文件与 `proto/` 目录
    同时保存 `backendv2.log` 与 `proto/config.pb`。
-5. 如果板端需要输入工作帧，读取 `proto/config.pb` 中的输入映射生成 `work_frame1.h`
-6. 向板端交付至少这几类文件
+5. 用 `paiviz validate --artifact proto/config.pb` 检查最终配置帧；
+   如需人工排查，再用 `paiviz --artifact proto/config.pb` 打开可视化页面。
+6. 如果板端需要输入工作帧，读取 `proto/config.pb` 中的输入映射生成 `work_frame1.h`
+7. 向板端交付至少这几类文件
    - 平台相关帧文件（`cfg_frame*.h` 或 `cfg_frame*.npy`）
    - `proto/config.pb`
    - 如需人工检查，再附带 `proto/config.json`
