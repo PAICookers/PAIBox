@@ -25,6 +25,7 @@ from paicorelib import (
     find_coordxy_shortest_path,
 )
 
+from .compute_pressure import compute_weight_pressure
 from .core_config import (
     TEST_DEST_CORE,
     Auto_Core_Config,
@@ -34,9 +35,7 @@ from .core_config import (
     to_core_reg,
 )
 from .neuron import NeuronPlacement, OfflineNeuronPlacement
-from .weight import N_WEIGHTS_PER_SRAM, Weight
-
-SRAM_RECORD_BITS = 128
+from .weight import Weight
 
 
 class CorePlacement:
@@ -105,20 +104,14 @@ class CorePlacement:
     def get_compute_pressure(self) -> int:
         pressure = 0
         for i, neu in enumerate(self.neus):
-            fold_number = len(neu.raw_neus)
             weight = self.weights[self.neu_weight_map[i]]
-            input_bits = 1 << min(int(weight.input_width), 3)
-            weight_bits = 1 << min(int(weight.weight_width), 3)
-            sram_record_count = weight.n_sram_required
-            if weight.compress:
-                slots_with_padding = sram_record_count * N_WEIGHTS_PER_SRAM.get(
-                    weight.weight_width, 5
-                )
-            else:
-                slots_with_padding = sram_record_count * (
-                    SRAM_RECORD_BITS // weight_bits
-                )
-            pressure += fold_number * input_bits * weight_bits * slots_with_padding
+            pressure += compute_weight_pressure(
+                len(neu.raw_neus),
+                weight.input_width,
+                weight.weight_width,
+                weight.n_sram_required,
+                weight.compress,
+            )
         return pressure
 
 

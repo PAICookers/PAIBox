@@ -36,6 +36,12 @@ from paicorelib.neuron_defs_v2 import (
     WeightCompressType,
 )
 
+from paibox.backendv2.compute_pressure import (
+    SRAM_RECORD_BITS,
+    compute_weight_pressure,
+    csc_weight_slots_per_sram,
+)
+
 from ...model import (
     CoreConfigView,
     DecodedField,
@@ -54,7 +60,6 @@ from ...model import (
 from .errors import FrameDecodeError
 
 SRAM_WORDS = 2
-SRAM_RECORD_BITS = 128
 SRAM_RECORD_BYTES = 16
 WEIGHT_STORAGE_PREVIEW_LIMIT = 256
 
@@ -402,8 +407,8 @@ def apply_sops_summary(
     padded and non-padded counts so the UI can expose that distinction instead
     of hiding storage pressure inside one number.
     """
-    input_bits = _sops_width_bits(core_config, "input_width")
-    weight_bits = _sops_width_bits(core_config, "weight_width")
+    input_width = _data_width(core_config, "input_width")
+    weight_width = _data_width(core_config, "weight_width")
     weight_records = {
         (record.start_address, record.end_address, record.kind): record
         for record in weights.records
@@ -421,25 +426,29 @@ def apply_sops_summary(
         fold_number = _fold_multiplier(record)
         sram_record_count = end - start + 1
         kind = _record_weight_kind(record)
+        is_sparse = kind == "sparse"
         weight_sram_pressure += fold_number * sram_record_count
+        sops_with_padding += compute_weight_pressure(
+            fold_number, input_width, weight_width, sram_record_count, is_sparse
+        )
 
-        if kind == "sparse":
-            slots_with_padding = sram_record_count * _csc_slots_per_sram_record(
-                weight_bits
-            )
+        if is_sparse:
             weight_record = weight_records.get((start, end, kind))
             slots_without_padding = (
                 weight_record.nonzero_count
                 if weight_record is not None and weight_record.nonzero_count is not None
-                else slots_with_padding
+                else sram_record_count * csc_weight_slots_per_sram(weight_width)
             )
         else:
-            slots_with_padding = sram_record_count * (SRAM_RECORD_BITS // weight_bits)
-            slots_without_padding = slots_with_padding
+            slots_without_padding = None
 
-        sops_with_padding += fold_number * input_bits * weight_bits * slots_with_padding
-        sops_without_padding += (
-            fold_number * input_bits * weight_bits * slots_without_padding
+        sops_without_padding += compute_weight_pressure(
+            fold_number,
+            input_width,
+            weight_width,
+            sram_record_count,
+            is_sparse,
+            slots_without_padding,
         )
 
     summary = replace(
@@ -1569,13 +1578,9 @@ def _width_bits(core_config: dict[str, int], key: str) -> int:
     return 1 << raw
 
 
-def _sops_width_bits(core_config: dict[str, int], key: str) -> int:
+def _data_width(core_config: dict[str, int], key: str) -> DataWidth:
     raw = core_config.get(key, DataWidth.WIDTH_8BIT)
-    return 1 << min(raw, 3)
-
-
-def _csc_slots_per_sram_record(weight_bits: int) -> int:
-    return {1: 7, 2: 7, 4: 6, 8: 5}.get(weight_bits, 5)
+    return DataWidth(int(raw))
 
 
 def _weight_data_type(core_config: dict[str, int]) -> str:

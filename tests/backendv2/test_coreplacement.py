@@ -20,6 +20,11 @@ from paicorelib import (
 )
 from paicorelib.neuron_defs import ResetMode
 
+from paibox.backendv2.compute_pressure import (
+    compute_weight_pressure,
+    csc_weight_slots_per_sram,
+    dense_weight_slots_per_sram,
+)
 from paibox.backendv2.coreplacement import (
     EmptyOfflineCorePlacementV2,
     EmptyOnlineCorePlacementV2,
@@ -93,6 +98,63 @@ def _core_with_single_neuron(
     core.weights = [weight]
     core.neu_weight_map = {0: 0}
     return core
+
+
+def test_compute_weight_pressure_dense_uses_data_width_bits() -> None:
+    assert dense_weight_slots_per_sram(DataWidth.WIDTH_16BIT) == 8
+    assert (
+        compute_weight_pressure(
+            fold_count=2,
+            input_width=DataWidth.WIDTH_16BIT,
+            weight_width=DataWidth.WIDTH_16BIT,
+            weight_sram_records=3,
+            is_csc=False,
+        )
+        == 2 * 16 * 16 * 8 * 3
+    )
+
+
+def test_compute_weight_pressure_sparse_uses_csc_slot_capacity() -> None:
+    assert csc_weight_slots_per_sram(DataWidth.WIDTH_4BIT) == 6
+    assert (
+        compute_weight_pressure(
+            fold_count=2,
+            input_width=DataWidth.WIDTH_2BIT,
+            weight_width=DataWidth.WIDTH_4BIT,
+            weight_sram_records=4,
+            is_csc=True,
+        )
+        == 2 * 2 * 4 * 6 * 4
+    )
+
+
+@pytest.mark.parametrize(
+    ("compress_type", "weight_width", "input_width", "expected_pressure"),
+    [
+        (WeightCompressType.DENSE, DataWidth.WIDTH_4BIT, DataWidth.WIDTH_2BIT, 512),
+        (WeightCompressType.SPARSE, DataWidth.WIDTH_4BIT, DataWidth.WIDTH_2BIT, 96),
+    ],
+)
+def test_get_compute_pressure_matches_sop_formula(
+    compress_type: WeightCompressType,
+    weight_width: DataWidth,
+    input_width: DataWidth,
+    expected_pressure: int,
+):
+    neuron = OfflineNeuronPlacement(
+        neu=[object(), object()],  # type: ignore
+        attrs_part1=_attrs_part1(),
+        attrs_part2=_attrs_part2(compress_type),
+    )
+    weight = Weight(
+        data=[1, 0, 2, 0, 3, 0, 4, 0, 5],
+        compress_type=compress_type,
+        weight_width=weight_width,
+        input_width=input_width,
+    )
+    core = _core_with_single_neuron(neuron, weight)
+
+    assert core.get_compute_pressure() == expected_pressure
 
 
 def test_set_weight_address_backfills_vjt_initial_for_csc_sparse_full_neuron():
