@@ -86,8 +86,7 @@ class Group:
     def __str__(self) -> str:
         return self.info() + "\n"
 
-    def __repr__(self) -> str:
-        return self.__str__()
+    __repr__ = __str__
 
     def __hash__(self):
         return hash(id(self))
@@ -391,6 +390,19 @@ class RoutingGroup(
     @property
     def n_core_required(self) -> int:
         return len(self.core_placements)
+
+    def layer_key(self) -> tuple[tuple[int, ...], str]:
+        """Return a stable grouping key for tiled groups from the same source node."""
+        targets = {neu.target for neu in self.raw_elems}
+        if not targets and self.nodes:
+            targets = set(self.nodes)
+        if not targets:
+            return (id(self),), self.name
+
+        ordered_targets = sorted(targets, key=id)
+        return tuple(id(target) for target in ordered_targets), "+".join(
+            str(target) for target in ordered_targets
+        )
 
     def add_elem(self, elem: SourceElem) -> SourceElem | None:
         if not isinstance(elem, Neuron):

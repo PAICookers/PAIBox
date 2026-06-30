@@ -23,6 +23,7 @@ from paicorelib import (
 from paicorelib.framelib.parser_v2 import decode_core_config, parse_frame_stream
 from paicorelib.neuron_defs import ResetMode
 
+from paibox.backendv2.compute_pressure import compute_weight_pressure
 from paibox.visualizer.backends.v2.errors import FrameDecodeError
 from paibox.visualizer.backends.v2.offline_v2 import decode_offline_core
 
@@ -139,8 +140,16 @@ def test_decode_full_neuron_and_weight_summary() -> None:
     )
 
     assert decoded.neurons.summary.full_count == 1
-    assert decoded.neurons.summary.synops_pressure == 2048
-    assert decoded.neurons.summary.sops_with_padding == 2048
+    expected_sops = compute_weight_pressure(
+        fold_count=1,
+        input_width=DataWidth.WIDTH_8BIT,
+        weight_width=DataWidth.WIDTH_8BIT,
+        weight_sram_records=2,
+        is_csc=False,
+    )
+    assert expected_sops == 2048
+    assert decoded.neurons.summary.synops_pressure == expected_sops
+    assert decoded.neurons.summary.sops_with_padding == expected_sops
     assert decoded.neurons.summary.sops_without_padding == 2048
     assert decoded.neurons.summary.weight_sram_pressure == 2
     full_attrs = decoded.neurons.records[0].fields["full attrs"]
@@ -503,8 +512,25 @@ def test_decode_csc_weight_storage_entries_and_padding() -> None:
     assert decoded.weights.summary.csc_count == 1
     assert decoded.weights.summary.nonzero_count == 4
     assert decoded.weights.summary.padding_count == 1
-    assert decoded.neurons.summary.sops_with_padding == 320
-    assert decoded.neurons.summary.sops_without_padding == 256
+    expected_padded_sops = compute_weight_pressure(
+        fold_count=1,
+        input_width=DataWidth.WIDTH_8BIT,
+        weight_width=DataWidth.WIDTH_8BIT,
+        weight_sram_records=1,
+        is_csc=True,
+    )
+    expected_unpadded_sops = compute_weight_pressure(
+        fold_count=1,
+        input_width=DataWidth.WIDTH_8BIT,
+        weight_width=DataWidth.WIDTH_8BIT,
+        weight_sram_records=1,
+        is_csc=True,
+        weight_slots=4,
+    )
+    assert expected_padded_sops == 320
+    assert expected_unpadded_sops == 256
+    assert decoded.neurons.summary.sops_with_padding == expected_padded_sops
+    assert decoded.neurons.summary.sops_without_padding == expected_unpadded_sops
     assert decoded.neurons.summary.weight_sram_pressure == 1
     weight_record = decoded.weights.records[0]
     assert weight_record.kind == "sparse"

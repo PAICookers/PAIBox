@@ -41,6 +41,7 @@
   }
 
   .tick-head {
+    grid-template-columns: 32px minmax(42px, 1fr) minmax(28px, auto) minmax(28px, auto) 30px;
     padding-block: 2px;
     color: #657287;
     font-size: 10px;
@@ -63,7 +64,7 @@
     gap: 4px;
   }
 
-  .tick-head button:last-child {
+  .tick-head button:nth-child(n + 2) {
     justify-content: flex-end;
     text-align: right;
   }
@@ -137,9 +138,9 @@
   .tick-sops {
     position: relative;
     overflow: hidden;
-    min-height: 18px;
-    padding: 1px 5px;
-    border-radius: 999px;
+    min-height: 30px;
+    padding: 2px 5px 3px;
+    border-radius: 6px;
     background: #edf1f6;
     color: #243044;
     font-size: 11px;
@@ -160,16 +161,177 @@
     z-index: 1;
     display: block;
     overflow: hidden;
+    line-height: 1.25;
     font-weight: 700;
     text-overflow: ellipsis;
+  }
+
+  .tick-sops small {
+    position: relative;
+    z-index: 1;
+    display: block;
+    overflow: hidden;
+    color: #536174;
+    font-size: 9px;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .tick-row.empty .tick-sops {
     color: #8792a3;
   }
 
+  .tick-row.empty .tick-sops small {
+    color: #8792a3;
+  }
+
   .tick-count {
     justify-content: flex-end;
     text-align: right;
+  }
+
+  .tick-pressure-chart {
+    display: grid;
+    gap: 8px;
+    min-width: 710px;
+    margin-top: 14px;
+    padding: 12px 14px 14px;
+    border: 1px solid #d7dee8;
+    border-radius: 8px;
+    background: #ffffff;
+  }
+
+  .tick-pressure-chart-title {
+    display: flex;
+    align-items: start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .tick-pressure-chart-title h2 {
+    margin-bottom: 2px;
+  }
+
+  .tick-pressure-chart-title p {
+    color: #657287;
+    font-size: 12px;
+  }
+
+  .tick-pressure-legend {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    color: #344154;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .tick-pressure-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .tick-pressure-key {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+  }
+
+  .tick-pressure-key.avg,
+  .tick-pressure-bar.avg {
+    fill: #207f8f;
+    background: #207f8f;
+  }
+
+  .tick-pressure-key.median,
+  .tick-pressure-bar.median {
+    fill: #c78318;
+    background: #c78318;
+  }
+
+  .tick-pressure-scroll {
+    overflow: auto hidden;
+    padding-bottom: 2px;
+  }
+
+  .tick-pressure-svg {
+    display: block;
+    width: max(100%, 1080px);
+    height: 260px;
+  }
+
+  .tick-pressure-axis {
+    stroke: #aab6c5;
+    stroke-width: 1;
+  }
+
+  .tick-pressure-axis.muted {
+    stroke: #edf1f6;
+  }
+
+  .tick-pressure-slot {
+    fill: #f7f9fb;
+    opacity: 0;
+    transition: opacity 150ms ease;
+  }
+
+  .tick-pressure-group:hover .tick-pressure-slot {
+    opacity: 1;
+  }
+
+  .tick-pressure-group.empty .tick-pressure-slot {
+    opacity: 0.42;
+    stroke: #d8e0ea;
+    stroke-dasharray: 2 3;
+  }
+
+  .tick-pressure-bar {
+    transition: opacity 150ms ease;
+  }
+
+  .tick-pressure-group:hover .tick-pressure-bar {
+    opacity: 0.84;
+  }
+
+  .tick-pressure-xlabel,
+  .tick-pressure-yvalue,
+  .tick-pressure-axis-label,
+  .tick-pressure-value {
+    fill: #657287;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10px;
+  }
+
+  .tick-pressure-xlabel {
+    text-anchor: middle;
+  }
+
+  .tick-pressure-yvalue {
+    text-anchor: end;
+  }
+
+  .tick-pressure-axis-label {
+    fill: #344154;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+
+  .tick-pressure-axis-label.x,
+  .tick-pressure-value {
+    text-anchor: middle;
+  }
+
+  .tick-pressure-value {
+    fill: #243044;
+    font-size: 9px;
+    font-weight: 700;
+  }
+
+  .tick-pressure-value.median {
+    fill: #7c4a03;
   }
 }

@@ -11,7 +11,6 @@ from .coreplacement import (
     CorePlacement,
     EmptyOfflineCorePlacementV2,
     EmptyOnlineCorePlacementV2,
-    OfflineCorePlacementV2,
 )
 from .export.cheader import export_cheader_files, export_cheader_merged
 from .export.npy import export_frame_npy
@@ -33,6 +32,7 @@ from .output_completion_planner import (
     OutputProducer,
     select_output_completion_plan,
 )
+from .pressure_unroll import PressureUnrollConfig, PressureUnroller
 from .rg_build import build_groups
 from .route_solver import OFFLINE_CORE_COORDS, ONLINE_CORE_COORDS, route_solve
 from .routing import InputGroup, OutputGroup, RemapGroup, RoutingGroup, toposort_for_rg
@@ -160,7 +160,12 @@ class Mapper:
                     useless_elems.append(elem)
             src_grp.update_raw_elems()
 
-    def routing(self, assign=False) -> None:
+    def routing(
+        self,
+        assign: bool = False,
+        feasibility_only: bool = False,
+        max_time_in_seconds: float = 120.0,
+    ) -> None:
         print("\nTrying to solve routing")
         for rg in self.routing_groups:
             print(f"\tRouting Group {rg.name} requires {rg.n_core_required} cores.")
@@ -177,6 +182,8 @@ class Mapper:
             io_target=(0, 0),
             input_area_ids=[],
             output_area_ids=[],
+            feasibility_only=feasibility_only,
+            max_time_in_seconds=max_time_in_seconds,
         )
         if assign:
             print("\nRouting result:")
@@ -192,93 +199,22 @@ class Mapper:
             ):
                 rg.assign_coord(rg_coords, copy_config)
 
-    def check_routing(self) -> bool:
-        try:
-            self.routing()
-            return True
-        except RuntimeError as e:
-            print(f"Error occurred while checking routing: {e}")
-            return False
-
-    def unroll_pressure(self) -> None:
-        offline_core_num = 63
-        used_core_num = sum(rg.n_core_required for rg in self.routing_groups)
-        free_core_num = offline_core_num - used_core_num
-
-        while free_core_num > 0:
-            core_with_max_pressure: (
-                tuple[RoutingGroup, int, OfflineCorePlacementV2] | None
-            ) = None
-            max_pressure = 0
-            for rg in self.routing_groups:
-                for i, core in enumerate(rg.core_placements):
-                    if not isinstance(core, OfflineCorePlacementV2):
-                        continue
-                    pressure = core.get_compute_pressure()
-                    if pressure > max_pressure:
-                        max_pressure = pressure
-                        core_with_max_pressure = (rg, i, core)
-
-            if core_with_max_pressure is not None and max_pressure > 0:
-                rg, core_idx, core = core_with_max_pressure
-                print(
-                    f"Core with max pressure: {rg.name}[{core_idx}] with pressure {max_pressure}"
-                )
-                first_core = OfflineCorePlacementV2(
-                    core.frontend_core_config, core.backend_core_config
-                )
-                second_core = OfflineCorePlacementV2(
-                    core.frontend_core_config, core.backend_core_config
-                )
-                first_core.default_core_config = core.default_core_config
-                second_core.default_core_config = core.default_core_config
-
-                if len(core.neus) <= 1:
-                    print("Cannot unroll core with only one neuron.")
-                    break
-                first_core.neus = core.neus[: len(core.neus) // 2]
-                second_core.neus = core.neus[len(core.neus) // 2 :]
-                weight_index_map_first_core: dict[int, int] = dict()
-                weight_index_map_second_core: dict[int, int] = dict()
-                for i, neu in enumerate(core.neus):
-                    weight_idx = core.neu_weight_map[i]
-                    if i < len(core.neus) // 2:
-                        if weight_idx not in weight_index_map_first_core:
-                            weight_index_map_first_core[weight_idx] = len(
-                                first_core.weights
-                            )
-                            first_core.weights.append(core.weights[weight_idx])
-                        first_core.neu_weight_map[i] = weight_index_map_first_core[
-                            weight_idx
-                        ]
-                    else:
-                        if weight_idx not in weight_index_map_second_core:
-                            weight_index_map_second_core[weight_idx] = len(
-                                second_core.weights
-                            )
-                            second_core.weights.append(core.weights[weight_idx])
-                        second_core.neu_weight_map[i - len(core.neus) // 2] = (
-                            weight_index_map_second_core[weight_idx]
-                        )
-
-                rg.core_placements[core_idx] = first_core
-                rg.core_placements.insert(core_idx + 1, second_core)
-
-                if self.check_routing():
-                    print("Routing is still valid after unrolling.")
-                    first_core.set_weight_address()
-                    second_core.set_weight_address()
-                    print(
-                        f"Unrolled core into two cores with pressures {first_core.get_compute_pressure()} and {second_core.get_compute_pressure()}."
-                    )
-                    free_core_num -= 1
-                else:
-                    rg.core_placements[core_idx] = core
-                    rg.core_placements.pop(core_idx + 1)
-                    print("Routing is invalid after unrolling, reverted changes.")
-                    break
-            else:
-                break
+    def unroll_pressure(
+        self,
+        max_try: int,
+        max_factor: int | None,
+        core_selection: Literal["peak_ratio", "quantile"],
+        peak_ratio: float,
+        quantile: float,
+    ) -> None:
+        config = PressureUnrollConfig(
+            max_try, max_factor, core_selection, peak_ratio, quantile
+        )
+        PressureUnroller(
+            self.routing_groups,
+            lambda: self.routing(feasibility_only=True, max_time_in_seconds=30),
+            config,
+        ).run()
 
     def set_detail_dest(self, output_route_plan: OutputCpuIngressPlan) -> None:
         # Output collection still targets the CPU. The plan only overrides the
@@ -427,6 +363,11 @@ class Mapper:
         export_proto_python: bool = True,
         debug: bool = False,
         unrolling: bool = False,
+        unroll_max_try: int = 4,
+        unroll_max_factor: int | None = 2,
+        unroll_core_selection: Literal["peak_ratio", "quantile"] = "peak_ratio",
+        unroll_peak_ratio: float = 0.8,
+        unroll_quantile: float = 0.5,
         allow_empty_online_relay_core: bool = False,
         csc_tail_overflow_fix: Literal[
             "weight_indice_padding", "fanin_margin"
@@ -470,6 +411,15 @@ class Mapper:
                 ``True``, cores with high compute pressure are split into
                 multiple cores if free cores are available and routing remains
                 valid. Defaults to ``False``.
+            unroll_max_try: Maximum pressure-unroll try.
+            unroll_max_factor: Optional cap for one split attempt's factor.
+            unroll_core_selection: Core selection rule for pressure unroll.
+                ``"peak_ratio"`` selects cores close to the layer peak;
+                ``"quantile"`` selects cores at or above a pressure quantile.
+            unroll_peak_ratio: Peak-ratio threshold used when
+                ``unroll_core_selection="peak_ratio"``.
+            unroll_quantile: Pressure quantile used when
+                ``unroll_core_selection="quantile"``. ``0.5`` is median.
             allow_empty_online_relay_core: Whether output completion may use
                 empty online cores in y=0/1 as source/relay/thread-membership
                 shells. Defaults to ``False``.
@@ -526,7 +476,13 @@ class Mapper:
         self.routing_groups, self.next_rg_group = toposort_for_rg(self.groups)
 
         if unrolling:
-            self.unroll_pressure()
+            self.unroll_pressure(
+                unroll_max_try,
+                unroll_max_factor,
+                unroll_core_selection,
+                unroll_peak_ratio,
+                unroll_quantile,
+            )
 
         print("\nAll groups after neuron allocation:")
         for rg in all_groups:

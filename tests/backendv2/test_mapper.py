@@ -35,6 +35,7 @@ from paibox.backendv2.output_completion_planner import (
     OutputCompletionPlan,
     OutputProducer,
 )
+from paibox.backendv2.pressure_unroll import PressureUnrollConfig, PressureUnroller
 from paibox.backendv2.proto import get_schema_version
 from paibox.backendv2.proto.compile_artifacts_pb2 import (
     CompileArtifacts,
@@ -43,7 +44,7 @@ from paibox.backendv2.proto.compile_artifacts_pb2 import (
     OutputTensorMapping,
     RuntimeParams,
 )
-from paibox.backendv2.routing import FANIN_BASE, OutputGroup
+from paibox.backendv2.routing import FANIN_BASE, OutputGroup, RoutingGroup
 from paibox.paiir import (
     LUT_TABLE_SIZE,
     ANNNodeV25,
@@ -113,6 +114,43 @@ def _assert_debug_frame_text(path: Path) -> None:
     text = path.read_text()
     assert "# Core at coord (X,Y)=" in text
     assert "0x" in text
+
+
+def test_mapper_unroll_pressure_delegates_to_pressure_unroller(monkeypatch):
+    mapper = Mapper()
+    rg = RoutingGroup([], [])
+    mapper.routing_groups = [rg]
+    calls = []
+    routing_calls = []
+
+    def fake_run(self):
+        calls.append(self)
+
+    def fake_routing(**kwargs):
+        routing_calls.append(kwargs)
+
+    monkeypatch.setattr(PressureUnroller, "run", fake_run)
+    monkeypatch.setattr(mapper, "routing", fake_routing)
+
+    mapper.unroll_pressure(
+        max_try=2,
+        max_factor=3,
+        core_selection="quantile",
+        peak_ratio=0.9,
+        quantile=0.75,
+    )
+
+    assert len(calls) == 1
+    assert calls[0].routing_groups is mapper.routing_groups
+    assert calls[0].config == PressureUnrollConfig(
+        max_try=2,
+        max_split_factor=3,
+        core_selection="quantile",
+        peak_ratio=0.9,
+        quantile=0.75,
+    )
+    calls[0].routing_fn()
+    assert routing_calls == [{"feasibility_only": True, "max_time_in_seconds": 30}]
 
 
 def _export_simple_cnn_proto(export_root: Path, word_order: str) -> Path:
