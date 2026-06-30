@@ -240,8 +240,7 @@ class PressureUnroller:
             for rg, core_placements in original_core_placements.items():
                 rg.core_placements = core_placements
             print(
-                f"Routing is invalid after unrolling {profile.label}, "
-                "reverted changes."
+                f"Routing is invalid after unrolling {profile.label}, reverted changes."
             )
             return False
 

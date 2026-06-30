@@ -117,8 +117,7 @@ def test_offline_neuron_copy_for_readdress_keeps_real_vjt_initial():
 
     assert placement.copy_for_readdress().neu_attrs_part2.vjt_initial == 7
     assert (
-        placement.copy_for_readdress(clear_vjt_initial=True)
-        .neu_attrs_part2.vjt_initial
+        placement.copy_for_readdress(clear_vjt_initial=True).neu_attrs_part2.vjt_initial
         == 7
     )
 

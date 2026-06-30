@@ -88,6 +88,7 @@ def get_shapes_by_area():
 SHAPES_BY_AREA, COPY_CONFIGS, SHAPE_BBOXES = get_shapes_by_area()
 MAX_AREA = max(SHAPES_BY_AREA.keys())
 
+
 # ---------------- 主求解函数 ----------------
 def route_solve(
     areas=[1],
