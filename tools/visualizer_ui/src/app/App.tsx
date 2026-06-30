@@ -14,7 +14,12 @@ import type {
 } from '../types'
 import { buildControlPaths, buildLinks, ChipGrid, MiniMap, RoleLegend, ThreadPanel } from '../features/chip-map/ChipMap'
 import { Inspector } from '../features/inspector/Inspector'
-import { buildTickColorMap, TickComputePanel } from '../features/tick-compute/TickComputePanel'
+import {
+  buildTickColorMap,
+  buildTickComputeRows,
+  TickComputePanel,
+  TickPressureBarChart,
+} from '../features/tick-compute/TickComputePanel'
 import { collectThreads, getTickStart } from '../shared/core'
 import { Metric, ValidationList } from '../shared/components'
 import { clamp } from '../shared/format'
@@ -23,6 +28,9 @@ import type { IoSelection, MapMode, OverlayOptions } from '../shared/view-types'
 const DEFAULT_INSPECTOR_WIDTH = 380
 const MIN_INSPECTOR_WIDTH = 320
 const MAX_INSPECTOR_WIDTH = 720
+const DEFAULT_SIDEBAR_WIDTH = 280
+const MIN_SIDEBAR_WIDTH = 220
+const MAX_SIDEBAR_WIDTH = 380
 
 export function App() {
   const [summary, setSummary] = useState<ViewerSummary | null>(null)
@@ -34,6 +42,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null)
   const [threadFilter, setThreadFilter] = useState<number | 'all'>('all')
   const [highlightTickStart, setHighlightTickStart] = useState<number | null>(null)
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH)
   const [inspectorWidth, setInspectorWidth] = useState(DEFAULT_INSPECTOR_WIDTH)
   const [includePaddingInSops, setIncludePaddingInSops] = useState(true)
   const [mapMode, setMapMode] = useState<MapMode>('chip')
@@ -79,6 +88,7 @@ export function App() {
   const links = useMemo(() => buildLinks(chip), [chip])
   const controlPaths = useMemo(() => buildControlPaths(chip), [chip])
   const tickColorMap = useMemo(() => (chip ? buildTickColorMap(chip) : new Map<number, string>()), [chip])
+  const tickComputeRows = chip ? buildTickComputeRows(chip, includePaddingInSops, tickColorMap) : []
   const threads = useMemo(() => (chip ? collectThreads(chip) : []), [chip])
 
   async function selectCore(core: CoreOverview) {
@@ -125,6 +135,22 @@ export function App() {
     window.addEventListener('pointerup', handleUp)
   }
 
+  function startSidebarResize(event: ReactPointerEvent<HTMLDivElement>) {
+    event.preventDefault()
+    const startX = event.clientX
+    const startWidth = sidebarWidth
+    const handleMove = (moveEvent: globalThis.PointerEvent) => {
+      const nextWidth = startWidth + (moveEvent.clientX - startX)
+      setSidebarWidth(clamp(nextWidth, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH))
+    }
+    const handleUp = () => {
+      window.removeEventListener('pointermove', handleMove)
+      window.removeEventListener('pointerup', handleUp)
+    }
+    window.addEventListener('pointermove', handleMove)
+    window.addEventListener('pointerup', handleUp)
+  }
+
   return (
     <main className="app">
       <header className="topbar">
@@ -144,7 +170,15 @@ export function App() {
           </div>
         )}
       </header>
-      <section className="workspace" style={{ '--inspector-width': `${inspectorWidth}px` } as CSSProperties}>
+      <section
+        className="workspace"
+        style={
+          {
+            '--sidebar-width': `${sidebarWidth}px`,
+            '--inspector-width': `${inspectorWidth}px`,
+          } as CSSProperties
+        }
+      >
         <aside className="sidebar">
           <h2>Minimap</h2>
           {chip && <MiniMap chip={chip} selected={selected} />}
@@ -155,9 +189,7 @@ export function App() {
           <h2>Tick Compute</h2>
           {chip && (
             <TickComputePanel
-              chip={chip}
-              includePaddingInSops={includePaddingInSops}
-              tickColorMap={tickColorMap}
+              rows={tickComputeRows}
               highlighted={highlightTickStart}
               onSelect={setHighlightTickStart}
             />
@@ -165,6 +197,13 @@ export function App() {
           <h2>Validation</h2>
           <ValidationList entries={validation} />
         </aside>
+        <div
+          className="sidebar-resizer"
+          role="separator"
+          aria-label="Resize sidebar"
+          aria-orientation="vertical"
+          onPointerDown={startSidebarResize}
+        />
         <section className="canvas-panel">
           {chip ? (
             <>
@@ -190,6 +229,7 @@ export function App() {
                 highlightTickStart={highlightTickStart}
                 onSelect={selectCore}
               />
+              <TickPressureBarChart rows={tickComputeRows} />
             </>
           ) : (
             <div className="loading">Loading artifact...</div>
