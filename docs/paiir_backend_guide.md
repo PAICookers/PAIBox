@@ -52,6 +52,8 @@ paibox.paiir/
 
 PAIIR 前端默认支持标准 PyTorch 模块、少量 canonical function-form 算子，以及当前白名单内的 `spikingjelly.activation_based.layer.X` wrapper。自定义模块不要依赖 lowering 猜测字段名或量化表达式，应显式注册到受支持的 canonical 模块或神经元。
 
+面向用户的前端算子和逐参数支持矩阵见 `docs/user_quickstart.md` 的“前端算子支持矩阵”。本节只记录后端开发需要知道的扩展边界，避免两处重复维护同一张支持表。
+
 ### 自定义计算模块
 
 `register_module(...)` 用于把用户自定义 `nn.Module` 转换为 PAIIR 已支持的 canonical `nn.Module`，例如 `nn.Conv1d`、`nn.Conv2d`、`nn.Linear`、pooling 模块（含 `nn.AdaptiveMaxPool1d/2d` 与 `nn.AdaptiveAvgPool1d/2d`）、zero-padding 模块、标准激活模块或 PAIIR 神经元/LUT 模块。
