@@ -54,12 +54,7 @@ from ...exceptions import AutoOptimizationWarning
 from .calc_params import DEFAULT_NEG_THRESHOLD, NeuronParams
 from .lut_activation import LutActivation
 
-__all__ = [
-    "CoreNeuronV25",
-    "ANNNodeV25",
-    "IFNodeV25",
-    "LIFNodeV25",
-]
+__all__ = ["CoreNeuronV25", "ANNNodeV25", "IFNodeV25", "LIFNodeV25"]
 
 _T = TypeVar("_T", bound="CoreNeuronV25")
 
@@ -115,7 +110,7 @@ class CoreNeuronV25(MemoryModule):
         or ``ANNNodeV25(LutReLU())`` for ANN.
 
         Args:
-            lut: Optional LUT activation module for ANN mode.
+            reset_mode: Reset mode.
             reset_v: Hard-reset voltage.
             thres_pos_mode: Positive threshold mode.
             thres_neg_mode: Negative threshold mode.
@@ -130,9 +125,9 @@ class CoreNeuronV25(MemoryModule):
             leak_multi_mode: Multiplicative leak mode.
             leak_add_mode: Additive leak direction.
             tau: Time constant (must be a power of 2).
-            leset_mode: Reset mode after threshold crossing.
-            reak_v: Additive leak voltage.
+            leak_v: Additive leak voltage.
             init_v: Initial membrane potential.
+            lut: Optional LUT activation module for ANN mode.
         """
         super().__init__()
 
@@ -418,6 +413,7 @@ class CoreNeuronV25(MemoryModule):
         elif self.reset_mode == RM.MODE_LINEAR:
             fired = pos_mask | neg_mask
             v[fired] -= threshold[fired]
+        # MODE_NONRESET: no reset, v unchanged
 
         return v
 

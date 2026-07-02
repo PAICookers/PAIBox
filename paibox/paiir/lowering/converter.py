@@ -43,7 +43,6 @@ Example::
 import copy
 import math
 import operator
-import sys
 import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -51,9 +50,6 @@ from functools import partial
 from typing import Any, TypeVar
 
 import torch
-from spikingjelly.activation_based import functional as sj_F
-from spikingjelly.activation_based import layer, neuron
-from spikingjelly.activation_based.base import StepModule
 from torch import Tensor, fx, nn
 from torch.fx.node import Argument, Target
 from torch.fx.passes.shape_prop import ShapeProp
@@ -90,6 +86,7 @@ from .conv_lowering import (
     extract_functional_conv_spec,
 )
 from .dims_prop import DimsProp
+from .frontends import registry
 from .fx_utils import (
     get_call_arg,
     get_fx_call_target_name,
@@ -98,13 +95,6 @@ from .fx_utils import (
     get_output_shape,
 )
 from .shape_analysis import ReshapeSinkInfo, ShapeAnalysisResult, analyze_shape_helpers
-from .sj_layers import (
-    _SUPPORTED_SJ_LAYER_COMP_TYPES,
-    SJ_LAYER_ERASE_MODULE_TYPES,
-    describe_sj_layer_module,
-    is_sj_layer_module,
-    is_supported_sj_layer_module,
-)
 from .split_lowering import (
     SplitProducerInfo,
     apply_split_analysis_rule,
@@ -112,20 +102,12 @@ from .split_lowering import (
     describe_unsupported_split_like,
     is_split_like_node,
 )
-
-if sys.version_info >= (3, 13):
-    from warnings import deprecated
-else:
-    from typing_extensions import deprecated
-
+from .support import ModuleMapper
 
 __all__ = ["torch_to_paiir", "register_module", "register_neuron"]
 
 _M = TypeVar("_M", bound=nn.Module)
 
-
-ModuleMapper = dict[type[_M], Callable[[_M], OpNode]]
-"""Module mapping type: ``nn.Module`` subclass -> converter function returning an :class:`OpNode`."""
 
 _USER_MODULE_MAP: ModuleMapper = {}
 """User-registered module mappings layered on top of built-in lowering rules."""
@@ -160,7 +142,7 @@ TRACE_LEAF_MODULE_TYPES = (
 
 # Modules removed by _EraseModuleTransformer: each call_module node is replaced
 # by its input, leaving no trace in the graph after dead-code elimination.
-ERASE_MODULE_TYPES = (nn.Dropout, nn.Identity) + SJ_LAYER_ERASE_MODULE_TYPES
+BASE_ERASE_MODULE_TYPES = (nn.Dropout, nn.Identity)
 
 ADD_OPS = (operator.add, torch.add)
 SUB_OPS = (operator.sub, torch.sub)
@@ -281,56 +263,8 @@ def _describe_pad_lowering_issue(m: nn.Module) -> str | None:
     return None
 
 
-def _set_sj_layer_step_mode_single(model: nn.Module) -> None:
-    """Force step_mode='s' on all SpikingJelly StepModule instances in the model copy.
-
-    Covers sj_layer.X (compute wrappers) and neuron.IFNode/LIFNode (MemoryModule ->
-    StepModule), and any other StepModule subclass in the model.
-
-    Called before FX tracing so ShapeProp can execute SJ forwards safely.
-    Emits a warning if any module actually had step_mode != 's'.
-    """
-    multi_step_modules = [
-        type(m).__name__
-        for m in model.modules()
-        if isinstance(m, StepModule) and m.step_mode != "s"
-    ]
-    if multi_step_modules:
-        warnings.warn(
-            f"Model contains SpikingJelly modules with step_mode='m' "
-            f"({', '.join(multi_step_modules)}). "
-            f"step_mode has been set to 's' on the internal model copy for "
-            f"chip deployment. The original model is not modified.",
-            UserWarning,
-            stacklevel=3,
-        )
-        sj_F.set_step_mode(model, "s")
-
-
 def _map_comp(m: nn.Module, **kwargs) -> StandaloneCompOp:
     return StandaloneCompOp(m, **kwargs)
-
-
-def _map_sj_ifnode(m: neuron.IFNode, **kwargs) -> StandaloneActOp:
-    return StandaloneActOp(
-        IFNodeV25(
-            m.v_threshold, m.v_reset, m.surrogate_function, m.detach_reset, **kwargs
-        )
-    )
-
-
-def _map_sj_lifnode(m: neuron.LIFNode, **kwargs) -> StandaloneActOp:
-    return StandaloneActOp(
-        LIFNodeV25(
-            m.tau,
-            m.decay_input,
-            m.v_threshold,
-            m.v_reset,
-            m.surrogate_function,
-            m.detach_reset,
-            **kwargs,
-        )
-    )
 
 
 NeuronConverterResult = CoreNeuronV25 | LutActivation
@@ -478,17 +412,6 @@ def _build_compute_module_map() -> ModuleMapper:
     return dict.fromkeys(modules, _map_comp)
 
 
-def _build_spikingjelly_neuron_module_map() -> ModuleMapper:
-    return {neuron.IFNode: _map_sj_ifnode, neuron.LIFNode: _map_sj_lifnode}
-
-
-def _map_sj_voting_layer(m: nn.Module, **kwargs) -> StandaloneCompOp:
-    if not isinstance(m, layer.VotingLayer):
-        raise TypeError(f"expected VotingLayer, got {type(m).__name__}")
-
-    return _map_comp(nn.AvgPool1d(m.voting_size, m.voting_size), **kwargs)
-
-
 def _build_standard_activation_module_map() -> ModuleMapper:
     return {
         nn.ReLU: _build_standalone_act_mapper(nn.ReLU, lambda _: ANNNodeV25(LutReLU())),
@@ -516,17 +439,9 @@ def _build_builtin_paiir_neuron_map() -> ModuleMapper:
     }
 
 
-def _build_spikingjelly_layer_comp_map() -> ModuleMapper:
-    module_map = dict.fromkeys(_SUPPORTED_SJ_LAYER_COMP_TYPES, _map_comp)
-    module_map[layer.VotingLayer] = _map_sj_voting_layer
-    return module_map  # type: ignore
-
-
 def build_default_module_map() -> ModuleMapper:
     return {
         **_build_compute_module_map(),
-        **_build_spikingjelly_neuron_module_map(),
-        **_build_spikingjelly_layer_comp_map(),
         **_build_standard_activation_module_map(),
         **_build_builtin_paiir_lut_map(),
         **_build_builtin_paiir_neuron_map(),
@@ -536,60 +451,19 @@ def build_default_module_map() -> ModuleMapper:
 _DEFAULT_MODULE_MAP = build_default_module_map()
 
 
-try:
-    from spikingjelly.clock_driven import neuron as legacy_neuron
-except ImportError:  # pragma: no cover - depends on installed SJ version
-    legacy_neuron = None
-
-if legacy_neuron is not None:
-    legacy_if = legacy_neuron.IFNode
-    legacy_lif = legacy_neuron.LIFNode
-
-    @deprecated(
-        (
-            "SpikingJelly's legacy `spikingjelly.clock_driven.neuron.IFNode` usage "
-            "is deprecated; please migrate to "
-            "`spikingjelly.activation_based.neuron.IFNode`."
-        )
-    )
-    def _map_legacy_ifnode(m: legacy_if, **kwargs) -> StandaloneActOp:
-        return StandaloneActOp(
-            act=IFNodeV25(
-                m.v_threshold,  # type: ignore
-                m.v_reset,  # type: ignore
-                m.surrogate_function,
-                m.detach_reset,
-                **kwargs,
-            )
-        )
-
-    @deprecated(
-        (
-            "SpikingJelly's legacy `spikingjelly.clock_driven.neuron.LIFNode` usage "
-            "is deprecated; please migrate to "
-            "`spikingjelly.activation_based.neuron.LIFNode`."
-        )
-    )
-    def _map_legacy_lifnode(m: legacy_lif, **kwargs) -> StandaloneActOp:
-        return StandaloneActOp(
-            act=LIFNodeV25(
-                m.tau,
-                m.decay_input,
-                m.v_threshold,  # type: ignore
-                m.v_reset,  # type: ignore
-                m.surrogate_function,
-                m.detach_reset,
-                **kwargs,
-            )
-        )
-
-    _DEFAULT_MODULE_MAP[legacy_if] = _map_legacy_ifnode
-    _DEFAULT_MODULE_MAP[legacy_lif] = _map_legacy_lifnode
-
-
-def _get_full_module_map() -> ModuleMapper:
+def _get_full_module_map(frontend_map: ModuleMapper | None = None) -> ModuleMapper:
     """Return built-in lowering rules overlaid with user registrations."""
-    return {**_DEFAULT_MODULE_MAP, **_USER_MODULE_MAP}
+    full_map = dict(_DEFAULT_MODULE_MAP)
+    if frontend_map:
+        for module_type, mapper in frontend_map.items():
+            if module_type in full_map:
+                raise ValueError(
+                    f"module map conflict for {module_type.__name__}: "
+                    "built-in lowering and frontend lowering"
+                )
+            full_map[module_type] = mapper
+    full_map.update(_USER_MODULE_MAP)
+    return full_map
 
 
 def propagate_shapes(gm: fx.GraphModule, *inputs: Tensor) -> None:
@@ -1010,13 +884,17 @@ class _PAIIRTracer(fx.Tracer):
     """
 
     def __init__(
-        self, custom_leaf_modules: tuple[type[nn.Module], ...] = (), **kwargs
+        self,
+        custom_leaf_modules: tuple[type[nn.Module], ...] = (),
+        frontends: tuple[registry.FrontendAdapter, ...] = (),
+        **kwargs,
     ) -> None:
         super().__init__(**kwargs)
         self.custom_leaf_modules = custom_leaf_modules
+        self.frontends = frontends
 
     def is_leaf_module(self, m: nn.Module, module_qualified_name: str) -> bool:
-        if is_sj_layer_module(m):
+        if registry.owned_by_frontend(m, self.frontends) is not None:
             return True
         if self.custom_leaf_modules and isinstance(m, self.custom_leaf_modules):
             return True
@@ -1032,11 +910,17 @@ class _EraseModuleTransformer(fx.Transformer):
     Dead-code elimination is run automatically so no orphaned nodes remain.
     """
 
+    def __init__(
+        self, module: nn.Module, erase_types: tuple[type[nn.Module], ...]
+    ) -> None:
+        super().__init__(module)
+        self.erase_types = erase_types
+
     def call_module(
         self, target: Target, args: tuple[Argument, ...], kwargs: dict[str, Any]
     ) -> Any:
         if isinstance(target, str) and isinstance(
-            self.submodules[target], ERASE_MODULE_TYPES
+            self.submodules[target], self.erase_types
         ):
             return args[0]
         return super().call_module(target, args, kwargs)
@@ -1121,25 +1005,27 @@ def torch_to_paiir(
     """
     model = copy.deepcopy(model)
     model.eval()
-    # force 's' so ShapeProp can execute SJ forwards
-    _set_sj_layer_step_mode_single(model)
-    full_map = _get_full_module_map()
+    frontends = registry.resolve_frontends(model)
+    model = registry.prepare_model(model, frontends)
+    frontend_map = registry.build_frontend_module_map(frontends)
+    full_map = _get_full_module_map(frontend_map)
+    erase_types = BASE_ERASE_MODULE_TYPES + registry.collect_erase_types(frontends)
 
     # Edge case: FX trace always decomposes the root module. Wrap supported roots
     # so they become submodules and are treated as leaf modules.
     if (
         type(model) in full_map
         or isinstance(model, TRACE_LEAF_MODULE_TYPES)
-        or is_sj_layer_module(model)
+        or registry.owned_by_frontend(model, frontends) is not None
     ):
         model = nn.Sequential(model)
 
     # Leaf types = module_map keys + modules that need special post-trace handling.
     leaf_types = tuple(full_map.keys()) + TRACE_LEAF_MODULE_TYPES
-    tracer = _PAIIRTracer(custom_leaf_modules=leaf_types)
+    tracer = _PAIIRTracer(leaf_types, frontends)
     traced = tracer.trace(model, concrete_args)
     gm = fx.GraphModule(tracer.root, traced)
-    gm = _EraseModuleTransformer(gm).transform()
+    gm = _EraseModuleTransformer(gm, erase_types).transform()
 
     if sample_inputs:
         for i, inp in enumerate(sample_inputs):
@@ -1151,7 +1037,7 @@ def torch_to_paiir(
         propagate_shapes(gm, *sample_inputs)
         propagate_dims(gm)
 
-    return _fx_graph_to_paiir(gm, full_map, strict)
+    return _fx_graph_to_paiir(gm, full_map, strict, frontends)
 
 
 def _is_lowering_bypass_module(m: nn.Module) -> bool:
@@ -1300,6 +1186,7 @@ def _apply_module_lowering_rule(
     node: fx.Node,
     ctx: _LoweringContext,
     module_map: ModuleMapper,
+    frontends: tuple[registry.FrontendAdapter, ...],
     strict: bool,
 ) -> bool:
     if node.op != "call_module":
@@ -1341,11 +1228,21 @@ def _apply_module_lowering_rule(
             ctx.bypass_nodes.add(node)
         return True
 
-    if is_sj_layer_module(torch_module) and not is_supported_sj_layer_module(
-        torch_module
-    ):
-        _mark_unsupported(ctx, node, describe_sj_layer_module(torch_module), strict)
+    source_resolution = registry.resolve_source_op(torch_module, frontends)
+    if source_resolution is not None:
+        if not source_resolution.supported:
+            description = registry.describe_source_error(source_resolution)
+            raise UnsupportedOpError(node.name, description)
+
+        ir_node = registry.lower_source_resolution(source_resolution)
+        _register_ir_node(
+            paiir_graph, ctx, node, ir_node, input_nodes_override=input_override
+        )
         return True
+
+    unsupported_frontend = registry.describe_unsupported_module(torch_module, frontends)
+    if unsupported_frontend is not None:
+        raise UnsupportedOpError(node.name, unsupported_frontend)
 
     if _is_lowering_bypass_module(torch_module):
         ctx.bypass_nodes.add(node)
@@ -1610,6 +1507,7 @@ def _lower_graph(
     paiir_graph: PAIIRGraph,
     module_map: ModuleMapper,
     ctx: _LoweringContext,
+    frontends: tuple[registry.FrontendAdapter, ...],
     strict: bool,
 ) -> None:
     """Lower FX nodes into atomic PAIIR nodes without wiring edges yet."""
@@ -1625,7 +1523,9 @@ def _lower_graph(
         if node in ctx.ignored_nodes or node in ctx.bypass_nodes:
             continue
 
-        if _apply_module_lowering_rule(gm, paiir_graph, node, ctx, module_map, strict):
+        if _apply_module_lowering_rule(
+            gm, paiir_graph, node, ctx, module_map, frontends, strict
+        ):
             continue
 
         if _apply_builtin_function_lowering_rule(gm, paiir_graph, node, ctx, strict):
@@ -1730,7 +1630,10 @@ def _wire_graph(
 
 
 def _fx_graph_to_paiir(
-    gm: fx.GraphModule, module_map: ModuleMapper, strict: bool = False
+    gm: fx.GraphModule,
+    module_map: ModuleMapper,
+    strict: bool = False,
+    frontends: tuple[registry.FrontendAdapter, ...] = (),
 ) -> PAIIRGraph:
     """Convert an FX graph to a :class:`PAIIRGraph` (1:1 mapping, no fusion).
 
@@ -1745,7 +1648,7 @@ def _fx_graph_to_paiir(
     ctx = _LoweringContext()
 
     _analyze_graph(gm, ctx)
-    _lower_graph(gm, paiir_graph, module_map, ctx, strict)
+    _lower_graph(gm, paiir_graph, module_map, ctx, frontends, strict)
     _emit_unsupported_warnings(ctx, strict)
     _wire_graph(gm, paiir_graph, ctx)
 
