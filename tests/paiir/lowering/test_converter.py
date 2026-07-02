@@ -872,6 +872,43 @@ class TestSpikingJellyNeuronAttributeForwarding:
         assert type(lowered.surrogate_function) is type(model.act.surrogate_function)
         assert lowered.detach_reset is model.act.detach_reset
 
+    @pytest.mark.parametrize("decay_input", [0, 1, 0.0, 1.0])
+    def test_activation_based_lifnode_accepts_legacy_numeric_decay_input(
+        self, decay_input
+    ):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(8, 4)
+                self.act = sj.LIFNode(2.0, decay_input=decay_input)
+
+            def forward(self, x):
+                return self.act(self.linear(x))
+
+        graph = torch_to_paiir(Model().eval(), make_vec_8d())
+
+        lowered = _find_single_act(graph, LIFNodeV25)
+        assert lowered.leak_multi_input == bool(decay_input)
+
+    @pytest.mark.parametrize("neuron_cls", [sj.IFNode, sj.LIFNode])
+    def test_activation_based_neuron_rejects_non_bool_detach_reset(self, neuron_cls):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(8, 4)
+                self.act = neuron_cls()
+                self.act.detach_reset = 1
+
+            def forward(self, x):
+                return self.act(self.linear(x))
+
+        with pytest.raises(UnsupportedOpError) as excinfo:
+            torch_to_paiir(Model().eval(), make_vec_8d(), strict=True)
+
+        message = str(excinfo.value)
+        assert "field=detach_reset" in message
+        assert "detach_reset must be bool" in message
+
 
 class TestLegacyClockDrivenCompatibility:
     """Compatibility tests for legacy SpikingJelly clock_driven neurons."""
@@ -1265,7 +1302,10 @@ class TestSpikingJellyLayerCanonicalization:
             (layer.NeuNorm(3, 8, 8), make_img_3ch_8x8()),
         ],
     )
-    def test_unsupported_layer_modules_are_rejected_by_lowering(self, module, sample):
+    @pytest.mark.parametrize("strict", [True, False], ids=["strict", "non_strict"])
+    def test_unsupported_layer_modules_are_rejected_by_lowering(
+        self, module, sample, strict
+    ):
         class Model(nn.Module):
             def __init__(self):
                 super().__init__()
@@ -1275,19 +1315,23 @@ class TestSpikingJellyLayerCanonicalization:
                 return self.module(x)
 
         with pytest.raises(UnsupportedOpError, match="spikingjelly"):
-            torch_to_paiir(Model().eval(), sample)
+            torch_to_paiir(Model().eval(), sample, strict=strict)
 
-    def test_non_strict_unsupported_layer_warns_and_bypasses_during_lowering(self):
+    @pytest.mark.parametrize(
+        "module",
+        [
+            pytest.param(sj.EIFNode(), id="eifnode"),
+            pytest.param(sj.ParametricLIFNode(), id="parametric_lifnode"),
+        ],
+    )
+    def test_unsupported_neuron_modules_are_rejected_by_lowering(self, module):
         class Model(nn.Module):
             def __init__(self):
                 super().__init__()
-                self.module = layer.ConvTranspose2d(3, 3, 3, padding=1)
+                self.module = module
 
             def forward(self, x):
                 return self.module(x)
 
-        with pytest.warns(UnsupportedOpWarning, match="spikingjelly"):
-            graph = torch_to_paiir(Model().eval(), make_img_3ch_8x8(), strict=False)
-
-        assert "InputNode_0" in graph.nodes
-        assert "OutputNode_0" in graph.nodes
+        with pytest.raises(UnsupportedOpError, match="spikingjelly"):
+            torch_to_paiir(Model().eval(), make_vec_8d(), strict=False)

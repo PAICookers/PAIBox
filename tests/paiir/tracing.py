@@ -6,6 +6,7 @@ from torch import Tensor, fx, nn
 from torch.fx.passes.shape_prop import ShapeProp
 
 from paibox.paiir.lowering.converter import (
+    BASE_ERASE_MODULE_TYPES,
     TRACE_LEAF_MODULE_TYPES,
     _EraseModuleTransformer,
     _get_full_module_map,
@@ -14,6 +15,7 @@ from paibox.paiir.lowering.converter import (
     propagate_shapes,
 )
 from paibox.paiir.lowering.dims_prop import DimsProp
+from paibox.paiir.lowering.frontends import registry
 
 
 def trace_with_fx_shape_and_dims(
@@ -37,8 +39,11 @@ def trace_with_paiir_tracer(
     model: nn.Module, concrete_args: dict[str, Any] | None = None
 ) -> fx.GraphModule:
     """Trace with the project-specific PAIIR tracer configuration."""
-    leaf_types = tuple(_get_full_module_map().keys()) + TRACE_LEAF_MODULE_TYPES
-    tracer = _PAIIRTracer(custom_leaf_modules=leaf_types)
+    frontends = registry.resolve_frontends(model)
+    frontend_map = registry.build_frontend_module_map(frontends)
+    full_map = _get_full_module_map(frontend_map)
+    leaf_types = tuple(full_map.keys()) + TRACE_LEAF_MODULE_TYPES
+    tracer = _PAIIRTracer(custom_leaf_modules=leaf_types, frontends=frontends)
     traced = tracer.trace(model, concrete_args)
     return fx.GraphModule(tracer.root, traced)
 
@@ -53,7 +58,9 @@ def trace_for_lowering(
         raise ValueError("trace_for_lowering() requires at least one sample input.")
 
     gm = trace_with_paiir_tracer(model, concrete_args=concrete_args)
-    gm = _EraseModuleTransformer(gm).transform()
+    frontends = registry.resolve_frontends(model)
+    erase_types = BASE_ERASE_MODULE_TYPES + registry.collect_erase_types(frontends)
+    gm = _EraseModuleTransformer(gm, erase_types).transform()
     propagate_shapes(gm, *sample_inputs)
     propagate_dims(gm)
     return gm
