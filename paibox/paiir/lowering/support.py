@@ -217,8 +217,10 @@ def scalar_or_1d_tensor(field: str, *, reason: str | None = None) -> Constraint:
     return predicate(
         f"{field} is scalar or 1D tensor",
         field,
-        lambda attrs: _is_scalar_value(attrs.raw(field))
-        or _is_non_parameter_1d_tensor(attrs.raw(field)),
+        lambda attrs: (
+            _is_scalar_value(attrs.raw(field))
+            or _is_non_parameter_1d_tensor(attrs.raw(field))
+        ),
         reason or f"{field} must be a scalar or 1D Tensor",
     )
 
@@ -227,8 +229,10 @@ def gt(field: str, minimum: float, *, reason: str | None = None) -> Constraint:
     return predicate(
         f"{field} > {minimum!r}",
         field,
-        lambda attrs: _is_scalar_value(attrs.raw(field))
-        and float(_scalar_value(attrs.raw(field))) > minimum,
+        lambda attrs: (
+            _is_scalar_value(attrs.raw(field))
+            and float(_scalar_value(attrs.raw(field))) > minimum
+        ),
         reason or f"expected {field} > {minimum!r}",
     )
 

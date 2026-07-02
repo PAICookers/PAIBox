@@ -195,59 +195,59 @@ uv run python -c "import torch, spikingjelly, paicorelib, numba, paibox; print('
 
 下面的表说明“当前 lowering 直接支持什么实例”。它不是硬件理论能力全集；神经元算子的逐参数约束见后续表格。
 
-| 来源/算子                            | 支持状态                                                   | 限制摘要                                                                               |
-| ------------------------------------ | ---------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| 标准 PyTorch module                  | 支持常用计算/激活模块                                      | pool 不支持`ceil_mode=True`；`AvgPool` 部分 padding 组合拒绝                       |
-| 函数式卷积                           | 支持`F.conv1d`、`F.conv2d`                             | weight / bias 必须可解析为静态 tensor 或 buffer                                        |
-| PAIIR 内建 neuron/LUT                | 支持                                                       | 由对应 IR 类和 deploy validation 继续约束                                              |
-| SpikingJelly layer wrapper           | 支持当前白名单 exact wrapper                               | 其它 SpikingJelly layer 是前端硬错误                                                   |
-| SpikingJelly`IFNode` / `LIFNode` | 支持 exact activation_based 类型；legacy clock_driven 兼容 | 参数约束见下表；legacy 会发 deprecation warning                                        |
-| snnTorch`Leaky`                    | 支持                                                       |                                                                                        |
-| 可擦除模块                           | 支持擦除                                                   | `nn.Dropout`、`nn.Identity`、`layer.Dropout`、`layer.Dropout2d` 不保留硬件语义 |
+| 来源/算子                        | 支持状态                                                   | 限制摘要                                                                       |
+| -------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| 标准 PyTorch module              | 支持常用计算/激活模块                                      | pool 不支持`ceil_mode=True`；`AvgPool` 部分 padding 组合拒绝                   |
+| 函数式卷积                       | 支持`F.conv1d`、`F.conv2d`                                 | weight / bias 必须可解析为静态 tensor 或 buffer                                |
+| PAIIR 内建 neuron/LUT            | 支持                                                       | 由对应 IR 类和 deploy validation 继续约束                                      |
+| SpikingJelly layer wrapper       | 支持当前白名单 exact wrapper                               | 其它 SpikingJelly layer 是前端硬错误                                           |
+| SpikingJelly`IFNode` / `LIFNode` | 支持 exact activation_based 类型；legacy clock_driven 兼容 | 参数约束见下表；legacy 会发 deprecation warning                                |
+| snnTorch`Leaky`                  | 支持                                                       |                                                                                |
+| 可擦除模块                       | 支持擦除                                                   | `nn.Dropout`、`nn.Identity`、`layer.Dropout`、`layer.Dropout2d` 不保留硬件语义 |
 
 [SpikingJelly `IFNode`](https://spikingjelly.readthedocs.io/zh-cn/latest/APIs/spikingjelly.activation_based.neuron.core.html#spikingjelly.activation_based.neuron.integrate_and_fire.IFNode) 参数约束：
 
-| 参数                   | 支持 | 说明                               |
-| ---------------------- | ---- | ---------------------------------- |
-| `v_threshold`        | Y    |                                    |
-| `v_reset`            | Y    |                                    |
-| `surrogate_function` | Y    |                                    |
-| `detach_reset`       | N/A  |                                    |
+| 参数                 | 支持 | 说明                           |
+| -------------------- | ---- | ------------------------------ |
+| `v_threshold`        | Y    |                                |
+| `v_reset`            | Y    |                                |
+| `surrogate_function` | Y    |                                |
+| `detach_reset`       | N/A  |                                |
 | `step_mode`          | Y    | `"m"` 会在内部副本归一为 `"s"` |
-| `backend`            | N/A  |                                    |
-| `store_v_seq`        | N/A  |                                    |
+| `backend`            | N/A  |                                |
+| `store_v_seq`        | N/A  |                                |
 
 [SpikingJelly `LIFNode`](https://spikingjelly.readthedocs.io/zh-cn/latest/APIs/spikingjelly.activation_based.neuron.core.html#spikingjelly.activation_based.neuron.lif.LIFNode) 参数约束：
 
-| 参数                   | 支持   | 说明                               |
-| ---------------------- | ------ | ---------------------------------- |
-| `tau`                | `>1` |                                    |
-| `decay_input`        | Y      |                                    |
-| `v_threshold`        | Y      |                                    |
-| `v_reset`            | Y      |                                    |
-| `surrogate_function` | Y      |                                    |
-| `detach_reset`       | N/A    |                                    |
-| `step_mode`          | Y      | `"m"` 会在内部副本归一为 `"s"` |
-| `backend`            | N/A    |                                    |
-| `store_v_seq`        | N/A    |                                    |
+| 参数                 | 支持 | 说明                           |
+| -------------------- | ---- | ------------------------------ |
+| `tau`                | `>1` |                                |
+| `decay_input`        | Y    |                                |
+| `v_threshold`        | Y    |                                |
+| `v_reset`            | Y    |                                |
+| `surrogate_function` | Y    |                                |
+| `detach_reset`       | N/A  |                                |
+| `step_mode`          | Y    | `"m"` 会在内部副本归一为 `"s"` |
+| `backend`            | N/A  |                                |
+| `store_v_seq`        | N/A  |                                |
 
 [snnTorch `Leaky`](https://snntorch.readthedocs.io/en/latest/snn.neurons_leaky.html) 参数约束：
 
-| 参数                           | 支持                                                                                                           | 说明                       |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| `beta`                       | `1`                                                                                                          |                            |
-| `threshold`                  | Y                                                                                                              |                            |
-| `spike_grad`                 | N/A                                                                                                            |                            |
-| `surrogate_disable`          | N/A                                                                                                            |                            |
-| `init_hidden`                | N/A                                                                                                            |                            |
-| `inhibition`                 | `False`                                                                                                      | 计算原理不支持             |
-| `learn_beta`                 | `False`                                                                                                      | `beta` 需为常量          |
-| `learn_threshold`            | `False`                                                                                                      | `threshold` 需为常量     |
-| `reset_mechanism`            | Y                                                                                                              |                            |
-| `state_quant`                | `False` 或 `None`                                                                                          |                            |
-| `output`                     | `False`                                                                                                      | 数据流无法表示             |
-| `graded_spikes_factor`       | `1`                                                                                                          |                            |
-| `learn_graded_spikes_factor` | `False`                                                                                                      |                            |
+| 参数                         | 支持                                                                                                   | 说明                       |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------- |
+| `beta`                       | `1`                                                                                                    |                            |
+| `threshold`                  | Y                                                                                                      |                            |
+| `spike_grad`                 | N/A                                                                                                    |                            |
+| `surrogate_disable`          | N/A                                                                                                    |                            |
+| `init_hidden`                | N/A                                                                                                    |                            |
+| `inhibition`                 | `False`                                                                                                | 计算原理不支持             |
+| `learn_beta`                 | `False`                                                                                                | `beta` 需为常量            |
+| `learn_threshold`            | `False`                                                                                                | `threshold` 需为常量       |
+| `reset_mechanism`            | Y                                                                                                      |                            |
+| `state_quant`                | `False` 或 `None`                                                                                      |                            |
+| `output`                     | `False`                                                                                                | 数据流无法表示             |
+| `graded_spikes_factor`       | `1`                                                                                                    |                            |
+| `learn_graded_spikes_factor` | `False`                                                                                                |                            |
 | `reset_delay`                | 部分支持<br />`reset_mechanism="subtract"` 时仅 `False`<br />`reset_mechanism="zero"` / `"none"`时均可 | 其他条件下的计算原理不支持 |
 
 ### 4.2 NIR 互操作
@@ -266,27 +266,27 @@ from paibox.paiir.nir_exchange import (
 
 NIR 导入到 PAIIR 的 v1 白名单：
 
-| NIR node | 支持状态 | 主要限制 |
-| --- | --- | --- |
-| `Input` / `Output` | 支持 | 需要静态 shape |
-| `Linear` / `Affine` | 支持 | 权重必须是 2D；`Affine.bias` 匹配输出维 |
-| `Conv1d` / `Conv2d` | 支持 | 仅数值 padding；`groups=1` |
-| `AvgPool2d` / `SumPool2d` | 支持 | 参数需能映射到当前 PAIIR pooling 模块 |
-| `Flatten` | 支持 | 只表示纯 shape flatten |
-| `IF` | 支持 | `r == 1 / dt`；hard reset |
-| `LIF` | 支持 | `tau / dt > 1`；`r` 为 `1` 或 `tau / dt`；`v_leak == v_reset`；hard reset |
-| 其它 node | 不支持 | 报 `UnsupportedNIRNodeError` |
+| NIR node                  | 支持状态 | 主要限制                                                                  |
+| ------------------------- | -------- | ------------------------------------------------------------------------- |
+| `Input` / `Output`        | 支持     | 需要静态 shape                                                            |
+| `Linear` / `Affine`       | 支持     | 权重必须是 2D；`Affine.bias` 匹配输出维                                   |
+| `Conv1d` / `Conv2d`       | 支持     | 仅数值 padding；`groups=1`                                                |
+| `AvgPool2d` / `SumPool2d` | 支持     | 参数需能映射到当前 PAIIR pooling 模块                                     |
+| `Flatten`                 | 支持     | 只表示纯 shape flatten                                                    |
+| `IF`                      | 支持     | `r == 1 / dt`；hard reset                                                 |
+| `LIF`                     | 支持     | `tau / dt > 1`；`r` 为 `1` 或 `tau / dt`；`v_leak == v_reset`；hard reset |
+| 其它 node                 | 不支持   | 报 `UnsupportedNIRNodeError`                                              |
 
 PAIIR 导出到 NIR 的 v1 白名单：
 
-| PAIIR 节点/模块 | 支持状态 | 主要限制 |
-| --- | --- | --- |
-| `InputNode` / `OutputNode` | 支持 | batch 维必须为 1 |
-| `nn.Linear` / `nn.Conv1d` / `nn.Conv2d` | 支持 | Conv 仅数值 padding |
-| `nn.AvgPool2d` / `SumPool2d` | 支持 | NIR 无法表达的 PyTorch pooling 选项会拒绝 |
-| 纯 flatten `TransformOp` | 支持 | 不改变元素总数 |
-| `IFNodeV25` / `LIFNodeV25` | 支持子集 | hard reset；无 LUT/ANN；无负阈值发放；LIF 只支持标准 leak 形式 |
-| add / split / concat / pad / core wrapper / CPU fallback | 不支持 | NIR v1 无等价语义 |
+| PAIIR 节点/模块                                          | 支持状态 | 主要限制                                                       |
+| -------------------------------------------------------- | -------- | -------------------------------------------------------------- |
+| `InputNode` / `OutputNode`                               | 支持     | batch 维必须为 1                                               |
+| `nn.Linear` / `nn.Conv1d` / `nn.Conv2d`                  | 支持     | Conv 仅数值 padding                                            |
+| `nn.AvgPool2d` / `SumPool2d`                             | 支持     | NIR 无法表达的 PyTorch pooling 选项会拒绝                      |
+| 纯 flatten `TransformOp`                                 | 支持     | 不改变元素总数                                                 |
+| `IFNodeV25` / `LIFNodeV25`                               | 支持子集 | hard reset；无 LUT/ANN；无负阈值发放；LIF 只支持标准 leak 形式 |
+| add / split / concat / pad / core wrapper / CPU fallback | 不支持   | NIR v1 无等价语义                                              |
 
 ## 5. 编译前需要满足什么
 
@@ -412,19 +412,19 @@ print("frame_dir:", output_dir)
 
 高频参数如下：
 
-| 参数                                | 作用                                                        |
-| ----------------------------------- | ----------------------------------------------------------- |
+| 参数                              | 作用                                                    |
+| --------------------------------- | ------------------------------------------------------- |
 | `*sample_inputs`                  | 示例输入，参与 shape/dims 推断，`batch_size` 必须为 `1` |
-| `timesteps`                       | 一次样本/一次推理的时间步数，默认`1`，必须为正整数        |
+| `timesteps`                       | 一次样本/一次推理的时间步数，默认`1`，必须为正整数      |
 | `auto_reset`                      | 是否按`timesteps` 自动复位，默认 `True`                 |
-| `input_formats`                   | 按`InputNode` 名称指定输入数据格式                        |
-| `compile_config`                  | 统一承载默认配置                                            |
-| `concrete_args`                   | 固定 FX tracing 时的非 Tensor 参数                          |
-| `strict`                          | 遇到 unsupported op 时是否直接报错                          |
-| `enable_avgpool_calibration`      | 共享核`AvgPool + LIF` 阈值细化开关                        |
-| `enable_split_avgpool_lif`        | 条件式`AvgPool + LIF` 分核部署开关                        |
-| `enable_delayed_avgpool_division` | AvgPool 延迟除法改写开关，默认开启                          |
-| `output_approx`                   | 输出层近似策略，默认`"default"`                           |
+| `input_formats`                   | 按`InputNode` 名称指定输入数据格式                      |
+| `compile_config`                  | 统一承载默认配置                                        |
+| `concrete_args`                   | 固定 FX tracing 时的非 Tensor 参数                      |
+| `strict`                          | 遇到 unsupported op 时是否直接报错                      |
+| `enable_avgpool_calibration`      | 共享核`AvgPool + LIF` 阈值细化开关                      |
+| `enable_split_avgpool_lif`        | 条件式`AvgPool + LIF` 分核部署开关                      |
+| `enable_delayed_avgpool_division` | AvgPool 延迟除法改写开关，默认开启                      |
+| `output_approx`                   | 输出层近似策略，默认`"default"`                         |
 
 优先级为：
 
