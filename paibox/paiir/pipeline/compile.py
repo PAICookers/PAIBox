@@ -120,6 +120,42 @@ class CompileConfig:
     output_approx: OutputApprox = "default"
 
 
+def _compile_paiir_graph(
+    graph: PAIIRGraph,
+    *,
+    timesteps: int,
+    auto_reset: bool,
+    input_formats: dict[str, DataFormat] | None = None,
+    enable_avgpool_calibration: bool = False,
+    enable_split_avgpool_lif: bool = False,
+    enable_delayed_avgpool_division: bool = True,
+    output_approx: OutputApprox = "default",
+) -> PAIIRGraph:
+    """Run compile-time passes on an already-built PAIIR graph."""
+    graph = _run_pre_fusion_rewrite_phase(graph)
+    graph = flatten_general_add_chains(graph)
+    graph = specialize_general_adds(graph)
+    graph = fuse_to_offline_cores(
+        graph, enable_split_avgpool_lif, enable_avgpool_calibration
+    )
+    graph = _run_post_fusion_rewrite_phase(
+        graph,
+        input_formats,
+        _post_fusion_rewrite_passes(enable_delayed_avgpool_division, output_approx),
+    )
+
+    assign_tick_params(graph, timesteps, auto_reset)
+
+    if enable_avgpool_calibration:
+        calibrate_avgpool_thresholds(graph)
+
+    validate_compiled_graph(graph)
+    validate_deployable_graph(graph)
+
+    graph.eval()
+    return graph
+
+
 def compile_to_paiir(
     model: nn.Module,
     *sample_inputs: Tensor,
@@ -237,28 +273,16 @@ def compile_to_paiir(
         model, *sample_inputs, concrete_args=concrete_args, strict=strict
     )
 
-    graph = _run_pre_fusion_rewrite_phase(graph)
-    graph = flatten_general_add_chains(graph)
-    graph = specialize_general_adds(graph)
-    graph = fuse_to_offline_cores(
-        graph, _enable_split_avgpool_lif, _enable_avgpool_calibration
-    )
-    graph = _run_post_fusion_rewrite_phase(
+    return _compile_paiir_graph(
         graph,
-        _input_formats,
-        _post_fusion_rewrite_passes(_enable_delayed_avgpool_division, _output_approx),
+        timesteps=_timesteps,
+        auto_reset=_auto_reset,
+        input_formats=_input_formats,
+        enable_avgpool_calibration=_enable_avgpool_calibration,
+        enable_split_avgpool_lif=_enable_split_avgpool_lif,
+        enable_delayed_avgpool_division=_enable_delayed_avgpool_division,
+        output_approx=_output_approx,
     )
-
-    assign_tick_params(graph, _timesteps, _auto_reset)
-
-    if _enable_avgpool_calibration:
-        calibrate_avgpool_thresholds(graph)
-
-    validate_compiled_graph(graph)
-    validate_deployable_graph(graph)
-
-    graph.eval()
-    return graph
 
 
 def _pre_fusion_rewrite_passes() -> tuple[RewritePass, ...]:

@@ -1,5 +1,7 @@
 """PAIIR exception and warning types."""
 
+from typing import Any
+
 from ..exceptions import PAIBoxError, PAIBoxWarning
 
 __all__ = [
@@ -8,6 +10,7 @@ __all__ = [
     "OutputApproxWarning",
     "PAIIRError",
     "PAIIRWarning",
+    "UnsupportedNIRNodeError",
     "UnsupportedFusionError",
     "UnsupportedOpError",
     "UnsupportedOpWarning",
@@ -60,6 +63,36 @@ class UnsupportedFusionError(PAIIRError):
     def __init__(self, fusion_desc: str) -> None:
         self.fusion_desc = fusion_desc
         super().__init__(f"Unsupported fusion configuration: {fusion_desc}")
+
+
+class UnsupportedNIRNodeError(PAIIRError):
+    """Raised when NIR exchange sees an unsupported node or configuration."""
+
+    def __init__(
+        self,
+        *,
+        direction: str,
+        node_name: str,
+        node_type: str,
+        reason: str,
+        field: str | None = None,
+        value: Any | None = None,
+    ) -> None:
+        self.direction = direction
+        self.node_name = node_name
+        self.node_type = node_type
+        self.field = field
+        self.value = value
+        self.reason = reason
+
+        field_desc = ""
+        if field is not None:
+            field_desc = f", field={field!r}, value={value!r}"
+
+        super().__init__(
+            f"Unsupported NIR {direction} node {node_name!r} "
+            f"({node_type}){field_desc}: {reason}"
+        )
 
 
 class PAIIRWarning(PAIBoxWarning):

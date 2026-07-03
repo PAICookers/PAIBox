@@ -42,6 +42,9 @@ visualizer = [
     "paicorelib>=2.0.0rc3 ; platform_machine != 'armv7l'",
     "uvicorn>=0.38.0,<1",
 ]
+snntorch = ["snntorch>=0.9.0"]
+spikingjelly = ["spikingjelly>=0.0.0.0.12"]
+nir = ["nir>=1.0.6,<2"]
 
 [project.urls]
 repository = "https://github.com/PAICookers/PAIBox"
