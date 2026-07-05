@@ -1,49 +1,177 @@
-import shutil
 from collections.abc import Mapping, Sequence
-from pathlib import Path
+from dataclasses import dataclass, field
 
-from google.protobuf.json_format import MessageToJson
 from paicorelib import CoordZXYOffset, DataSign, DataWidth, find_coordxy_shortest_path
 
 from paibox.paiir.ir.signal_domain import SignalDomain
 
 from ..coreplacement import CorePlacement, Frontend_Core_Config
 from ..op_node import Neuron, RemapElem
-from ..proto import get_schema_version
-from ..proto.compile_artifacts_pb2 import (
-    CompileArtifacts,
-    ConfigFrames,
-    DataType,
-    InputEntry,
-    InputTensorMapping,
-    OutputEntry,
-    OutputTensorMapping,
-    OutputTensorMappings,
-    RuntimeParams,
-    TickParams,
-)
 from ..routing import InputGroup, OutputGroup, RemapGroup, RoutingGroup, SourceElem
 from .utils import (
     FrameRecords,
-    TargetPlatform,
     WordOrder,
     export_framearray_to_int32,
     iter_frame_arrays_core_major,
-    resolve_platform_exports,
 )
 
 TickTriple = tuple[int, int, int]
 DataFormat = tuple[DataSign, DataWidth]
 
-_DATA_TYPE_BY_FORMAT: Mapping[DataFormat, DataType.Code] = {
-    (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT): DataType.UINT1,
-    (DataSign.SIGNED, DataWidth.WIDTH_1BIT): DataType.INT1,
-    (DataSign.UNSIGNED, DataWidth.WIDTH_2BIT): DataType.UINT2,
-    (DataSign.SIGNED, DataWidth.WIDTH_2BIT): DataType.INT2,
-    (DataSign.UNSIGNED, DataWidth.WIDTH_4BIT): DataType.UINT4,
-    (DataSign.SIGNED, DataWidth.WIDTH_4BIT): DataType.INT4,
-    (DataSign.UNSIGNED, DataWidth.WIDTH_8BIT): DataType.UINT8,
-    (DataSign.SIGNED, DataWidth.WIDTH_8BIT): DataType.INT8,
+DATA_TYPE_NOT_SET = 0
+DATA_TYPE_UINT1 = 1
+DATA_TYPE_INT1 = 2
+DATA_TYPE_UINT2 = 3
+DATA_TYPE_INT2 = 4
+DATA_TYPE_UINT4 = 5
+DATA_TYPE_INT4 = 6
+DATA_TYPE_UINT8 = 7
+DATA_TYPE_INT8 = 8
+
+OUTPUT_KIND_DATA = 0
+OUTPUT_KIND_VOLTAGE = 1
+
+DECODE_MODE_STREAM = 0
+DECODE_MODE_STEP = 1
+
+WORD_ORDER_HIGH_FIRST = 0
+WORD_ORDER_LOW_FIRST = 1
+
+SCHEMA_VERSION = 1
+
+
+@dataclass
+class CoreOffsetData:
+    xy: int = 0
+    x: int = 0
+    y: int = 0
+
+
+@dataclass
+class CopyCountData:
+    xy: int = 0
+    x: int = 0
+    y: int = 0
+
+
+@dataclass
+class TickParamsData:
+    tick_start: int = 0
+    tick_duration: int = 0
+    tick_initial: int = 0
+
+
+@dataclass
+class ShapeData:
+    size: list[int] = field(default_factory=list)
+
+
+@dataclass
+class InputEntryData:
+    elem_idx: int = 0
+    core_offset: CoreOffsetData = field(default_factory=CoreOffsetData)
+    copy_count: CopyCountData = field(default_factory=CopyCountData)
+    tick_relative: int = 0
+    addr_axon: int = 0
+    target_lcn: int = 0
+    copy_id: int = 0
+    dtype: int = DATA_TYPE_NOT_SET
+
+
+@dataclass
+class OutputEntryData:
+    elem_idx: int = 0
+    copy_id: int = 0
+    axon_bit_idx: int = 0
+    dtype: int = DATA_TYPE_NOT_SET
+
+
+@dataclass
+class InputTensorMappingData:
+    name: str
+    shape: ShapeData = field(default_factory=ShapeData)
+    bit_width: int = 0
+    tick: TickParamsData = field(default_factory=TickParamsData)
+    entries: list[InputEntryData] = field(default_factory=list)
+
+
+@dataclass
+class OutputTensorMappingData:
+    name: str
+    shape: ShapeData = field(default_factory=ShapeData)
+    kind: int | None = None
+    bit_width: int = 0
+    tick: TickParamsData = field(default_factory=TickParamsData)
+    entries: list[OutputEntryData] = field(default_factory=list)
+
+
+@dataclass
+class InputTensorMappingsData:
+    items: list[InputTensorMappingData] = field(default_factory=list)
+
+
+@dataclass
+class OutputTensorMappingsData:
+    target_lcn: int | None = None
+    items: list[OutputTensorMappingData] = field(default_factory=list)
+
+
+@dataclass
+class RuntimeParamsData:
+    timesteps: int = 0
+    tick_depth: int = 0
+    sync_steps: int = 0
+    decode_mode: int = DECODE_MODE_STREAM
+
+
+@dataclass
+class CoreTickData:
+    core_offset: CoreOffsetData = field(default_factory=CoreOffsetData)
+    tick: TickParamsData = field(default_factory=TickParamsData)
+    nodes: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ThreadIOMappingData:
+    thread_id: int = 0
+    root_core_offset: CoreOffsetData = field(default_factory=CoreOffsetData)
+    runtime: RuntimeParamsData = field(default_factory=RuntimeParamsData)
+    input_mappings: InputTensorMappingsData = field(
+        default_factory=InputTensorMappingsData
+    )
+    output_mappings: OutputTensorMappingsData = field(
+        default_factory=OutputTensorMappingsData
+    )
+    core_ticks: list[CoreTickData] = field(default_factory=list)
+
+
+@dataclass
+class IOMappingData:
+    threads: list[ThreadIOMappingData] = field(default_factory=list)
+
+
+@dataclass
+class ConfigFramesData:
+    words: list[int] = field(default_factory=list)
+    word_order: int = WORD_ORDER_HIGH_FIRST
+
+
+@dataclass
+class CompileArtifactsData:
+    schema_version: int = 0
+    io_mapping: IOMappingData = field(default_factory=IOMappingData)
+    config_frames: ConfigFramesData = field(default_factory=ConfigFramesData)
+
+
+_DATA_TYPE_BY_FORMAT: Mapping[DataFormat, int] = {
+    (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT): DATA_TYPE_UINT1,
+    (DataSign.SIGNED, DataWidth.WIDTH_1BIT): DATA_TYPE_INT1,
+    (DataSign.UNSIGNED, DataWidth.WIDTH_2BIT): DATA_TYPE_UINT2,
+    (DataSign.SIGNED, DataWidth.WIDTH_2BIT): DATA_TYPE_INT2,
+    (DataSign.UNSIGNED, DataWidth.WIDTH_4BIT): DATA_TYPE_UINT4,
+    (DataSign.SIGNED, DataWidth.WIDTH_4BIT): DATA_TYPE_INT4,
+    (DataSign.UNSIGNED, DataWidth.WIDTH_8BIT): DATA_TYPE_UINT8,
+    (DataSign.SIGNED, DataWidth.WIDTH_8BIT): DATA_TYPE_INT8,
 }
 
 
@@ -51,7 +179,7 @@ def _bit_width_from_data_width(width: DataWidth) -> int:
     return int(1 << width)
 
 
-def _dtype_from_format(fmt: DataFormat, context: str) -> DataType.Code:
+def _dtype_from_format(fmt: DataFormat, context: str) -> int:
     dtype = _DATA_TYPE_BY_FORMAT.get(fmt)
     if dtype is None:
         sign, width = fmt
@@ -63,7 +191,10 @@ def _dtype_from_format(fmt: DataFormat, context: str) -> DataType.Code:
 
 
 def _set_entry_dtype(
-    entry: InputEntry | OutputEntry, fmt: DataFormat, bit_width: int, context: str
+    entry: InputEntryData | OutputEntryData,
+    fmt: DataFormat,
+    bit_width: int,
+    context: str,
 ) -> None:
     """Set entry dtype and verify it matches the mapping-level bit width."""
     expected_bit_width = _bit_width_from_data_width(fmt[1])
@@ -77,13 +208,13 @@ def _set_entry_dtype(
 
 
 def _set_mapping_bit_width(
-    mapping: InputTensorMapping | OutputTensorMapping,
+    mapping: InputTensorMappingData | OutputTensorMappingData,
     mapping_kind: str,
     mapping_name: str,
     bit_width: int,
 ) -> None:
     """Set tensor-level bit width and reject mixed-width entries."""
-    if mapping.HasField("bit_width"):
+    if mapping.bit_width:
         if mapping.bit_width != bit_width:
             raise ValueError(
                 f"{mapping_kind} mapping '{mapping_name}' contains mixed bit widths: "
@@ -94,11 +225,11 @@ def _set_mapping_bit_width(
 
 
 def _set_thread_output_lcn(
-    output_mappings: OutputTensorMappings, output_group: OutputGroup, thread_id: int
+    output_mappings: OutputTensorMappingsData, output_group: OutputGroup, thread_id: int
 ) -> None:
     """Set thread-level output LCN and reject conflicting output groups."""
     target_lcn = output_group.lcn.value
-    if output_mappings.HasField("target_lcn"):
+    if output_mappings.target_lcn is not None:
         if output_mappings.target_lcn != target_lcn:
             raise ValueError(
                 f"thread {thread_id} contains output groups with mixed target_lcn: "
@@ -108,14 +239,14 @@ def _set_thread_output_lcn(
         output_mappings.target_lcn = target_lcn
 
 
-def _output_kind_from_elem(elem: SourceElem) -> OutputTensorMapping.OutputKind:
+def _output_kind_from_elem(elem: SourceElem) -> int:
     domain = elem.target.raw_node.signal_semantics.output_domain
     if domain is SignalDomain.VALUE:
-        kind = OutputTensorMapping.DATA
+        kind = OUTPUT_KIND_DATA
     else:
-        kind = OutputTensorMapping.VOLTAGE
+        kind = OUTPUT_KIND_VOLTAGE
 
-    if kind == OutputTensorMapping.DATA:
+    if kind == OUTPUT_KIND_DATA:
         if elem.output_bit_num > 8:
             raise ValueError(
                 f"DATA output {elem} has unsupported bit width "
@@ -131,16 +262,20 @@ def _output_kind_from_elem(elem: SourceElem) -> OutputTensorMapping.OutputKind:
     return kind
 
 
+def _output_kind_name(kind: int) -> str:
+    return "DATA" if kind == OUTPUT_KIND_DATA else "VOLTAGE"
+
+
 def _set_output_mapping_kind(
-    output_mapping: OutputTensorMapping, output_name: str, elem: SourceElem
-) -> OutputTensorMapping.OutputKind:
+    output_mapping: OutputTensorMappingData, output_name: str, elem: SourceElem
+) -> int:
     kind = _output_kind_from_elem(elem)
-    if output_mapping.HasField("kind"):
+    if output_mapping.kind is not None:
         if output_mapping.kind != kind:
             raise ValueError(
                 f"output mapping '{output_name}' contains mixed output kinds: "
-                f"{OutputTensorMapping.OutputKind.Name(output_mapping.kind)} and "
-                f"{OutputTensorMapping.OutputKind.Name(kind)}."
+                f"{_output_kind_name(output_mapping.kind)} and "
+                f"{_output_kind_name(kind)}."
             )
     else:
         output_mapping.kind = kind
@@ -220,7 +355,7 @@ def _require_single_data_format(
     return next(iter(formats))
 
 
-def _set_tick_params(tick_params: TickParams, tick: TickTriple) -> None:
+def _set_tick_params(tick_params: TickParamsData, tick: TickTriple) -> None:
     tick_params.tick_start = tick[0]
     tick_params.tick_duration = tick[1]
     tick_params.tick_initial = tick[2]
@@ -266,12 +401,10 @@ def _thread_tick_depth(
     return max(tick_starts)
 
 
-def _thread_decode_mode(
-    output_groups: Sequence[OutputGroup], timesteps: int
-) -> RuntimeParams.DecodeMode:
+def _thread_decode_mode(output_groups: Sequence[OutputGroup], timesteps: int) -> int:
     """Derive STREAM/STEP from the final output LCN timestep capacity."""
     if not output_groups:
-        return RuntimeParams.STREAM
+        return DECODE_MODE_STREAM
     if len(output_groups) != 1:
         raise NotImplementedError(
             "RuntimeParams export currently supports one OutputGroup per thread."
@@ -280,19 +413,11 @@ def _thread_decode_mode(
     out_grp = output_groups[0]
     ts_width = 8 - int(out_grp.lcn.value)
     max_stream_timesteps = 1 << ts_width
-    return (
-        RuntimeParams.STREAM
-        if max_stream_timesteps >= timesteps
-        else RuntimeParams.STEP
-    )
+    return DECODE_MODE_STREAM if max_stream_timesteps >= timesteps else DECODE_MODE_STEP
 
 
-def export_compile_artifacts(
-    output_path: str | Path,
-    target_platform: TargetPlatform,
+def build_compile_artifacts(
     word_order: WordOrder,
-    export_python: bool,
-    debug: bool,
     timesteps: int,
     groups: Sequence[RoutingGroup | RemapGroup],
     input_groups: Sequence[InputGroup],
@@ -300,37 +425,19 @@ def export_compile_artifacts(
     coreplacements: Sequence[CorePlacement],
     global_starts: Mapping[int, CoordZXYOffset],
     frame_records: FrameRecords,
-) -> Path:
-    """Export protobuf artifacts for config frames and I/O mappings."""
-    export_x86, _ = resolve_platform_exports(target_platform, debug)
-
-    proto_dir = Path(__file__).parent.parent / "proto"
-    proto_out_dir = Path(output_path) / "proto"
-    proto_out_dir.mkdir(parents=True, exist_ok=True)
-
-    pb_path = proto_out_dir / "config.pb"
-    pb_text_path = proto_out_dir / "config.json"
-
-    proto_files = ["compile_artifacts.proto"]
-    if export_python and export_x86:
-        proto_files.extend(["compile_artifacts_pb2.py", "compile_artifacts_pb2.pyi"])
-
-    for file_name in proto_files:
-        src_file = proto_dir / file_name
-        if not src_file.exists():
-            raise FileNotFoundError(src_file)
-        shutil.copy2(src_file, proto_out_dir / file_name)
-
-    artifacts = CompileArtifacts()
-    artifacts.schema_version = get_schema_version()
+) -> CompileArtifactsData:
+    """Build backendv2 compile metadata shared by protobuf and FlatBuffers."""
+    artifacts = CompileArtifactsData(schema_version=SCHEMA_VERSION)
     io_mapping = artifacts.io_mapping
 
     for thread_id, global_start in global_starts.items():
-        thread_mapping = io_mapping.threads.add()
-        thread_mapping.thread_id = thread_id
-        thread_mapping.root_core_offset.xy = global_start.z
-        thread_mapping.root_core_offset.x = global_start.x
-        thread_mapping.root_core_offset.y = global_start.y
+        thread_mapping = ThreadIOMappingData(
+            thread_id=thread_id,
+            root_core_offset=CoreOffsetData(
+                xy=global_start.z, x=global_start.x, y=global_start.y
+            ),
+        )
+        io_mapping.threads.append(thread_mapping)
 
         thread_output_groups = [
             out_grp for out_grp in output_groups if out_grp.thread_id == thread_id
@@ -344,7 +451,7 @@ def export_compile_artifacts(
                 thread_output_groups, timesteps
             )
 
-        input_mappings_by_name: dict[str, InputTensorMapping] = {}
+        input_mappings_by_name: dict[str, InputTensorMappingData] = {}
         input_ticks_by_name: dict[str, set[TickTriple]] = {}
 
         for in_grp in input_groups:
@@ -353,9 +460,9 @@ def export_compile_artifacts(
             for elem, dest in in_grp.dest_infos.items():
                 input_name = elem.target.raw_node.name
                 if input_name not in input_mappings_by_name:
-                    input_mapping = thread_mapping.input_mappings.items.add()
-                    input_mapping.name = input_name
+                    input_mapping = InputTensorMappingData(name=input_name)
                     input_mapping.shape.size.extend(list(elem.target.shape))
+                    thread_mapping.input_mappings.items.append(input_mapping)
                     input_mappings_by_name[input_name] = input_mapping
                     input_ticks_by_name[input_name] = set()
 
@@ -370,9 +477,9 @@ def export_compile_artifacts(
                 _set_mapping_bit_width(
                     input_mapping, "input", input_name, elem.output_bit_num
                 )
-                input_entry = input_mapping.entries.add()
-                input_entry.elem_idx = elem.index.idx
-                input_entry.copy_id = elem.index.copy_id
+                input_entry = InputEntryData(
+                    elem_idx=elem.index.idx, copy_id=elem.index.copy_id
+                )
                 _set_entry_dtype(
                     input_entry,
                     _require_single_data_format(
@@ -383,6 +490,7 @@ def export_compile_artifacts(
                     elem.output_bit_num,
                     f"input entry {input_name}[{elem.index.idx}]",
                 )
+                input_mapping.entries.append(input_entry)
                 input_entry.tick_relative = dest.tick_relative
                 input_entry.addr_axon = dest.addr_axon
                 input_entry.core_offset.xy = dest.addr_core_xy
@@ -401,7 +509,7 @@ def export_compile_artifacts(
                 ),
             )
 
-        output_mappings_by_name: dict[str, OutputTensorMapping] = {}
+        output_mappings_by_name: dict[str, OutputTensorMappingData] = {}
         output_ticks_by_name: dict[str, set[TickTriple]] = {}
         for out_grp in thread_output_groups:
             _set_thread_output_lcn(thread_mapping.output_mappings, out_grp, thread_id)
@@ -412,9 +520,9 @@ def export_compile_artifacts(
                     continue
                 output_name = elem.target.raw_node.name
                 if output_name not in output_mappings_by_name:
-                    output_mapping = thread_mapping.output_mappings.items.add()
-                    output_mapping.name = output_name
+                    output_mapping = OutputTensorMappingData(name=output_name)
                     output_mapping.shape.size.extend(list(elem.target.shape))
+                    thread_mapping.output_mappings.items.append(output_mapping)
                     output_mappings_by_name[output_name] = output_mapping
                     output_ticks_by_name[output_name] = set()
 
@@ -425,20 +533,22 @@ def export_compile_artifacts(
                 _set_mapping_bit_width(
                     output_mapping, "output", output_name, elem.output_bit_num
                 )
-                output_entry = output_mapping.entries.add()
-                output_entry.elem_idx = elem.index.idx
-                output_entry.copy_id = elem.index.copy_id
-                output_entry.axon_bit_idx = axon_bit_idx
+                output_entry = OutputEntryData(
+                    elem_idx=elem.index.idx,
+                    copy_id=elem.index.copy_id,
+                    axon_bit_idx=axon_bit_idx,
+                )
                 output_kind = _set_output_mapping_kind(
                     output_mapping, output_name, elem
                 )
-                if output_kind == OutputTensorMapping.DATA:
+                if output_kind == OUTPUT_KIND_DATA:
                     _set_entry_dtype(
                         output_entry,
                         _output_format_from_source_elem(elem, groups),
                         elem.output_bit_num,
                         f"output entry {output_name}[{elem.index.idx}]",
                     )
+                output_mapping.entries.append(output_entry)
 
         for output_name, output_mapping in output_mappings_by_name.items():
             _set_tick_params(
@@ -453,11 +563,13 @@ def export_compile_artifacts(
                 continue
             if core_placement.default_core_config.thread_number != thread_id:
                 continue
-            core_tick = thread_mapping.core_ticks.add()
             core_offset, _ = find_coordxy_shortest_path(core_placement.coord)
-            core_tick.core_offset.xy = core_offset.z
-            core_tick.core_offset.x = core_offset.x
-            core_tick.core_offset.y = core_offset.y
+            core_tick = CoreTickData(
+                core_offset=CoreOffsetData(
+                    xy=core_offset.z, x=core_offset.x, y=core_offset.y
+                )
+            )
+            thread_mapping.core_ticks.append(core_tick)
             nodes = {
                 raw_neu.target.raw_node.name
                 for neu_placement in core_placement.neus
@@ -475,15 +587,7 @@ def export_compile_artifacts(
     artifacts.config_frames.words.extend(config_words)
 
     artifacts.config_frames.word_order = (
-        ConfigFrames.HIGH_FIRST
-        if word_order == "high_first"
-        else ConfigFrames.LOW_FIRST
+        WORD_ORDER_HIGH_FIRST if word_order == "high_first" else WORD_ORDER_LOW_FIRST
     )
 
-    pb_path.write_bytes(artifacts.SerializeToString())
-    if debug:
-        pb_text_path.write_text(
-            MessageToJson(artifacts, always_print_fields_with_no_presence=True)
-        )
-
-    return pb_path
+    return artifacts

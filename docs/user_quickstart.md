@@ -9,7 +9,7 @@
   -> compile_to_paiir(...)
   -> PAIIRGraph
   -> Mapper().compile(...)
-  -> cfg_frame*.txt / .npy / .h + proto/
+  -> cfg_frame*.txt / .npy / .h + proto/ 或 runtime/
   -> （如需要）work_frame1.h
 ```
 
@@ -22,8 +22,10 @@
 - 把部署态 PyTorch 模型编译成 `PAIIRGraph`
 - 把 `PAIIRGraph` 下沉到 `backendv2`
 - 导出芯片配置帧 `cfg_frame*.txt/.npy/.h`
-- 导出 `proto/config.pb` 与便于人工查看的 `proto/config.json`
-- 为应用侧生成输入工作帧和解析输出工作帧提供 `proto/config.pb` 中的 I/O 映射
+- 按目标平台导出 metadata：
+  - x86 / debug 路径使用 `proto/config.pb` 与便于人工查看的 `proto/config.json`
+  - RISC-V runtime 路径使用 `runtime/compile_artifacts.bin`
+- 为应用侧生成输入工作帧和解析输出工作帧提供 metadata 中的 I/O 映射
 
 它**不负责**：
 
@@ -35,7 +37,7 @@
 更准确地说，当前工具链擅长的是：
 
 - 你已经把模型整理成“部署态 PyTorch 模型”
-- 你希望把它变成 `PAIIRGraph`、平台相关帧文件以及 `proto/` 产物
+- 你希望把它变成 `PAIIRGraph`、平台相关帧文件以及 metadata 产物
 
 ## 2. 部署前必须先理解的边界
 
@@ -334,7 +336,7 @@ graph = compile_to_paiir(raw_quantized_model, sample_input)
 - 编译到 `PAIIRGraph`
 - 保存 `graph.summary()`
 - 调用 `backendv2`
-- 导出平台相关帧文件与 `proto/` 目录
+- 导出平台相关帧文件与 metadata 目录
 
 ```python
 from contextlib import redirect_stdout
@@ -612,8 +614,8 @@ mapper.compile(
 - 分配神经元和 SRAM
 - 求解路由
 - 生成三类帧并导出到磁盘
-- 生成 `proto/config.pb`
-- 在 `debug=True` 时生成 `proto/config.json`
+- 按 `target_platform` 生成 metadata
+- 在 `debug=True` 时额外保留 x86/debug 侧 protobuf metadata
 
 ### 9.1 参数说明
 
@@ -631,7 +633,7 @@ mapper.compile(
   - `"riscv"` 导出 `cfg_frame*.h`
   - `"all"` 同时导出两套平台相关产物
 - `word_order`
-  - 控制 `proto/config.pb` 与 `proto/config.json` 中 `config_frames.words` 的 32 位拆分顺序
+  - 控制 metadata 中 `config_frames.words` 的 32 位拆分顺序
   - 可选 `"high_first"` 或 `"low_first"`
 - `export_merged_frames`
   - 是否同时导出不同类型帧合并后的文件
@@ -639,7 +641,7 @@ mapper.compile(
   - 是否保留供人工查看的 `.txt` 与 `proto/config.json`
   - 当 `debug=True` 时，会同时导出 x86 与 riscv 两套平台相关产物
 - `export_proto_python`
-  - 仅在 `target_platform="x86"` 时生效
+  - 仅在导出 protobuf metadata 时生效
   - 控制是否把 `compile_artifacts_pb2.py` / `compile_artifacts_pb2.pyi` 复制到导出目录的 `proto/`
 
 ### 9.2 默认导出文件
@@ -662,12 +664,18 @@ mapper.compile(
     - `cfg_frame2.h`
     - `cfg_frame3.h`
     - `cfg_frames.h`（按物理核顺序合并，取决于 `export_merged_frames`）
-- protobuf 产物（固定放在 `proto/` 子目录）
-  - `proto/config.pb`
-  - `proto/config.json`（`debug=True` 时）
-  - `proto/compile_artifacts.proto`
-  - `proto/compile_artifacts_pb2.py`（仅 x86 且 `export_proto_python=True`）
-  - `proto/compile_artifacts_pb2.pyi`（仅 x86 且 `export_proto_python=True`）
+- metadata 产物
+  - `target_platform="x86"`：
+    - `proto/config.pb`
+    - `proto/config.json`（`debug=True` 时）
+    - `proto/compile_artifacts.proto`
+    - `proto/compile_artifacts_pb2.py`（`export_proto_python=True` 时）
+    - `proto/compile_artifacts_pb2.pyi`（`export_proto_python=True` 时）
+  - `target_platform="riscv"`：
+    - `runtime/compile_artifacts.bin`
+    - `runtime/compile_artifacts.fbs`
+  - `target_platform="all"` 或 `debug=True`：
+    - 同时导出上述 protobuf 与 FlatBuffers metadata
 
 ### 9.3 三类帧的大致分工
 
@@ -678,7 +686,7 @@ mapper.compile(
 - `cfg_frame3`
   - 神经元参数、权重等 SRAM 相关配置帧
 
-### 9.4 `.txt`、`.npy`、`.h` 和 `proto/` 的区别
+### 9.4 `.txt`、`.npy`、`.h`、`proto/` 和 `runtime/` 的区别
 
 `cfg_frame*.txt`：
 
@@ -699,11 +707,19 @@ mapper.compile(
 
 `proto/config.pb` / `proto/config.json`：
 
+- 面向 x86 / Python / visualizer / debug 消费
 - 包含 I/O 映射与展平后的配置帧数据
 - `config.pb` 适合程序消费
 - `config.json` 适合开发人员人工查看
 - `config_frames.words` 与 `cfg_frames.npy/.h` 使用相同的物理核优先合并顺序
 - `config_frames.word_order` 明确描述了每个 64 位配置帧拆成 32 位 words 时的顺序
+
+`runtime/compile_artifacts.bin`：
+
+- 面向 RISC-V MCU runtime 消费
+- 使用 `runtime/compile_artifacts.fbs` 描述二进制布局
+- v0 镜像 `proto/config.pb` 中已有的 I/O 映射、runtime timing 和配置帧信息
+- 后续 CPU task、schedule、输入编码、输出解码 metadata 会在后续 schema 版本中扩展
 
 ### 9.5 用 visualizer 检查编译产物
 
@@ -720,9 +736,9 @@ paiviz --artifact output_path/proto/config.pb
 
 更多视图说明见 [编译产物可视化](Visualizer.md)。
 
-### 9.6 `config.pb` 里的 tick 元数据
+### 9.6 metadata 里的 tick 元数据
 
-`proto/config.pb` 会随 I/O 映射导出计算核时序信息，供推理应用侧决定何时送入输入、等待输出、或做复位控制。
+`proto/config.pb` 与 `runtime/compile_artifacts.bin` 都会随 I/O 映射导出计算核时序信息，供推理应用侧或 RISC-V runtime 决定何时送入输入、等待输出、或做复位控制。
 
 - `InputTensorMapping.tick` 是该输入 tensor 首个实际消费计算核的 `tick_start/tick_duration/tick_initial`。
 - `InputEntry.tick_relative` 是输入工作帧地址分段，不是计算核启动时间；生成输入工作帧仍使用 `tick_relative/addr_axon/target_lcn`。
@@ -733,7 +749,7 @@ paiviz --artifact output_path/proto/config.pb
 
 `TickParams` 是内部硬件字段语义，不是公开 `timesteps` 参数语义。`TickParams.tick_duration=0` 表示持续工作，`tick_duration>0` 表示工作 N 个时间步；`tick_initial=0` 表示不自动复位。若同一个输入或输出 tensor 推导出多个不同 tick，导出阶段会报错，应用侧不应假定可以静默合并。
 
-### 9.7 `config.pb` 里的 I/O 数据类型元数据
+### 9.7 metadata 里的 I/O 数据类型元数据
 
 `InputEntry.dtype` 和 `OutputEntry.dtype` 描述普通 DATA payload 的 signedness 与 1/2/4/8-bit 逻辑位宽，取值为 `UINT1/INT1/.../UINT8/INT8`。`bit_width` 保留为兼容字段；新应用应优先使用 `dtype` 做输入编码和 DATA 输出解码，并把 `bit_width` 当作冗余校验。
 
@@ -743,15 +759,15 @@ paiviz --artifact output_path/proto/config.pb
 
 当前 `backendv2` 的 `cfg_frame*.txt` 是人类可读 debug 文本，不是专门的输入布局描述文件。
 
-输入工作帧生成逻辑应读取 `proto/config.pb` 中的 `InputTensorMapping` 和 `InputEntry`，并结合实际输入张量填充 payload。
+输入工作帧生成逻辑应读取 metadata 中的 `InputTensorMapping` 和 `InputEntry`，并结合实际输入张量填充 payload。当前 Python 调试/上位机路径通常读取 `proto/config.pb`；RISC-V runtime 路径读取 `runtime/compile_artifacts.bin`。
 
 ## 11. 如何准备输入工作帧
 
 只有在你的板端流程真的需要“输入工作帧”时，才需要这一步。当前文档只约定应用侧应消费的元数据；具体 `work_frame1.h` 生成工具可按板端工程格式自行实现。
 
-### 11.1 使用 `proto/config.pb` 作为输入布局来源
+### 11.1 使用 metadata 作为输入布局来源
 
-输入工作帧的地址信息来自 `proto/config.pb` 中的 `InputTensorMapping.entries`：
+输入工作帧的地址信息来自 metadata 中的 `InputTensorMapping.entries`：
 
 - `elem_idx` 指向输入 tensor 按 C-order 展平后的元素。
 - `core_offset`、`copy_count`、`tick_relative`、`addr_axon`、`target_lcn` 用于构造目标地址。
@@ -761,7 +777,7 @@ paiviz --artifact output_path/proto/config.pb
 
 ### 11.2 多输入模型
 
-如果 `proto/config.pb` 里包含多个输入 tensor：
+如果 metadata 里包含多个输入 tensor：
 
 - 按 `InputTensorMapping.name` 选择对应输入。
 - 每个输入 tensor 都按自己的 `shape.size` 和 `entries` 编码。
@@ -778,15 +794,16 @@ paiviz --artifact output_path/proto/config.pb
    保持当前 lowering 可识别的模块表面，不直接依赖原始量化执行图。
 3. 用 `compile_to_paiir(..., strict=True)` 编译
    同时保存 `graph.summary()`。
-4. 用 `Mapper.compile(...)` 导出平台相关帧文件与 `proto/` 目录
-   同时保存 `backendv2.log` 与 `proto/config.pb`。
-5. 用 `paiviz validate --artifact proto/config.pb` 检查最终配置帧；
+4. 用 `Mapper.compile(...)` 导出平台相关帧文件与 metadata
+   同时保存 `backendv2.log`；x86/debug 路径保存 `proto/config.pb`，
+   RISC-V 路径保存 `runtime/compile_artifacts.bin`。
+5. 如导出了 protobuf metadata，用 `paiviz validate --artifact proto/config.pb` 检查最终配置帧；
    如需人工排查，再用 `paiviz --artifact proto/config.pb` 打开可视化页面。
-6. 如果板端需要输入工作帧，读取 `proto/config.pb` 中的输入映射生成 `work_frame1.h`
+6. 如果板端需要输入工作帧，读取 metadata 中的输入映射生成 `work_frame1.h`
 7. 向板端交付至少这几类文件
    - 平台相关帧文件（`cfg_frame*.h` 或 `cfg_frame*.npy`）
-   - `proto/config.pb`
-   - 如需人工检查，再附带 `proto/config.json`
+   - metadata（`proto/config.pb` 或 `runtime/compile_artifacts.bin`）
+   - 如需人工检查，再附带 `proto/config.json` 或 `runtime/compile_artifacts.fbs`
    - `paiir_summary.log`
    - `backendv2.log`
 
@@ -795,7 +812,7 @@ paiviz --artifact output_path/proto/config.pb
 这份文档不以单个应用为中心。应用侧部署脚本通常可以拆成两步：
 
 - 编译脚本：负责整理部署态模型、调用 `compile_to_paiir(...)` 和 `Mapper.compile(...)`。
-- 工作帧脚本：负责读取 `proto/config.pb`，把应用输入编码为板端需要的输入工作帧。
+- 工作帧脚本：负责读取 metadata，把应用输入编码为板端需要的输入工作帧。
 
 这类脚本通常遵循一种通用模式：
 
@@ -804,8 +821,8 @@ paiviz --artifact output_path/proto/config.pb
 - 把 requant 保留为精确 LUT
 - 重建成 lowering 可识别的部署态 `nn.Module`
 - 保存 `paiir_summary.log` 和 `backendv2.log`
-- 导出平台相关帧文件和 `proto/` 目录
-- 如板端需要，再根据 `proto/config.pb` 生成输入工作帧头文件
+- 导出平台相关帧文件和 metadata 目录
+- 如板端需要，再根据 metadata 生成输入工作帧头文件
 
 ## 14. 常见排障建议
 
@@ -830,14 +847,14 @@ paiviz --artifact output_path/proto/config.pb
 - `backendv2.log`
 - `routing_groups` 数量
 - `output_path` 下是否真的写出了平台相关帧文件
-- `output_path/proto/config.pb`
+- `output_path/proto/config.pb` 或 `output_path/runtime/compile_artifacts.bin`
 - `output_path/proto/config.json`（若 `debug=True`）
 
 ### 14.3 `work_frame1.h` 生成失败
 
 优先检查：
 
-- `proto/config.pb` 是否包含预期的 `InputTensorMapping` 和 `InputEntry`
+- metadata 是否包含预期的 `InputTensorMapping` 和 `InputEntry`
 - 输入数组长度和布局是否与 `InputNode` 契约一致
 - 多输入模型是否按 `InputTensorMapping.name` 选择了正确输入
 
@@ -852,5 +869,5 @@ paiviz --artifact output_path/proto/config.pb
 如果你希望“量化后模型能够通过这份手册完成编译部署”，当前最稳妥的通用方法不是把原始量化执行图直接丢给前端，而是：
 
 - 先把量化结果整理成 lowering 能理解的部署态 PyTorch 模型
-- 再走 `compile_to_paiir(...) -> Mapper.compile(...) -> 平台相关帧文件 + proto/`
-- 如有需要，再根据 `proto/config.pb` 的输入映射生成 `work_frame1.h`
+- 再走 `compile_to_paiir(...) -> Mapper.compile(...) -> 平台相关帧文件 + metadata`
+- 如有需要，再根据 metadata 的输入映射生成 `work_frame1.h`

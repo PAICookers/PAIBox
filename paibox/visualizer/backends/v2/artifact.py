@@ -13,7 +13,10 @@ from paicorelib.framelib.parser_v2 import (
     sign_magnitude_to_int,
 )
 
-from paibox.backendv2.proto.compile_artifacts_pb2 import CompileArtifacts, ConfigFrames
+from paibox.backendv2.generated.proto.compile_artifacts_pb2 import (
+    CompileArtifacts,
+    ConfigFrames,
+)
 
 from ...model import (
     ArtifactInfo,

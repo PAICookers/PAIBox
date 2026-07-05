@@ -1,4 +1,5 @@
 default_install_hook_types: [pre-commit, prepare-commit-msg]
+exclude: ^paibox/backendv2/generated/.*\.pyi?$
 ci:
   autofix_commit_msg: ":rotating_light: auto fix by pre-commit hooks"
   autofix_prs: true
