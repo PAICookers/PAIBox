@@ -1,6 +1,6 @@
 import pytest
 
-from paibox.backendv2.proto.compile_artifacts_pb2 import (
+from paibox.backendv2.generated.proto.compile_artifacts_pb2 import (
     CompileArtifacts,
     DataType,
     OutputTensorMapping,

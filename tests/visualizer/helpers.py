@@ -10,7 +10,10 @@ from paibox.backendv2.core_config import (
     Frontend_Core_Config,
     to_core_reg,
 )
-from paibox.backendv2.proto.compile_artifacts_pb2 import CompileArtifacts, ConfigFrames
+from paibox.backendv2.generated.proto.compile_artifacts_pb2 import (
+    CompileArtifacts,
+    ConfigFrames,
+)
 
 
 def make_core_frame(

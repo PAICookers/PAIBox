@@ -388,13 +388,14 @@ def test_fastapi_app_summary_and_core(tmp_path: Path) -> None:
 def test_fastapi_io_endpoints(tmp_path: Path) -> None:
     pytest.importorskip("fastapi")
 
-    from paibox.backendv2.proto.compile_artifacts_pb2 import DataType
+    from paibox.backendv2.generated.proto.compile_artifacts_pb2 import (
+        CompileArtifacts,
+        DataType,
+    )
     from paibox.visualizer.server import create_app
 
     frames = make_core_frame(CoordXY(3, 1))
     pb_path = write_pb(tmp_path / "config.pb", frames)
-
-    from paibox.backendv2.proto.compile_artifacts_pb2 import CompileArtifacts
 
     artifacts = CompileArtifacts()
     artifacts.ParseFromString(pb_path.read_bytes())
