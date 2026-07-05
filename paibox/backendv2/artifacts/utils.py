@@ -87,20 +87,9 @@ def iter_frame_arrays_core_major(
 def resolve_platform_exports(
     target_platform: TargetPlatform, debug: bool
 ) -> tuple[bool, bool]:
-    if target_platform == "x86":
-        export_x86 = True
-        export_riscv = False
-    elif target_platform == "riscv":
-        export_x86 = False
-        export_riscv = True
-    elif target_platform == "all":
-        export_x86 = True
-        export_riscv = True
-    else:
+    if target_platform not in ("x86", "riscv", "all"):
         raise ValueError("target_platform must be 'x86', 'riscv', or 'all'")
-
-    if debug:
-        export_x86 = True
-        export_riscv = True
-
-    return export_x86, export_riscv
+    return (
+        debug or target_platform in ("x86", "all"),
+        debug or target_platform in ("riscv", "all"),
+    )

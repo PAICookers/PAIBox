@@ -7,21 +7,23 @@ from paicorelib import CoordXY, CoordZXYOffset
 from paibox.paiir import PAIIRGraph
 from paibox.paiir.ir import OfflineCoreOp
 
-from .coreplacement import (
-    CorePlacement,
-    EmptyOfflineCorePlacementV2,
-    EmptyOnlineCorePlacementV2,
-)
-from .export.cheader import export_cheader_files, export_cheader_merged
-from .export.npy import export_frame_npy
-from .export.proto import export_compile_artifacts
-from .export.text import export_debug_txt_files, export_debug_txt_merged
-from .export.utils import (
+from .artifacts.cheader import export_cheader_files, export_cheader_merged
+from .artifacts.compile_artifacts import build_compile_artifacts
+from .artifacts.flatbuffer import export_compile_artifacts_flatbuffer
+from .artifacts.npy import export_frame_npy
+from .artifacts.proto import export_compile_artifacts
+from .artifacts.text import export_debug_txt_files, export_debug_txt_merged
+from .artifacts.utils import (
     LiteralFormat,
     TargetPlatform,
     WordOrder,
     make_frame_records,
     resolve_platform_exports,
+)
+from .coreplacement import (
+    CorePlacement,
+    EmptyOfflineCorePlacementV2,
+    EmptyOnlineCorePlacementV2,
 )
 from .global_signal import set_global_signal
 from .group_tile import tile_groups
@@ -335,12 +337,8 @@ class Mapper:
             if export_merged_frames:
                 export_cheader_merged(out, frame_records, literal_format)
 
-        export_compile_artifacts(
-            out,
-            target_platform,
+        artifacts = build_compile_artifacts(
             word_order,
-            export_proto_python,
-            debug,
             self.timesteps,
             self.groups,
             self.input_groups,
@@ -349,6 +347,10 @@ class Mapper:
             self.global_starts,
             frame_records,
         )
+        if export_x86:
+            export_compile_artifacts(out, export_proto_python, debug, artifacts)
+        if export_riscv:
+            export_compile_artifacts_flatbuffer(out, artifacts)
 
     def compile(
         self,

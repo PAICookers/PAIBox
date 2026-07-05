@@ -10,7 +10,7 @@ from paicorelib.framelib.parser_v2 import (
 )
 from paicorelib.framelib.utils import LCN_TO_TS_AXON_WIDTHS
 
-from paibox.backendv2.proto.compile_artifacts_pb2 import (
+from paibox.backendv2.generated.proto.compile_artifacts_pb2 import (
     CompileArtifacts,
     DataType,
     OutputTensorMapping,
