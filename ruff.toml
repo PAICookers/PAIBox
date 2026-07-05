@@ -1,3 +1,6 @@
+extend-exclude = ["paibox/backendv2/generated"]
+force-exclude = true
+
 [lint]
 select = [
     "E", # pycodestyle errors
@@ -11,7 +14,7 @@ ignore = ["E501"]
 "__init__.py" = [
     "I001", # unsorted imports
 ]
-'paibox/__init__.py' = [
+"paibox/__init__.py" = [
     "E402", # module level import not at top of cell
     "F401", # unused import
 ]

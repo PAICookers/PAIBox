@@ -8,7 +8,8 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "click>=8.1.0,<9",
-    "numpy (>=2.1.0,<3.0.0)",
+    "flatbuffers==25.12.19",
+    "numpy>=2.1.0,<3.0.0",
     "protobuf>=5.27.1,<7",
     "rich>=14.0.0",
 ]

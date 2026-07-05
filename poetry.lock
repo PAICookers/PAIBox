@@ -673,6 +673,22 @@ url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 reference = "tsinghua"
 
 [[package]]
+name = "flatbuffers"
+version = "25.12.19"
+description = "The FlatBuffers serialization format for Python"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "flatbuffers-25.12.19-py2.py3-none-any.whl", hash = "sha256:7634f50c427838bb021c2d66a3d1168e9d199b0607e6329399f04846d42e20b4"},
+]
+
+[package.source]
+type = "legacy"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+reference = "tsinghua"
+
+[[package]]
 name = "fonttools"
 version = "4.61.1"
 description = "Tools to manipulate font files"
@@ -3410,4 +3426,4 @@ visualizer = ["fastapi", "paicorelib", "uvicorn"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10"
-content-hash = "60ba9f0e67204ae3e7f0c3125a69aa3952c83eea19d9df0371758050ae8b14a6"
+content-hash = "8e2ca25314a0904d2e95506a220db0d8c0e093df4725993bdf647dd0fb756d15"

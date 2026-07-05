@@ -1,0 +1,134 @@
+namespace paibox.backendv2.generated.fbs;
+
+enum DataType : byte {
+  NOT_SET = 0,
+  UINT1 = 1,
+  INT1 = 2,
+  UINT2 = 3,
+  INT2 = 4,
+  UINT4 = 5,
+  INT4 = 6,
+  UINT8 = 7,
+  INT8 = 8
+}
+
+enum OutputKind : byte {
+  DATA = 0,
+  VOLTAGE = 1
+}
+
+enum DecodeMode : byte {
+  STREAM = 0,
+  STEP = 1
+}
+
+enum WordOrder : byte {
+  HIGH_FIRST = 0,
+  LOW_FIRST = 1
+}
+
+table CoreOffset {
+  xy:int;
+  x:int;
+  y:int;
+}
+
+table CopyCount {
+  xy:int;
+  x:int;
+  y:int;
+}
+
+table TickParams {
+  tick_start:uint;
+  tick_duration:uint;
+  tick_initial:uint;
+}
+
+table InputEntry {
+  elem_idx:uint;
+  core_offset:CoreOffset;
+  copy_count:CopyCount;
+  tick_relative:uint;
+  addr_axon:uint;
+  target_lcn:uint;
+  copy_id:uint;
+  dtype:DataType = NOT_SET;
+}
+
+table OutputEntry {
+  elem_idx:uint;
+  copy_id:uint;
+  axon_bit_idx:uint;
+  dtype:DataType = NOT_SET;
+}
+
+table Shape {
+  size:[int];
+}
+
+table InputTensorMapping {
+  name:string;
+  shape:Shape;
+  bit_width:uint;
+  tick:TickParams;
+  entries:[InputEntry];
+}
+
+table OutputTensorMapping {
+  name:string;
+  shape:Shape;
+  kind:OutputKind = DATA;
+  bit_width:uint;
+  tick:TickParams;
+  entries:[OutputEntry];
+}
+
+table InputTensorMappings {
+  items:[InputTensorMapping];
+}
+
+table OutputTensorMappings {
+  target_lcn:uint;
+  items:[OutputTensorMapping];
+}
+
+table RuntimeParams {
+  timesteps:uint;
+  tick_depth:uint;
+  sync_steps:uint;
+  decode_mode:DecodeMode = STREAM;
+}
+
+table CoreTick {
+  core_offset:CoreOffset;
+  tick:TickParams;
+  nodes:[string];
+}
+
+table ThreadIOMapping {
+  thread_id:uint;
+  root_core_offset:CoreOffset;
+  runtime:RuntimeParams;
+  input_mappings:InputTensorMappings;
+  output_mappings:OutputTensorMappings;
+  core_ticks:[CoreTick];
+}
+
+table IOMapping {
+  threads:[ThreadIOMapping];
+}
+
+table ConfigFrames {
+  words:[uint];
+  word_order:WordOrder = HIGH_FIRST;
+}
+
+table CompileArtifacts {
+  schema_version:uint;
+  io_mapping:IOMapping;
+  config_frames:ConfigFrames;
+}
+
+root_type CompileArtifacts;
+file_identifier "PBCA";
