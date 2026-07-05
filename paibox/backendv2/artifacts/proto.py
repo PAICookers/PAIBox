@@ -119,9 +119,7 @@ def _copy_core_tick(src: CoreTickData, dst: pb.CoreTick) -> None:
     dst.nodes.extend(src.nodes)
 
 
-def _copy_thread_mapping(
-    src: ThreadIOMappingData, dst: pb.ThreadIOMapping
-) -> None:
+def _copy_thread_mapping(src: ThreadIOMappingData, dst: pb.ThreadIOMapping) -> None:
     dst.thread_id = src.thread_id
     _copy_core_offset(src.root_core_offset, dst.root_core_offset)
     _copy_runtime_params(src.runtime, dst.runtime)
