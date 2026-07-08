@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from dataclasses import replace
 
 import pytest
 import torch.nn as nn
@@ -33,6 +34,7 @@ from paibox.backendv2.pressure_unroll import (
     PressureUnroller,
     PressureUnrollStopReason,
 )
+from paibox.backendv2.route_scope import get_route_scope
 from paibox.backendv2.routing import RoutingGroup
 from paibox.backendv2.weight import Weight
 from paibox.paiir.ir.op_node import StandaloneCompOp
@@ -44,8 +46,9 @@ PRESSURE_PER_UNIT = 2048
 @pytest.fixture
 def offline_core_count(monkeypatch: pytest.MonkeyPatch) -> Callable[[int], None]:
     def set_count(count: int) -> None:
-        coords = [CoordXY(i, 0) for i in range(count)]
-        monkeypatch.setattr(pressure_unroll_module, "OFFLINE_CORE_COORDS", coords)
+        coords = frozenset(CoordXY(i, 2) for i in range(count))
+        scope = replace(get_route_scope("single"), offline_core_coords=coords)
+        monkeypatch.setattr(pressure_unroll_module, "get_route_scope", lambda _: scope)
 
     return set_count
 

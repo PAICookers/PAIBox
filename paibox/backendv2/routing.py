@@ -1012,9 +1012,9 @@ class InputGroup(Group, SourceGroup[InputElem, InNode]):
     def __str__(self) -> str:
         return self.info()
 
-    def set_detail_dest(self) -> None:
+    def set_detail_dest(self, input_coord: CoordXY = CoordXY(0, 0)) -> None:
         for elem in self.raw_elems:
-            dest_info = self.get_detail_dest([elem])
+            dest_info = self.get_detail_dest([elem], input_coord)
             self.dest_infos[elem] = dest_info
             dest_rg = self.get_dest(elem)
             self.dest_lcn[elem] = dest_rg.lcn
@@ -1218,6 +1218,15 @@ class OutputGroup(Group, DestGroup[SourceElem, SourceNode]):
     @property
     def base_coord(self) -> CoordXY:
         return self._base_coord
+
+    def set_base_coord(self, coord: CoordXY) -> None:
+        """Set the CPU endpoint used as this output group's destination.
+
+        Args:
+            coord: CPU endpoint coordinate used by output DATA routes.
+        """
+
+        self._base_coord = coord
 
 
 def toposort_for_rg(

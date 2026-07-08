@@ -33,7 +33,13 @@ from paibox.backendv2.output_completion_planner import (
     OutputProducer,
 )
 from paibox.backendv2.pressure_unroll import PressureUnrollConfig, PressureUnroller
-from paibox.backendv2.routing import FANIN_BASE, OutputGroup, RoutingGroup
+from paibox.backendv2.routing import (
+    FANIN_BASE,
+    InputGroup,
+    OutputGroup,
+    RemapGroup,
+    RoutingGroup,
+)
 from paibox.paiir import (
     LUT_TABLE_SIZE,
     ANNNodeV25,
@@ -133,6 +139,86 @@ def test_mapper_unroll_pressure_delegates_to_pressure_unroller(monkeypatch):
     )
     calls[0].routing_fn()
     assert routing_calls == [{"feasibility_only": True, "max_time_in_seconds": 30}]
+
+
+def _capture_mapper_route_call(monkeypatch):
+    route_kwargs = {}
+
+    def fake_route_solve(
+        routing_groups=None,
+        next_area_id=None,
+        input_groups=None,
+        scope=None,
+        **kwargs,
+    ):
+        route_kwargs.update(
+            routing_groups=routing_groups,
+            next_area_id=next_area_id,
+            input_groups=input_groups,
+            scope=scope,
+            **kwargs,
+        )
+        return [], []
+
+    monkeypatch.setattr("paibox.backendv2.mapper.route_solve", fake_route_solve)
+    return route_kwargs
+
+
+def test_mapper_passes_routing_context_to_solver(monkeypatch):
+    mapper = Mapper()
+    input_a = object()
+    input_b = object()
+    output_a = object()
+    output_b = object()
+    input_group = InputGroup([input_a, input_b])
+    rg = RoutingGroup([output_a, output_b], [input_a, input_b])
+    output_group = OutputGroup([output_a, output_b])
+
+    input_group.dests[input_a] = rg
+    input_group.dests[input_b] = rg
+    rg.dests[output_a] = output_group
+    rg.dests[output_b] = output_group
+    rg.core_placements = [OfflineCorePlacementV2()]
+
+    mapper.input_groups = [input_group]
+    mapper.output_groups = [output_group]
+    mapper.routing_groups = [rg]
+    mapper.next_rg_group = {0: []}
+    route_kwargs = _capture_mapper_route_call(monkeypatch)
+
+    mapper.routing()
+
+    assert route_kwargs["routing_groups"] == [rg]
+    assert route_kwargs["input_groups"] == [input_group]
+    assert route_kwargs["scope"] is mapper.route_scope
+
+
+def test_mapper_passes_remap_input_context_to_solver(monkeypatch):
+    mapper = Mapper()
+    input_elem = object()
+    input_group = InputGroup([input_elem])
+    rg = RoutingGroup([], [input_elem])
+    remap_group = RemapGroup.__new__(RemapGroup)
+
+    def remap_dest(_elem):
+        return rg
+
+    remap_group.remap_dest = remap_dest
+
+    input_group.dests[input_elem] = remap_group
+    rg.core_placements = [OfflineCorePlacementV2()]
+
+    mapper.input_groups = [input_group]
+    mapper.output_groups = []
+    mapper.routing_groups = [rg]
+    mapper.next_rg_group = {0: []}
+    route_kwargs = _capture_mapper_route_call(monkeypatch)
+
+    mapper.routing()
+
+    assert route_kwargs["routing_groups"] == [rg]
+    assert route_kwargs["input_groups"] == [input_group]
+    assert route_kwargs["scope"] is mapper.route_scope
 
 
 class DefaultMixedSparseDenseLinear(nn.Module):
