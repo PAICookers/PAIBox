@@ -1,5 +1,5 @@
 import pytest
-from paicorelib import CoordXY, CoordZXYOffset
+from paicorelib import CoordXY, CoordZXYOffset, route_coord_path
 
 from paibox.backendv2 import output_completion_planner as planner_mod
 from paibox.backendv2.output_completion_planner import (
@@ -10,31 +10,25 @@ from paibox.backendv2.output_completion_planner import (
     OutputProducer,
     OutputRouteDecision,
     candidate_offsets,
-    debug_output_completion_plan,
-    render_output_completion_plan_ascii,
-    route_coord_path,
-    route_len,
-    route_stays_in_grid,
     select_output_completion_plan,
     terminal_route_side,
     validate_output_completion_plan,
 )
-from paibox.backendv2.route_solver import (
-    CPU_COORD,
-    OFFLINE_CORE_COORDS,
-    ONLINE_CORE_COORDS,
-    is_configurable_thread_core_coord,
-)
+from paibox.backendv2.route_scope import get_route_scope
+
+SINGLE_SCOPE = get_route_scope("single")
 
 
 def _all_empty_offline_except(*used: CoordXY) -> set[CoordXY]:
     used_set = set(used)
-    return {coord for coord in OFFLINE_CORE_COORDS if coord not in used_set}
+    return {
+        coord for coord in SINGLE_SCOPE.offline_core_coords if coord not in used_set
+    }
 
 
 def _all_empty_online_except(*used: CoordXY) -> set[CoordXY]:
     used_set = set(used)
-    return {coord for coord in ONLINE_CORE_COORDS if coord not in used_set}
+    return {coord for coord in SINGLE_SCOPE.online_core_coords if coord not in used_set}
 
 
 def _coord_set(cores: tuple[EmptyThreadCore, ...]) -> set[CoordXY]:
@@ -70,7 +64,10 @@ def _assert_data_prefix_cores_are_required(
         path = route_coord_path(route.producer_coord, route.offset)
         prefix = path[: path.index(plan.completion_join_point) + 1]
         for coord in prefix:
-            if coord != CPU_COORD and is_configurable_thread_core_coord(coord):
+            if (
+                coord not in SINGLE_SCOPE.cpu_coords
+                and SINGLE_SCOPE.is_configurable_thread_core_coord(coord)
+            ):
                 assert coord in final_thread
 
 
@@ -105,15 +102,18 @@ def test_route_coord_path_follows_z_x_y_order():
     )
 
 
-def test_candidate_offsets_are_sorted_by_length_then_offset_tuple():
+def test_candidate_offsets_are_sorted_by_l1_norm_then_offset_tuple():
     offsets = candidate_offsets(CoordXY(3, 4), CoordXY(0, 0))
 
     assert offsets[0] == CoordZXYOffset(-3, 0, -1)
-    assert [route_len(offset) for offset in offsets] == sorted(
-        route_len(offset) for offset in offsets
+    assert [offset.l1_norm() for offset in offsets] == sorted(
+        offset.l1_norm() for offset in offsets
     )
     assert all(
-        route_stays_in_grid(CoordXY(3, 4), offset, CoordXY(0, 0)) for offset in offsets
+        SINGLE_SCOPE.route_path_valid(
+            route_coord_path(CoordXY(3, 4), offset), CoordXY(0, 0)
+        )
+        for offset in offsets
     )
 
 
@@ -421,7 +421,8 @@ def test_same_suffix_falls_back_to_longer_data_route_when_prefix_core_unavailabl
     suffix = next(
         suffix
         for suffix in planner_mod._common_suffixes_for_path(
-            route_coord_path(producer, CoordZXYOffset(2, -2, -3))
+            route_coord_path(producer, CoordZXYOffset(2, -2, -3)),
+            SINGLE_SCOPE,
         )
         if suffix.join_point == join_point
     )
@@ -570,27 +571,3 @@ def test_validate_rejects_online_required_core_when_disabled():
         validate_output_completion_plan(
             plan, (producer,), {CoordXY(1, 1)}, allow_empty_online=False
         )
-
-
-def test_debug_trace_and_ascii_render_show_key_route_points():
-    producers = (OutputProducer(CoordXY(3, 4)), OutputProducer(CoordXY(5, 6)))
-    used = {producer.coord for producer in producers}
-    plan = select_output_completion_plan(
-        list(producers),
-        used,
-        _all_empty_offline_except(*used),
-        _all_empty_online_except(*used),
-    )
-
-    trace = "\n".join(debug_output_completion_plan(plan, producers, used))
-    rendered = render_output_completion_plan_ascii(plan, producers, used)
-
-    assert "source=(3,4)" in trace
-    assert "join=(3,4)" in trace
-    assert "completion_thread_cores" in trace
-    assert "S" in rendered
-    assert "M" in rendered
-    assert "C" in rendered
-    assert "P0=(3,4)" in rendered
-    assert "P1=(5,6)" in rendered
-    assert "*" in rendered
