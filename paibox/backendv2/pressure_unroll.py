@@ -11,7 +11,7 @@ from paicorelib import CSCAccelerateMode, NeuronType
 
 from .coreplacement import CorePlacement, OfflineCorePlacementV2
 from .neuron import OfflineNeuronPlacement
-from .route_solver import OFFLINE_CORE_COORDS
+from .route_scope import RouteScope, get_route_scope
 from .routing import RoutingGroup
 
 
@@ -103,11 +103,21 @@ class PressureUnroller:
 
     Each round recomputes layer pressure, tries candidates ordered by current
     peak pressure, and commits at most one successful layer split.
+
+    Parameters:
+        routing_groups: Routing groups whose offline cores may be split.
+        routing_fn: Feasibility-only routing probe called after each candidate
+            split.
+        config: Heuristic limits and selection knobs. Defaults to
+            `PressureUnrollConfig()`.
+        scope: Board route scope used to count free offline cores. Defaults to
+            the single-chip scope.
     """
 
     routing_groups: list[RoutingGroup]
     routing_fn: Callable[[], None]  # must be a feasibility-only probe
     config: PressureUnrollConfig = field(default_factory=PressureUnrollConfig)
+    scope: RouteScope = field(default_factory=lambda: get_route_scope("single"))
 
     def run(self) -> UnrollResult:
         """Run greedy split/probe rounds within the route-probe budget.
@@ -118,6 +128,9 @@ class PressureUnroller:
         3. Select high-pressure offline cores by peak ratio or quantile.
         4. Split selected cores by neuron count.
         5. Keep the split only if a feasibility-only routing probe succeeds.
+
+        Returns:
+            Summary describing committed splits and the stop reason.
         """
         result = UnrollResult()
         route_failed = False
@@ -258,7 +271,7 @@ class PressureUnroller:
         return True
 
     def _get_free_offline_core_count(self) -> int:
-        return len(OFFLINE_CORE_COORDS) - sum(
+        return len(self.scope.offline_core_coords) - sum(
             rg.n_core_required for rg in self.routing_groups
         )
 

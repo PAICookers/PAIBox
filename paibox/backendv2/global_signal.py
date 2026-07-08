@@ -8,6 +8,10 @@ from paicorelib import (
     CoordXYUnitVec,
     CoordZXYOffset,
     find_coordxy_shortest_path,
+    global_signal_direction_mask,
+    global_signal_direction_name,
+    global_signal_directions,
+    global_signal_opposite_direction,
 )
 
 from .coreplacement import (
@@ -22,39 +26,6 @@ EmptyRelayCoreKind = Literal["offline", "online"]
 GlobalSignalEdge = tuple[CoordXY, CoordXYUnitVec]
 GlobalSignalAdjacency = dict[CoordXY, list[GlobalSignalEdge]]
 GlobalSignalUnitVecMap = dict[CoordXY, list[CoordXYUnitVec]]
-
-GLOBAL_SIGNAL_DIRECTIONS: list[CoordXYUnitVec] = [
-    CoordXYUnitVec.Z_POS,
-    CoordXYUnitVec.Z_NEG,
-    CoordXYUnitVec.X_POS,
-    CoordXYUnitVec.X_NEG,
-    CoordXYUnitVec.Y_POS,
-    CoordXYUnitVec.Y_NEG,
-]
-OPPOSITE_GLOBAL_SIGNAL_DIRECTION: dict[CoordXYUnitVec, CoordXYUnitVec] = {
-    CoordXYUnitVec.Z_POS: CoordXYUnitVec.Z_NEG,
-    CoordXYUnitVec.Z_NEG: CoordXYUnitVec.Z_POS,
-    CoordXYUnitVec.X_POS: CoordXYUnitVec.X_NEG,
-    CoordXYUnitVec.X_NEG: CoordXYUnitVec.X_POS,
-    CoordXYUnitVec.Y_POS: CoordXYUnitVec.Y_NEG,
-    CoordXYUnitVec.Y_NEG: CoordXYUnitVec.Y_POS,
-}
-GLOBAL_SIGNAL_DIRECTION_BIT: dict[CoordXYUnitVec, int] = {
-    CoordXYUnitVec.Z_POS: 5,  # +xy
-    CoordXYUnitVec.Z_NEG: 4,  # -xy
-    CoordXYUnitVec.X_POS: 3,  # +x
-    CoordXYUnitVec.X_NEG: 2,  # -x
-    CoordXYUnitVec.Y_POS: 1,  # +y
-    CoordXYUnitVec.Y_NEG: 0,  # -y
-}
-GLOBAL_SIGNAL_DIRECTION_NAME: dict[CoordXYUnitVec, str] = {
-    CoordXYUnitVec.Z_POS: "+xy",
-    CoordXYUnitVec.Z_NEG: "-xy",
-    CoordXYUnitVec.X_POS: "+x",
-    CoordXYUnitVec.X_NEG: "-x",
-    CoordXYUnitVec.Y_POS: "+y",
-    CoordXYUnitVec.Y_NEG: "-y",
-}
 
 
 @dataclass(frozen=True)
@@ -104,7 +75,7 @@ def path_coords(a: CoordXY, b: CoordXY) -> list[CoordXY]:
     for _ in range(steps):
         remaining_steps = hex_steps(current, b)
         chosen = None
-        for direction in GLOBAL_SIGNAL_DIRECTIONS:
+        for direction in global_signal_directions():
             neighbor = neighbor_coord(current, direction)
             if hex_steps(neighbor, b) == remaining_steps - 1:
                 chosen = direction
@@ -143,7 +114,7 @@ def solve_global_signal_tree(
 
     dsu = DSU(points)
     for p in points:
-        for direction in GLOBAL_SIGNAL_DIRECTIONS:
+        for direction in global_signal_directions():
             q = neighbor_coord(p, direction)
             if q in points:
                 dsu.union(p, q)
@@ -186,7 +157,7 @@ def solve_global_signal_tree(
     adj: defaultdict[CoordXY, list[GlobalSignalEdge]] = defaultdict(list)
     for p in points:
         adj[p]
-        for direction in GLOBAL_SIGNAL_DIRECTIONS:
+        for direction in global_signal_directions():
             q = neighbor_coord(p, direction)
             if q in points:
                 adj[p].append((q, direction))
@@ -236,17 +207,33 @@ def print_solution(
     print("added empty cores:", added)
     print("send directions:")
     for p, ds in moves.items():
-        print(f"  {p} -> {[GLOBAL_SIGNAL_DIRECTION_NAME[d] + f':{d}' for d in ds]}")
+        print(f"  {p} -> {[global_signal_direction_name(d) + f':{d}' for d in ds]}")
 
 
 def set_global_signal(
     coreplacements: list[CorePlacement],
     global_signal_root: CoordXY | None = None,
     relay_core_kinds: Mapping[CoordXY, EmptyRelayCoreKind] | None = None,
+    cpu_coord: CoordXY = CoordXY(0, 0),
     verbose: bool = False,
 ) -> tuple[list[CorePlacement], dict[int, CoordZXYOffset]]:
-    # Global signal currently covers one thread and one shared weight range.
+    """Configure global-signal routes for one backendv2 thread.
 
+    Args:
+        coreplacements: Existing configured cores that must receive the global
+            signal.
+        global_signal_root: Optional root coordinate for the global signal tree.
+            When omitted, the solver chooses a root from `coreplacements`.
+        relay_core_kinds: Empty relay-core kinds keyed by coordinate. Missing
+            relay coordinates default to offline empty cores.
+        cpu_coord: CPU endpoint coordinate used to encode the global-signal
+            start offset. Defaults to ``CoordXY(0, 0)``.
+        verbose: Whether to print the selected tree and start route.
+
+    Returns:
+        Updated core placements and per-placement global-signal start offsets.
+    """
+    # Global signal currently covers one thread and one shared weight range.
     points: list[CoordXY] = []
     cp_dict: dict[CoordXY, CorePlacement] = {}
     for cp in coreplacements:
@@ -282,36 +269,31 @@ def set_global_signal(
     for p, send_directions in send_info.items():
         for d in send_directions:
             dest = neighbor_coord(p, d)
-            receive_info[dest].append(OPPOSITE_GLOBAL_SIGNAL_DIRECTION[d])
+            receive_info[dest].append(global_signal_opposite_direction(d))
 
     if verbose:
         print("\nSend Direction:")
         for p, send_dirs in send_info.items():
             print(
                 f"    {p}: "
-                f"{[GLOBAL_SIGNAL_DIRECTION_NAME[d] + f':{d}' for d in send_dirs]}"
+                f"{[global_signal_direction_name(d) + f':{d}' for d in send_dirs]}"
             )
 
         print("\nReceive Direction:")
         for p, recv_dirs in receive_info.items():
             print(
                 f"    {p}: "
-                f"{[GLOBAL_SIGNAL_DIRECTION_NAME[d] + f':{d}' for d in recv_dirs]}"
+                f"{[global_signal_direction_name(d) + f':{d}' for d in recv_dirs]}"
             )
 
     added_points = set(added)
     for p, cp in cp_dict.items():
         send_directions = send_info.get(p, [])
         recv_directions = receive_info.get(p, [])
-        if p in added_points:
-            global_send = 0
-        else:
-            global_send = 1 << 6  # send to local core
-        global_receive = 0
-        for d in send_directions:
-            global_send |= 1 << GLOBAL_SIGNAL_DIRECTION_BIT[d]
-        for d in recv_directions:
-            global_receive |= 1 << GLOBAL_SIGNAL_DIRECTION_BIT[d]
+        global_send = global_signal_direction_mask(
+            send_directions, include_local=p not in added_points
+        )
+        global_receive = global_signal_direction_mask(recv_directions)
         cp.auto_core_config.global_send = global_send
         cp.auto_core_config.global_receive = global_receive
         if verbose:
@@ -321,7 +303,7 @@ def set_global_signal(
             )
 
     start_coord = order[0]
-    start_coord_offset, _ = find_coordxy_shortest_path(start_coord)
+    start_coord_offset, _ = find_coordxy_shortest_path(start_coord, start=cpu_coord)
     if verbose:
         print(f"Global signal start from {start_coord}")
         print(f"Global signal relative offset: {start_coord_offset}")

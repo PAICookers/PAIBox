@@ -214,9 +214,9 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
         if isinstance(dest_routing_group, RoutingGroup):
             axon_addr_logic = dest_routing_group.index_map.get(axon_elem, -1)
             assert axon_addr_logic >= 0, "axon_addr_logic should be non-negative"
-            assert (
-                elems[0].output_bit_num == dest_routing_group.input_bit_num
-            ), "Output bit num of elem must match input bit num of dest routing group"
+            assert elems[0].output_bit_num == dest_routing_group.input_bit_num, (
+                "Output bit num of elem must match input bit num of dest routing group"
+            )
             axon_bit_count = axon_addr_logic * dest_routing_group.input_bit_num
         elif isinstance(dest_routing_group, OutputGroup):
             axon_bit_count = -1
@@ -300,12 +300,12 @@ class RemapGroup(
         for node in self.nodes:
             remap_info = node.get_remap_info()
             self.remap_dict.update(remap_info)
-        assert (
-            set(self.remap_dict.keys()) == self.input_set
-        ), "remap_info keys must match input_set"
-        assert set(self.remap_dict.values()).issubset(
-            set(self.raw_elems)
-        ), "remap_info values must match raw_neus"
+        assert set(self.remap_dict.keys()) == self.input_set, (
+            "remap_info keys must match input_set"
+        )
+        assert set(self.remap_dict.values()).issubset(set(self.raw_elems)), (
+            "remap_info values must match raw_neus"
+        )
 
         for src, dst in self.remap_dict.items():
             self.source_dict[dst] = src
@@ -417,19 +417,19 @@ class RoutingGroup(
         pred_output_bit_nums: set[int] = set(
             [src.output_bit_num for src in self.input_list]
         )
-        assert (
-            len(intput_bit_nums) == 1
-        ), "All neurons in the routing group must have the same input bit num."
-        assert (
-            len(pred_output_bit_nums) == 1
-        ), "All input elements in the routing group must have the same output bit num."
+        assert len(intput_bit_nums) == 1, (
+            "All neurons in the routing group must have the same input bit num."
+        )
+        assert len(pred_output_bit_nums) == 1, (
+            "All input elements in the routing group must have the same output bit num."
+        )
         # print(f"{self.raw_elems[0]}: input_bit_nums: {intput_bit_nums}")
         # print(f"{self.input_list[0]}: pred_output_bit_nums: {pred_output_bit_nums}")
 
         self.input_bit_num = intput_bit_nums.pop()
-        assert (
-            self.input_bit_num == pred_output_bit_nums.pop()
-        ), "Input bit num of neurons must match output bit num of input elements."
+        assert self.input_bit_num == pred_output_bit_nums.pop(), (
+            "Input bit num of neurons must match output bit num of input elements."
+        )
         max_axon_addr = len(self.input_list) * self.input_bit_num
         lcn = ((max_axon_addr - 1) // FANIN_BASE).bit_length()
         if self.recommand_lcn is not None and lcn < self.recommand_lcn.value:
@@ -679,7 +679,9 @@ class RoutingGroup(
                         1,
                         1,
                         1,
-                    ], "Folded neurons sending to output group should have axon skew of 1"
+                    ], (
+                        "Folded neurons sending to output group should have axon skew of 1"
+                    )
 
                 fold_attrs_part1 = OfflineNeuFoldedAttrsV2Part1(
                     fold_axon_y=fold_axon_skews[0] * dest_group.input_bit_num,
@@ -889,9 +891,9 @@ class RoutingGroup(
             core_placement.set_weight_address()
 
     def assign_coord(self, coords: list[CoordXY], copy_config: AERPacketZXYCopy):
-        assert len(coords) >= len(
-            self.core_placements
-        ), "Not enough coordinates provided to assign."
+        assert len(coords) >= len(self.core_placements), (
+            "Not enough coordinates provided to assign."
+        )
         for i, coord in enumerate(coords):
             if i < len(self.core_placements):
                 self.assigned_cores[coord] = self.core_placements[i]
@@ -1012,9 +1014,9 @@ class InputGroup(Group, SourceGroup[InputElem, InNode]):
     def __str__(self) -> str:
         return self.info()
 
-    def set_detail_dest(self) -> None:
+    def set_detail_dest(self, input_coord: CoordXY = CoordXY(0, 0)) -> None:
         for elem in self.raw_elems:
-            dest_info = self.get_detail_dest([elem])
+            dest_info = self.get_detail_dest([elem], input_coord)
             self.dest_infos[elem] = dest_info
             dest_rg = self.get_dest(elem)
             self.dest_lcn[elem] = dest_rg.lcn
@@ -1218,6 +1220,15 @@ class OutputGroup(Group, DestGroup[SourceElem, SourceNode]):
     @property
     def base_coord(self) -> CoordXY:
         return self._base_coord
+
+    def set_base_coord(self, coord: CoordXY) -> None:
+        """Set the CPU endpoint used as this output group's destination.
+
+        Args:
+            coord: CPU endpoint coordinate used by output DATA routes.
+        """
+
+        self._base_coord = coord
 
 
 def toposort_for_rg(

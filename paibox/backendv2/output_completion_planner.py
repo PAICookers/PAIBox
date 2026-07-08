@@ -2,36 +2,24 @@
 
 from collections.abc import Iterable, Set
 from dataclasses import dataclass
+from functools import cache
 from itertools import chain
 from typing import Literal
 
-from paicorelib import CoordXY, CoordZXYOffset
+from paicorelib import CoordXY, CoordZXYOffset, route_coord_path, to_coordxys
 
-from .core_config import TEST_DEST_CORE
 from .global_signal import EmptyRelayCoreKind as EmptyThreadCoreKind
 from .global_signal import solve_global_signal_tree
-from .route_solver import (
-    CPU_COORD,
-    G_X_MAX,
-    G_X_MIN,
-    G_Y_MAX,
-    G_Y_MIN,
-    ONLINE_CORE_COORDS,
-    is_configurable_thread_core_coord,
-    is_global_route_coord,
-    is_online_core_coord,
-)
+from .route_scope import RouteScope, TargetBoard, get_route_scope
 
 __all__ = [
     "OutputCompletionPlan",
-    "OutputCpuIngressPlan",
     "OutputProducer",
     "select_output_completion_plan",
 ]
 
 RouteSide = tuple[Literal["x", "y", "xy", "local"], int]
 CompletionCoreTier = Literal["used", "empty_offline", "empty_online"]
-_JoinSelectionKey = tuple[int, int, int, int, int, tuple[tuple[int, int], ...]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,27 +31,8 @@ class OutputRouteDecision:
     offset: CoordZXYOffset
 
 
-@dataclass(frozen=True, slots=True)
-class OutputCpuIngressPlan:
-    """DATA and complete route offsets that share one CPU ingress side."""
-
-    output_routes: tuple[OutputRouteDecision, ...]
-    control_offset: CoordZXYOffset
-    ingress_side: RouteSide
-
-    def output_route_offsets(self) -> dict[tuple[CoordXY, CoordXY], CoordZXYOffset]:
-        return {
-            (route.producer_coord, route.target_coord): route.offset
-            for route in self.output_routes
-        }
-
-
-def route_len(offset: CoordZXYOffset) -> int:
-    return abs(offset.z) + abs(offset.x) + abs(offset.y)
-
-
 def terminal_route_side(offset: CoordZXYOffset) -> RouteSide:
-    """Returns the terminal route side after backendv2 Z, X, then Y routing."""
+    """Return the terminal route side after backendv2 Z, X, then Y routing."""
     if offset.y != 0:
         return ("y", 1 if offset.y > 0 else -1)
     if offset.x != 0:
@@ -73,57 +42,38 @@ def terminal_route_side(offset: CoordZXYOffset) -> RouteSide:
     return ("local", 0)
 
 
-def route_coord_path(
-    start_coord: CoordXY, offset: CoordZXYOffset
-) -> tuple[CoordXY, ...]:
-    """Returns the coordinate path produced by backendv2 Z, X, then Y routing."""
-    x, y = start_coord.x, start_coord.y
-    points = [start_coord]
-
-    def walk(step_count: int, dx: int, dy: int) -> None:
-        nonlocal x, y
-        for _ in range(step_count):
-            x += dx
-            y += dy
-            points.append(CoordXY(x, y))
-
-    if offset.z != 0:
-        walk(abs(offset.z), 1 if offset.z > 0 else -1, 1 if offset.z > 0 else -1)
-    if offset.x != 0:
-        walk(abs(offset.x), 1 if offset.x > 0 else -1, 0)
-    if offset.y != 0:
-        walk(abs(offset.y), 0, 1 if offset.y > 0 else -1)
-
-    return tuple(points)
-
-
-def route_stays_in_grid(
-    start_coord: CoordXY, offset: CoordZXYOffset, target_coord: CoordXY
-) -> bool:
-    path = route_coord_path(start_coord, offset)
-    return path[-1] == target_coord and all(
-        G_X_MIN <= coord.x <= G_X_MAX and G_Y_MIN <= coord.y <= G_Y_MAX
-        for coord in path
-    )
-
-
-def candidate_offsets(
-    start_coord: CoordXY, target_coord: CoordXY
-) -> tuple[CoordZXYOffset, ...]:
-    """Enumerates legal offsets to one fixed target without retargeting CPU."""
+@cache
+def _candidate_offset_paths(
+    start_coord: CoordXY, target_coord: CoordXY, scope_name: TargetBoard
+) -> tuple[tuple[CoordZXYOffset, tuple[CoordXY, ...]], ...]:
+    scope = get_route_scope(scope_name)
     dcoord = target_coord - start_coord
-    offsets: list[CoordZXYOffset] = []
+    routes: list[tuple[CoordZXYOffset, tuple[CoordXY, ...]]] = []
     for z in range(-31, 32):
         x = dcoord.x - z
         y = dcoord.y - z
         if not (-31 <= x <= 31 and -31 <= y <= 31):
             continue
         offset = CoordZXYOffset(z, x, y)
-        if route_stays_in_grid(start_coord, offset, target_coord):
-            offsets.append(offset)
+        path = route_coord_path(start_coord, offset)
+        if scope.route_path_valid(path, target_coord):
+            routes.append((offset, path))
 
     return tuple(
-        sorted(offsets, key=lambda offset: (route_len(offset), offset.to_tuple()))
+        sorted(routes, key=lambda item: (item[0].l1_norm(), item[0].to_tuple()))
+    )
+
+
+def candidate_offsets(
+    start_coord: CoordXY, target_coord: CoordXY, scope: RouteScope | None = None
+) -> tuple[CoordZXYOffset, ...]:
+    """Enumerate legal offsets to one fixed target without retargeting CPU."""
+    resolved_scope = scope or get_route_scope("single")
+    return tuple(
+        offset
+        for offset, _ in _candidate_offset_paths(
+            start_coord, target_coord, resolved_scope.name
+        )
     )
 
 
@@ -140,7 +90,7 @@ class OutputProducer:
     """Output-producing core endpoint and its static output-entry weight."""
 
     coord: CoordXY
-    target_coord: CoordXY = TEST_DEST_CORE
+    target_coord: CoordXY | None = None
     weight: int = 1
 
 
@@ -165,24 +115,18 @@ class OutputCompletionPlan:
     global_signal_relay_cores: tuple[EmptyThreadCore, ...]
 
     def output_route_offsets(self) -> dict[tuple[CoordXY, CoordXY], CoordZXYOffset]:
-        """Returns per-output-core DATA offsets keyed by producer and target."""
+        """Return per-output-core DATA offsets keyed by producer and target."""
         return {
             (route.producer_coord, route.target_coord): route.offset
             for route in self.output_routes
         }
 
     def empty_thread_core_kinds(self) -> dict[CoordXY, EmptyThreadCoreKind]:
-        """Returns all selected empty shell cores keyed by coordinate."""
+        """Return all selected empty shell cores keyed by coordinate."""
         empty_core_kinds: dict[CoordXY, EmptyThreadCoreKind] = {}
         for core in chain(self.completion_thread_cores, self.global_signal_relay_cores):
             empty_core_kinds[core.coord] = core.kind
         return empty_core_kinds
-
-    def to_cpu_ingress_plan(self) -> OutputCpuIngressPlan:
-        """Converts the completion decision to CPU ingress route metadata."""
-        return OutputCpuIngressPlan(
-            self.output_routes, self.control_offset, self.ingress_side
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,7 +151,7 @@ class _DataRouteOption:
     producer: OutputProducer
     offset: CoordZXYOffset
     path: tuple[CoordXY, ...]
-    path_len: int
+    l1_norm: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,50 +168,30 @@ class _JoinCandidate:
     data_routes: tuple[_DataRouteOption, ...]
     completion_thread_cores: tuple[EmptyThreadCore, ...]
     """Empty cores on producer-to-M DATA prefixes that must join this thread."""
-    completion_thread_core_coords: frozenset[CoordXY]
-    data_total_len: int
-    """Weighted total DATA route length across all output producers."""
+    data_total_l1_norm: int
+    """Weighted total DATA route L1 norm across all output producers."""
     join_tier: CompletionCoreTier
     """Join ownership tier: used core, available empty offline, or empty online."""
-    join_to_cpu_path_len: int
-    """Length of the shared completion_join_point-to-CPU suffix."""
 
 
 @dataclass(frozen=True, slots=True)
 class _CompletionCandidate:
-    """A complete candidate after selecting DATA routes, join, and source."""
+    """A complete candidate after selecting DATA routes and join point."""
 
     join_candidate: _JoinCandidate
-    source: CoordXY
-    source_tier: CompletionCoreTier
-    """Source ownership tier; source is the selected completion join point."""
     control_offset: CoordZXYOffset
-    control_path: tuple[CoordXY, ...]
     completion_thread_cores: tuple[EmptyThreadCore, ...]
-    """Completion-thread cores include join/source empty cores and DATA-prefix \
+    """Completion-thread cores include join empty cores and DATA-prefix \
         empty cores; global-signal relay cores are only tree-connectivity helpers."""
     global_signal_relay_cores: tuple[EmptyThreadCore, ...]
-    control_path_len: int
-    """Length of the source-to-CPU complete/control path."""
-    completion_thread_core_count: int
-
-
-def _coord_key(coord: CoordXY) -> tuple[int, int]:
-    return coord.x, coord.y
-
-
-def _coords_key(coords: tuple[CoordXY, ...]) -> tuple[tuple[int, int], ...]:
-    return tuple(_coord_key(coord) for coord in coords)
-
-
-def _empty_core_key(core: EmptyThreadCore) -> tuple[int, int, EmptyThreadCoreKind]:
-    return core.coord.x, core.coord.y, core.kind
 
 
 def _sorted_empty_cores(
     cores: Iterable[EmptyThreadCore],
 ) -> tuple[EmptyThreadCore, ...]:
-    return tuple(sorted(set(cores), key=_empty_core_key))
+    return tuple(
+        sorted(set(cores), key=lambda core: (*core.coord.to_tuple(), core.kind))
+    )
 
 
 def _path_suffix_from(
@@ -320,11 +244,14 @@ def _tier_rank(tier: CompletionCoreTier) -> int:
     return 2
 
 
-def _common_suffixes_for_path(path: tuple[CoordXY, ...]) -> tuple[_CommonSuffix, ...]:
+def _common_suffixes_for_path(
+    path: tuple[CoordXY, ...], scope: RouteScope
+) -> tuple[_CommonSuffix, ...]:
     suffixes: list[_CommonSuffix] = []
     seen: set[_CommonSuffix] = set()
+    configurable_coords = scope.configurable_coords
     for index, coord in enumerate(path[:-1]):
-        if not is_configurable_thread_core_coord(coord):
+        if coord not in configurable_coords:
             continue
         suffix = _CommonSuffix(coord, path[index:])
         if suffix in seen:
@@ -335,7 +262,10 @@ def _common_suffixes_for_path(path: tuple[CoordXY, ...]) -> tuple[_CommonSuffix,
 
 
 def _empty_data_prefix_thread_cores(
-    path: tuple[CoordXY, ...], join_point: CoordXY, pools: _ThreadCorePools
+    path: tuple[CoordXY, ...],
+    join_point: CoordXY,
+    pools: _ThreadCorePools,
+    scope: RouteScope,
 ) -> tuple[EmptyThreadCore, ...] | None:
     """Returns empty thread cores needed before DATA reaches the join point."""
     prefix = _path_prefix_to(path, join_point)
@@ -349,9 +279,9 @@ def _empty_data_prefix_thread_cores(
     # TODO: Model real DATA relay computation cores separately if such a
     # direction-changing relay is ever introduced.
     for coord in prefix:
-        if coord == CPU_COORD or coord in pools.configured:
+        if coord in scope.cpu_coords or coord in pools.configured:
             continue
-        if not is_configurable_thread_core_coord(coord):
+        if coord not in scope.configurable_coords:
             continue
         empty_core = _empty_completion_core(coord, pools)
         if empty_core is None:
@@ -402,6 +332,7 @@ class OutputCompletionPlanner:
         available_empty_offline_coords: Set[CoordXY],
         available_empty_online_coords: Set[CoordXY] | None = None,
         allow_empty_online: bool = True,
+        scope: RouteScope | None = None,
     ) -> None:
         """Initializes immutable planning inputs.
 
@@ -415,7 +346,10 @@ class OutputCompletionPlanner:
                 to this thread. If omitted and online relays are enabled, all
                 unused online-core coordinates are considered available.
             allow_empty_online: Whether empty online shell cores may be added.
+            scope: Selected board route scope for CPU target and grid checks.
         """
+        self._scope = scope or get_route_scope("single")
+        self._cpu_coord = self._scope.default_cpu.coord
         self._raw_producers = tuple(producers)
         self._configured_thread_core_coords = frozenset(configured_thread_core_coords)
         self._available_empty_offline_coords = frozenset(available_empty_offline_coords)
@@ -428,7 +362,17 @@ class OutputCompletionPlanner:
         self._request = self._normalize_request()
 
     def plan(self) -> OutputCompletionPlan:
-        """Builds and validates an output completion plan."""
+        """Build and validate an output completion plan.
+
+        Returns:
+            Selected DATA routes, completion route, and empty thread cores.
+
+        Raises:
+            OutputCompletionNoFeasiblePlanError: If DATA and completion routes
+                cannot share a valid thread-local suffix.
+            OutputCompletionError: If a selected candidate violates the planner
+                safety contract.
+        """
         if not self._request.producers:
             return self._plan_without_output_producers()
 
@@ -449,6 +393,7 @@ class OutputCompletionPlanner:
             self._request.producers,
             self._request.pools.configured,
             self._allow_empty_online,
+            self._scope,
         )
         return plan
 
@@ -457,13 +402,17 @@ class OutputCompletionPlanner:
         if not self._allow_empty_online:
             empty_online_coords: frozenset[CoordXY] = frozenset()
         elif self._available_empty_online_coords is None:
-            empty_online_coords = frozenset(ONLINE_CORE_COORDS - configured_coords)
+            empty_online_coords = frozenset(
+                self._scope.online_core_coords - configured_coords
+            )
         else:
             empty_online_coords = self._available_empty_online_coords
 
         producers = tuple(
             OutputProducer(
-                producer.coord, producer.target_coord, max(producer.weight, 1)
+                producer.coord,
+                producer.target_coord or self._cpu_coord,
+                max(producer.weight, 1),
             )
             for producer in self._raw_producers
         )
@@ -484,8 +433,10 @@ class OutputCompletionPlanner:
         )
 
     def _plan_without_output_producers(self) -> OutputCompletionPlan:
-        root = min(self._request.pools.configured, key=_coord_key)
-        control_offset = candidate_offsets(root, TEST_DEST_CORE)[0]
+        root = min(self._request.pools.configured, key=lambda coord: coord.to_tuple())
+        control_offset = _candidate_offset_paths(
+            root, self._cpu_coord, self._scope.name
+        )[0][0]
         return OutputCompletionPlan(
             (), control_offset, terminal_route_side(control_offset), root, root, (), ()
         )
@@ -512,24 +463,21 @@ class OutputCompletionPlanner:
     def _enumerate_data_route_options(
         self, producer: OutputProducer
     ) -> dict[_CommonSuffix, tuple[_DataRouteOption, ...]]:
-        offsets = candidate_offsets(producer.coord, producer.target_coord)
-        if not offsets:
+        target_coord = producer.target_coord or self._cpu_coord
+        offset_paths = _candidate_offset_paths(
+            producer.coord, target_coord, self._scope.name
+        )
+        if not offset_paths:
             raise OutputCompletionNoFeasiblePlanError(
                 "No legal output DATA route offset from "
                 f"({producer.coord.x},{producer.coord.y}) to "
-                f"({producer.target_coord.x},{producer.target_coord.y})."
+                f"({target_coord.x},{target_coord.y})."
             )
 
         option_groups: dict[_CommonSuffix, list[_DataRouteOption]] = {}
-        for offset in offsets:
-            path = route_coord_path(producer.coord, offset)
-            if path[-1] != producer.target_coord:
-                continue
-            if not all(is_global_route_coord(coord) for coord in path):
-                continue
-
-            option = _DataRouteOption(producer, offset, path, route_len(offset))
-            for suffix in _common_suffixes_for_path(option.path):
+        for offset, path in offset_paths:
+            option = _DataRouteOption(producer, offset, path, offset.l1_norm())
+            for suffix in _common_suffixes_for_path(option.path, self._scope):
                 option_groups.setdefault(suffix, []).append(option)
 
         return {
@@ -540,14 +488,14 @@ class OutputCompletionPlanner:
     def _data_route_key(
         self, option: _DataRouteOption
     ) -> tuple[int, tuple[int, int, int]]:
-        return option.path_len, option.offset.to_tuple()
+        return option.l1_norm, option.offset.to_tuple()
 
     def _best_data_route_for_suffix(
         self, options: tuple[_DataRouteOption, ...], suffix: _CommonSuffix
     ) -> tuple[_DataRouteOption, tuple[EmptyThreadCore, ...]] | None:
         for option in options:
             thread_cores = _empty_data_prefix_thread_cores(
-                option.path, suffix.join_point, self._request.pools
+                option.path, suffix.join_point, self._request.pools, self._scope
             )
             if thread_cores is not None:
                 return option, thread_cores
@@ -581,31 +529,26 @@ class OutputCompletionPlanner:
             completion_thread_cores = _sorted_empty_cores(
                 chain.from_iterable(choice[1] for choice in route_choices if choice)
             )
-            completion_thread_coords = frozenset(
-                core.coord for core in completion_thread_cores
-            )
             candidates.append(
                 _JoinCandidate(
                     suffix,
                     data_routes,
                     completion_thread_cores,
-                    completion_thread_coords,
-                    sum(route.path_len for route in data_routes),
+                    sum(route.l1_norm for route in data_routes),
                     join_tier,
-                    len(suffix.suffix) - 1,
                 )
             )
         return tuple(candidates)
 
-    def _join_selection_key(self, candidate: _JoinCandidate) -> _JoinSelectionKey:
+    def _join_selection_key(self, candidate: _JoinCandidate):
         # Prefer used M, then shorter suffix and fewer selected empty cores.
         return (
             _tier_rank(candidate.join_tier),
-            candidate.join_to_cpu_path_len,
-            len(candidate.completion_thread_core_coords),
+            len(candidate.suffix.suffix) - 1,
+            len(candidate.completion_thread_cores),
             candidate.suffix.join_point.x,
             candidate.suffix.join_point.y,
-            _coords_key(candidate.suffix.suffix),
+            to_coordxys(candidate.suffix.suffix),
         )
 
     def _build_completion_candidates(
@@ -616,44 +559,26 @@ class OutputCompletionPlanner:
         # Keep completion source and DATA join identical. Allowing a separate
         # source can satisfy suffix equality through a downstream M, but then
         # some DATA routes do not visibly intersect the global-signal root.
-        if not is_configurable_thread_core_coord(join_point):
-            return ()
-        return self._completion_candidates_for_source(
-            join_candidate, join_point, join_point, suffix
-        )
-
-    def _completion_candidates_for_source(
-        self,
-        join_candidate: _JoinCandidate,
-        source: CoordXY,
-        join_point: CoordXY,
-        suffix: tuple[CoordXY, ...],
-    ) -> tuple[_CompletionCandidate, ...]:
         candidates: list[_CompletionCandidate] = []
         pools = self._request.pools
-        source_tier = _completion_core_tier(source, pools)
-        if source_tier is None:
-            return ()
 
-        for control_offset in candidate_offsets(source, TEST_DEST_CORE):
-            control_path = route_coord_path(source, control_offset)
+        for control_offset, control_path in _candidate_offset_paths(
+            join_point, self._cpu_coord, self._scope.name
+        ):
             if _path_suffix_from(control_path, join_point) != suffix:
                 continue
 
-            if not all(is_global_route_coord(coord) for coord in control_path):
-                continue
-
-            source_core = _empty_completion_core(source, pools)
-            selected_source_cores = () if source_core is None else (source_core,)
+            join_core = _empty_completion_core(join_point, pools)
+            selected_join_cores = () if join_core is None else (join_core,)
             combined_required_cores = _sorted_empty_cores(
-                chain(join_candidate.completion_thread_cores, selected_source_cores)
+                chain(join_candidate.completion_thread_cores, selected_join_cores)
             )
             combined_required_coords = frozenset(
                 core.coord for core in combined_required_cores
             )
             combined_thread_coords = pools.configured | combined_required_coords
             global_signal_tree = solve_global_signal_tree(
-                list(combined_thread_coords), source, verbose=False
+                list(combined_thread_coords), join_point, verbose=False
             )
             global_signal_relay_cores = self._classify_global_signal_relay_cores(
                 frozenset(global_signal_tree.added),
@@ -665,14 +590,9 @@ class OutputCompletionPlanner:
             candidates.append(
                 _CompletionCandidate(
                     join_candidate,
-                    source,
-                    source_tier,
                     control_offset,
-                    control_path,
                     combined_required_cores,
                     global_signal_relay_cores,
-                    route_len(control_offset),
-                    len(combined_required_coords),
                 )
             )
         return tuple(candidates)
@@ -680,36 +600,31 @@ class OutputCompletionPlanner:
     def _select_completion_candidate(
         self, join_candidates: tuple[_JoinCandidate, ...]
     ) -> _CompletionCandidate | None:
-        candidates = tuple(
+        return min(
             chain.from_iterable(
                 self._build_completion_candidates(join_candidate)
                 for join_candidate in join_candidates
-            )
+            ),
+            key=self._completion_selection_key,
+            default=None,
         )
-        if not candidates:
-            return None
-
-        return min(candidates, key=self._completion_selection_key)
 
     def _completion_selection_key(self, candidate: _CompletionCandidate):
         join_candidate = candidate.join_candidate
-        # Rank only complete candidates: DATA cost, M quality, source quality.
+        # Rank only complete candidates: DATA cost, M quality, control path.
         return (
-            join_candidate.data_total_len,
+            join_candidate.data_total_l1_norm,
             *self._join_selection_key(join_candidate),
-            _tier_rank(candidate.source_tier),
-            candidate.control_path_len,
-            candidate.completion_thread_core_count,
+            candidate.control_offset.l1_norm(),
+            len(candidate.completion_thread_cores),
             len(candidate.global_signal_relay_cores),
-            candidate.source.x,
-            candidate.source.y,
         )
 
     def _build_plan(self, candidate: _CompletionCandidate) -> OutputCompletionPlan:
         output_routes = tuple(
             OutputRouteDecision(
                 data_route.producer.coord,
-                data_route.producer.target_coord,
+                data_route.producer.target_coord or self._cpu_coord,
                 data_route.offset,
             )
             for data_route in candidate.join_candidate.data_routes
@@ -718,7 +633,7 @@ class OutputCompletionPlanner:
             output_routes,
             candidate.control_offset,
             terminal_route_side(candidate.control_offset),
-            candidate.source,
+            candidate.join_candidate.suffix.join_point,
             candidate.join_candidate.suffix.join_point,
             candidate.completion_thread_cores,
             candidate.global_signal_relay_cores,
@@ -730,12 +645,32 @@ def validate_output_completion_plan(
     producers: tuple[OutputProducer, ...],
     configured_thread_core_coords: Set[CoordXY],
     allow_empty_online: bool = True,
+    scope: RouteScope | None = None,
 ) -> None:
-    """Validates the safety constraints of an output completion plan."""
+    """Validate the safety constraints of an output completion plan.
+
+    Args:
+        plan: Candidate output completion plan to validate.
+        producers: Output producers that must be represented by DATA routes.
+        configured_thread_core_coords: Coordinates already configured in the
+            current thread.
+        allow_empty_online: Whether selected empty online cores are legal.
+            Defaults to ``True``.
+        scope: Board route scope used for CPU target and route-grid checks.
+            Defaults to the single-chip scope.
+
+    Raises:
+        OutputCompletionError: If the plan violates target, thread membership,
+            route-scope, suffix-sharing, or ingress-side constraints.
+    """
+    resolved_scope = scope or get_route_scope("single")
+    cpu_coord = resolved_scope.default_cpu.coord
     configured_coords = frozenset(configured_thread_core_coords)
     if (
-        plan.completion_join_point == TEST_DEST_CORE
-        or not is_configurable_thread_core_coord(plan.completion_join_point)
+        plan.completion_join_point == cpu_coord
+        or not resolved_scope.is_configurable_thread_core_coord(
+            plan.completion_join_point
+        )
     ):
         raise OutputCompletionError("Completion join point must be inside the thread.")
 
@@ -751,12 +686,12 @@ def validate_output_completion_plan(
         )
 
     for core in chain(plan.completion_thread_cores, plan.global_signal_relay_cores):
-        if not is_configurable_thread_core_coord(core.coord):
+        if not resolved_scope.is_configurable_thread_core_coord(core.coord):
             raise OutputCompletionError(
                 "Empty thread core must be a configurable thread core."
             )
         expected_kind: EmptyThreadCoreKind = (
-            "online" if is_online_core_coord(core.coord) else "offline"
+            "online" if resolved_scope.is_online_core_coord(core.coord) else "offline"
         )
         if core.kind != expected_kind:
             raise OutputCompletionError(
@@ -782,8 +717,10 @@ def validate_output_completion_plan(
         )
 
     complete_path, data_paths = _plan_paths(plan)
-    if complete_path[-1] != TEST_DEST_CORE:
+    if complete_path[-1] != cpu_coord:
         raise OutputCompletionError("Completion route must target the CPU core.")
+    if not resolved_scope.route_path_valid(complete_path, cpu_coord):
+        raise OutputCompletionError("Completion route leaves the selected route scope.")
     suffix = _path_suffix_from(complete_path, plan.completion_join_point)
     if suffix is None:
         raise OutputCompletionError("Completion route must pass the join point.")
@@ -795,7 +732,8 @@ def validate_output_completion_plan(
         for route in plan.output_routes
     }
     for producer, data_path in zip(producers, data_paths, strict=True):
-        route = route_by_endpoint.get((producer.coord, producer.target_coord))
+        producer_target = producer.target_coord or cpu_coord
+        route = route_by_endpoint.get((producer.coord, producer_target))
         if route is None:
             raise OutputCompletionError(
                 "Missing output route for producer "
@@ -803,6 +741,8 @@ def validate_output_completion_plan(
             )
         if data_path[-1] != route.target_coord:
             raise OutputCompletionError("Output DATA route must target the CPU core.")
+        if not resolved_scope.route_path_valid(data_path, route.target_coord):
+            raise OutputCompletionError("Output DATA route leaves the selected scope.")
         if _path_suffix_from(data_path, plan.completion_join_point) != suffix:
             raise OutputCompletionError(
                 "Completion route must match the output DATA common suffix."
@@ -815,7 +755,7 @@ def validate_output_completion_plan(
         missing_prefix_cores = [
             coord
             for coord in prefix
-            if is_configurable_thread_core_coord(coord)
+            if resolved_scope.is_configurable_thread_core_coord(coord)
             and coord not in final_thread_coords
         ]
         if missing_prefix_cores:
@@ -835,107 +775,37 @@ def select_output_completion_plan(
     available_empty_offline_coords: Set[CoordXY],
     available_empty_online_coords: Set[CoordXY] | None = None,
     allow_empty_online: bool = False,
+    scope: RouteScope | None = None,
 ) -> OutputCompletionPlan:
-    """Chooses DATA routes, a shared join, and a completion source."""
+    """Choose DATA routes, a shared join, and a completion source.
+
+    Args:
+        producers: Output-producing cores that need DATA routes to the CPU.
+        configured_thread_core_coords: Coordinates already configured in the
+            current thread.
+        available_empty_offline_coords: Empty offline cores that may be added to
+            the current thread.
+        available_empty_online_coords: Empty online cores that may be added to
+            the current thread. When ``None`` and online relays are enabled, all
+            unused online cores in `scope` are considered available.
+        allow_empty_online: Whether empty online cores may be selected.
+            Defaults to ``False``.
+        scope: Board route scope used for CPU target and route-grid checks.
+            Defaults to the single-chip scope.
+
+    Returns:
+        Validated output completion plan.
+
+    Raises:
+        OutputCompletionNoFeasiblePlanError: If no valid shared-suffix plan can
+            be found.
+        OutputCompletionError: If a selected candidate fails validation.
+    """
     return OutputCompletionPlanner(
         producers,
         configured_thread_core_coords,
         available_empty_offline_coords,
         available_empty_online_coords,
         allow_empty_online,
+        scope,
     ).plan()
-
-
-def debug_output_completion_plan(
-    plan: OutputCompletionPlan,
-    producers: tuple[OutputProducer, ...],
-    used_core_coords: Set[CoordXY],
-) -> tuple[str, ...]:
-    """Returns stable debug lines for the selected completion plan."""
-    del producers, used_core_coords
-    complete_path, data_paths = _plan_paths(plan)
-    suffix = _path_suffix_from(complete_path, plan.completion_join_point)
-    lines = [
-        f"source=({plan.global_signal_root.x},{plan.global_signal_root.y})",
-        f"join=({plan.completion_join_point.x},{plan.completion_join_point.y})",
-        f"control_offset={plan.control_offset.to_tuple()} ingress={plan.ingress_side}",
-        "completion_thread_cores="
-        + str(
-            sorted((c.coord.x, c.coord.y, c.kind) for c in plan.completion_thread_cores)
-        ),
-        "global_signal_relay_cores="
-        + str(
-            sorted(
-                (c.coord.x, c.coord.y, c.kind) for c in plan.global_signal_relay_cores
-            )
-        ),
-        "shared_suffix=" + str([(coord.x, coord.y) for coord in (suffix or ())]),
-        "complete_path=" + str([(coord.x, coord.y) for coord in complete_path]),
-    ]
-    for route, path in zip(plan.output_routes, data_paths, strict=True):
-        lines.append(
-            "data_path "
-            f"producer=({route.producer_coord.x},{route.producer_coord.y}) "
-            f"offset={route.offset.to_tuple()} "
-            f"path={[(coord.x, coord.y) for coord in path]}"
-        )
-    return tuple(lines)
-
-
-def render_output_completion_plan_ascii(
-    plan: OutputCompletionPlan,
-    producers: tuple[OutputProducer, ...],
-    used_core_coords: Set[CoordXY],
-) -> str:
-    """Renders a compact ASCII view of DATA and complete route overlap."""
-    complete_path, data_paths = _plan_paths(plan)
-    suffix = set(_path_suffix_from(complete_path, plan.completion_join_point) or ())
-    complete_only = set(complete_path) - suffix
-    data_only: set[CoordXY] = set()
-    for path in data_paths:
-        data_only.update(set(path) - suffix)
-    completion_thread_coords = {core.coord for core in plan.completion_thread_cores}
-    producer_labels = {producer.coord: f"P{i}" for i, producer in enumerate(producers)}
-
-    def cell(coord: CoordXY) -> str:
-        if coord == TEST_DEST_CORE:
-            return "C"
-        if coord == plan.global_signal_root and coord == plan.completion_join_point:
-            return "SM"
-        if coord == plan.global_signal_root:
-            return "S"
-        if coord == plan.completion_join_point:
-            return "M"
-        if coord in producer_labels:
-            return producer_labels[coord]
-        if coord in suffix:
-            return "*"
-        if coord in complete_only:
-            return "c"
-        if coord in data_only:
-            return "d"
-        if coord in completion_thread_coords:
-            return "E"
-        if coord in used_core_coords:
-            return "U"
-        return "."
-
-    rows = []
-    for y in range(G_Y_MAX, G_Y_MIN - 1, -1):
-        cells = " ".join(
-            f"{cell(CoordXY(x, y)):>2}" for x in range(G_X_MIN, G_X_MAX + 1)
-        )
-        rows.append(f"y={y} {cells}")
-    rows.append("    " + " ".join(f"{x:>2}" for x in range(G_X_MIN, G_X_MAX + 1)))
-    rows.append(
-        "legend: C=CPU S=source M=join *=shared d=DATA-only "
-        "c=complete-only E=required-empty U=used"
-    )
-    rows.append(
-        "producers: "
-        + ", ".join(
-            f"P{i}=({producer.coord.x},{producer.coord.y})"
-            for i, producer in enumerate(producers)
-        )
-    )
-    return "\n".join(rows)

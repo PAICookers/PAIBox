@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from typing import Literal
 
-from paicorelib import CoordXY, CoordZXYOffset
+from paicorelib import CoordXY, CoordZXYOffset, find_coordxy_shortest_path
 
 from paibox.paiir import PAIIRGraph
 from paibox.paiir.ir import OfflineCoreOp
@@ -30,13 +30,13 @@ from .group_tile import tile_groups
 from .op_node import AllNode, InputElem, Neuron, RemapElem, SourceElem, build_nodes
 from .output_completion_planner import (
     OutputCompletionPlan,
-    OutputCpuIngressPlan,
     OutputProducer,
     select_output_completion_plan,
 )
 from .pressure_unroll import PressureUnrollConfig, PressureUnroller
 from .rg_build import build_groups
-from .route_solver import OFFLINE_CORE_COORDS, ONLINE_CORE_COORDS, route_solve
+from .route_scope import RouteScope, TargetBoard, get_route_scope
+from .route_solver import route_solve
 from .routing import InputGroup, OutputGroup, RemapGroup, RoutingGroup, toposort_for_rg
 
 
@@ -51,6 +51,7 @@ class Mapper:
         self.coreplacements: list[CorePlacement] = []
         self.global_starts: dict[int, CoordZXYOffset] = {}
         self.output_completion_plan: OutputCompletionPlan | None = None
+        self.route_scope: RouteScope = get_route_scope("single")
         self.timesteps: int = 1
 
     def _resolve_timesteps(self, pai_graph: PAIIRGraph, timesteps: int | None) -> int:
@@ -174,16 +175,11 @@ class Mapper:
 
         areas = [rg.n_core_required for rg in self.routing_groups]
         print(f"\ttotal cores needed: {sum(areas)}")
-        if sum(areas) > 63:
-            raise ValueError(
-                f"Total cores needed {sum(areas)} exceeds the limit of 63."
-            )
         copy_configs, coords = route_solve(
-            areas=areas,
-            next_area_id=self.next_rg_group,
-            io_target=(0, 0),
-            input_area_ids=[],
-            output_area_ids=[],
+            self.routing_groups,
+            self.next_rg_group,
+            self.input_groups,
+            self.route_scope,
             feasibility_only=feasibility_only,
             max_time_in_seconds=max_time_in_seconds,
         )
@@ -216,16 +212,17 @@ class Mapper:
             self.routing_groups,
             lambda: self.routing(feasibility_only=True, max_time_in_seconds=30),
             config,
+            self.route_scope,
         ).run()
 
-    def set_detail_dest(self, output_route_plan: OutputCpuIngressPlan) -> None:
+    def set_detail_dest(self, output_route_plan: OutputCompletionPlan) -> None:
         # Output collection still targets the CPU. The plan only overrides the
         # Z/X/Y decomposition so DATA and completion use the same CPU port.
         output_route_offsets = output_route_plan.output_route_offsets()
         for rg in self.routing_groups:
             rg.set_detail_dest(output_route_offsets)
         for in_grp in self.input_groups:
-            in_grp.set_detail_dest()
+            in_grp.set_detail_dest(self.route_scope.default_cpu.coord)
 
     def set_auto_core_config(
         self, control_root_coord: CoordXY, control_offset: CoordZXYOffset
@@ -239,7 +236,10 @@ class Mapper:
             if cp.coord == control_root_coord:
                 cp.set_auto_core_config(control_offset)
             else:
-                cp.set_auto_core_config()
+                test_offset, _ = find_coordxy_shortest_path(
+                    self.route_scope.default_cpu.coord, cp.coord
+                )
+                cp.set_auto_core_config(test_offset)
 
     def _collect_output_producers(self) -> list[OutputProducer]:
         producer_weights: dict[tuple[CoordXY, CoordXY], int] = {}
@@ -274,13 +274,13 @@ class Mapper:
         configured_thread_core_coords = {cp.coord for cp in self.coreplacements}
         empty_offline_coords = {
             coord
-            for coord in OFFLINE_CORE_COORDS
+            for coord in self.route_scope.offline_core_coords
             if coord not in configured_thread_core_coords
         }
         available_empty_online_coords = (
             {
                 coord
-                for coord in ONLINE_CORE_COORDS
+                for coord in self.route_scope.online_core_coords
                 if coord not in configured_thread_core_coords
             }
             if allow_empty_online_relay_core
@@ -292,6 +292,7 @@ class Mapper:
             empty_offline_coords,
             available_empty_online_coords,
             allow_empty_online_relay_core,
+            self.route_scope,
         )
 
     def add_output_completion_thread_cores(self, plan: OutputCompletionPlan) -> None:
@@ -359,6 +360,7 @@ class Mapper:
         literal_format: LiteralFormat = "bin",
         *,
         timesteps: int | None = None,
+        target_board: TargetBoard = "single",
         target_platform: TargetPlatform = "all",
         word_order: WordOrder = "high_first",
         export_merged_frames: bool = True,
@@ -391,6 +393,10 @@ class Mapper:
                 automatic-reset graphs is used first; otherwise a finite and
                 consistent output ``tick_duration`` is used. If neither is
                 available, it defaults to ``1``.
+            target_board: Fixed hardware board topology used by backendv2
+                routing and completion planning. ``"single"`` targets one
+                chip; ``"array_2x2"`` targets the fixed 2x2 chip array with
+                left-bottom CPU as the default endpoint.
             target_platform: Platform-specific artifact set to emit.
                 ``"x86"`` exports ``.npy`` frame arrays, ``"riscv"`` exports
                 C headers, and ``"all"`` exports both. When ``debug=True``,
@@ -433,6 +439,7 @@ class Mapper:
                 ``"fanin_margin"`` is a conservative fallback that reserves one
                 fanin slot during tiling and avoids generating the boundary case.
         """
+        self.route_scope = get_route_scope(target_board)
         self.timesteps = self._resolve_timesteps(pai_graph, timesteps)
 
         # determine raw_neus in routing groups, other properties remain unset
@@ -467,6 +474,7 @@ class Mapper:
 
         for out_grp in self.output_groups:
             out_grp.set_lcn(self.timesteps)
+            out_grp.set_base_coord(self.route_scope.default_cpu.coord)
 
         self.routing_groups = [
             grp for grp in self.groups if isinstance(grp, RoutingGroup)
@@ -505,19 +513,23 @@ class Mapper:
             self.coreplacements,
             self.output_completion_plan.global_signal_root,
             self.output_completion_plan.empty_thread_core_kinds(),
+            self.route_scope.default_cpu.coord,
         )
-
-        output_route_plan = self.output_completion_plan.to_cpu_ingress_plan()
 
         # The global-signal root uses the selected control offset. Other cores
         # keep their own local route to the same fixed CPU destination.
-        self.set_detail_dest(output_route_plan)
+        self.set_detail_dest(self.output_completion_plan)
         self.set_auto_core_config(
             self.output_completion_plan.global_signal_root,
-            output_route_plan.control_offset,
+            self.output_completion_plan.control_offset,
         )
 
-        # export to hardware executable format
+        # Export currently remains frame-coordinate driven. target_board is not
+        # written into proto/fbs metadata in this change to avoid widening the
+        # runtime schema contract before board-side consumers require it. Add a
+        # board field to the artifact schemas when runtime needs to reject
+        # mismatched artifacts, dispatch board-specific loaders, or distinguish
+        # multiple boards that can encode the same coordinate values differently.
         if output_path is None:
             env_output_path = os.environ.get("PAIBOX_OUTPUT_PATH")
             if env_output_path is not None:
