@@ -13,6 +13,7 @@ from paicorelib import (
     PoolingMode,
     SNNMode,
     ZeroOutputMode,
+    global_signal_direction_names,
 )
 from paicorelib.framelib.frame_defs import OfflineConfigFrame3FormatV2
 from paicorelib.framelib.parser_v2 import (
@@ -851,16 +852,6 @@ def build_raw_frame_records(
 _F3 = OfflineConfigFrame3FormatV2
 
 
-_DIRS_BY_BIT = {
-    5: "+xy",
-    4: "-xy",
-    3: "+x",
-    2: "-x",
-    1: "+y",
-    0: "-y",
-}
-
-
 def bit_field(value: int, offset: int, mask: int) -> int:
     return (value >> offset) & mask
 
@@ -869,17 +860,6 @@ def sign_magnitude_to_int(value: int, bits: int = 6) -> int:
     sign = value >> (bits - 1)
     magnitude = value & ((1 << (bits - 1)) - 1)
     return -magnitude if sign else magnitude
-
-
-def _global_signal_dirs(bits: int, *, include_local: bool = False) -> list[str]:
-    dirs = [
-        name
-        for bit, name in sorted(_DIRS_BY_BIT.items(), reverse=True)
-        if bits & (1 << bit)
-    ]
-    if include_local and bits & (1 << 6):
-        dirs.insert(0, "local")
-    return dirs
 
 
 def _decode_half_or_full_record(
@@ -1688,7 +1668,7 @@ def _bitset_field(
     include_local: bool,
 ) -> DecodedField:
     raw = values.get(name, 0)
-    dirs = _global_signal_dirs(raw, include_local=include_local)
+    dirs = global_signal_direction_names(raw, include_local=include_local)
     label = ", ".join(dirs) if dirs else "none"
     return DecodedField(
         name=name,
