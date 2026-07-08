@@ -1449,6 +1449,7 @@ dependencies = [
     { name = "flatbuffers" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "paicorelib" },
     { name = "protobuf", version = "6.31.1", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version < '3.14'" },
     { name = "protobuf", version = "6.33.6", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version >= '3.14'" },
     { name = "rich" },
@@ -1466,7 +1467,6 @@ spikingjelly = [
 ]
 visualizer = [
     { name = "fastapi" },
-    { name = "paicorelib" },
     { name = "uvicorn" },
 ]
 
@@ -1476,7 +1476,6 @@ dev = [
     { name = "orjson" },
     { name = "ortools", version = "9.14.6206", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version < '3.14'" },
     { name = "ortools", version = "9.15.6755", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version >= '3.14'" },
-    { name = "paicorelib" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-md" },
@@ -1496,7 +1495,7 @@ requires-dist = [
     { name = "flatbuffers", specifier = "==25.12.19" },
     { name = "nir", marker = "extra == 'nir'", specifier = ">=1.0.6,<2" },
     { name = "numpy", specifier = ">=2.1.0,<3.0.0" },
-    { name = "paicorelib", marker = "platform_machine != 'armv7l' and extra == 'visualizer'", specifier = ">=2.0.0rc3" },
+    { name = "paicorelib", marker = "platform_machine != 'armv7l'", specifier = ">=2.0.0" },
     { name = "protobuf", specifier = ">=5.27.1,<7" },
     { name = "rich", specifier = ">=14.0.0" },
     { name = "snntorch", marker = "extra == 'snntorch'", specifier = ">=0.9.0" },
@@ -1511,7 +1510,6 @@ dev = [
     { name = "orjson", specifier = ">=3.11.6" },
     { name = "ortools", marker = "python_full_version < '3.14'", specifier = "==9.14.6206" },
     { name = "ortools", marker = "python_full_version >= '3.14'", specifier = "==9.15.6755" },
-    { name = "paicorelib", marker = "platform_machine != 'armv7l'", specifier = ">=2.0.0rc3" },
     { name = "pytest", specifier = ">=9.0" },
     { name = "pytest-cov", specifier = ">=7.0" },
     { name = "pytest-md", specifier = ">=0.2" },
@@ -1524,16 +1522,16 @@ dev = [
 
 [[package]]
 name = "paicorelib"
-version = "2.0.0rc3"
+version = "2.0.0"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/d5/fc/34f009e2a438f87df105518b5b0baa0688df7e91126c9a5a43e19a44cc27/paicorelib-2.0.0rc3.tar.gz", hash = "sha256:86fd0131e5c27a2bc90eeefb6a3d479ea9a908c35cffbaa00f3fd56f7e4e582a", size = 77147, upload-time = "2026-06-26T04:07:33.203Z" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/47/ab/dcff284b194ed92b5dcc8d3f9cdb4cc9020fd60bab4934b425abe51b498e/paicorelib-2.0.0.tar.gz", hash = "sha256:9a41a1524025d8ab5955014569fde35ba5f0af7607c608bfd5a7cd3eb2899fe5", size = 80275, upload-time = "2026-07-08T07:26:07.713Z" }
 wheels = [
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/84/b6/a85dcfa93999b1b980782ed64abbd4d5473303ca44a70a411dc1785268d0/paicorelib-2.0.0rc3-py3-none-any.whl", hash = "sha256:8edf170025830395ee25f0690953ddfc53be8ffec17900ffc5da29aab31a8b28", size = 86057, upload-time = "2026-06-26T04:07:31.982Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/50/96/2fb3d8a342957788ec3e1122f80241e43571c102654b2e473f50b9dd61a6/paicorelib-2.0.0-py3-none-any.whl", hash = "sha256:5d200adfe15ffb2b3a92d2f7f4ea24d25cbecaf29a3ffe6ee16e1c6b4a69000e", size = 88102, upload-time = "2026-07-08T07:26:06.506Z" },
 ]
 
 [[package]]

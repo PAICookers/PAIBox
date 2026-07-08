@@ -10,6 +10,7 @@ dependencies = [
     "click>=8.1.0,<9",
     "flatbuffers==25.12.19",
     "numpy>=2.1.0,<3.0.0",
+    "paicorelib>=2.0.0; platform_machine != 'armv7l'",
     "protobuf>=5.27.1,<7",
     "rich>=14.0.0",
 ]
@@ -38,11 +39,7 @@ keywords = ["PAICORE", "neuromorphic-chip", "toolchain", "brain-inspired-ai"]
 paiviz = "paibox.visualizer.cli:main"
 
 [project.optional-dependencies]
-visualizer = [
-    "fastapi>=0.128.0,<1",
-    "paicorelib>=2.0.0rc3 ; platform_machine != 'armv7l'",
-    "uvicorn>=0.38.0,<1",
-]
+visualizer = ["fastapi>=0.128.0,<1", "uvicorn>=0.38.0,<1"]
 snntorch = ["snntorch>=0.9.0"]
 spikingjelly = ["spikingjelly>=0.0.0.0.12"]
 nir = ["nir>=1.0.6,<2"]
@@ -62,7 +59,6 @@ dev = [
     "pytest-md>=0.2",
     "pytest-xdist>=3.7.0",
     "orjson>=3.11.6",
-    "paicorelib>=2.0.0rc3 ; platform_machine != 'armv7l'",
     "torch>=2.0.0,<2.2.0 ; python_full_version < '3.12'",
     "torch>=2.2.0 ; python_full_version >= '3.12'",
     "spikingjelly>=0.0.0.0.12",

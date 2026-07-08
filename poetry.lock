@@ -41,12 +41,12 @@ version = "0.7.0"
 description = "Reusable constraint types to use with typing.Annotated"
 optional = false
 python-versions = ">=3.8"
-groups = ["main", "dev"]
+groups = ["main"]
+markers = "platform_machine != \"armv7l\" or extra == \"visualizer\""
 files = [
     {file = "annotated_types-0.7.0-py3-none-any.whl", hash = "sha256:1f02e8b43a8fbbc3f3e0d4f0f4bfc8131bcb4eebe8849b8e5c773f3a1c582a53"},
     {file = "annotated_types-0.7.0.tar.gz", hash = "sha256:aff07c09a53a08bc8cfccb9c85b05f1aa9a2a6f23728d790723543408344ce89"},
 ]
-markers = {main = "extra == \"visualizer\"", dev = "platform_machine != \"armv7l\""}
 
 [package.source]
 type = "legacy"
@@ -90,7 +90,7 @@ files = [
     {file = "certifi-2026.1.4-py3-none-any.whl", hash = "sha256:9943707519e4add1115f44c2bc244f782c0249876bf51b6599fee1ffbedd685c"},
     {file = "certifi-2026.1.4.tar.gz", hash = "sha256:ac726dd470482006e014ad384921ed6438c457018f4b3d204aea4281258b2120"},
 ]
-markers = {main = "python_version < \"3.12\" and extra == \"spikingjelly\"", dev = "python_version < \"3.12\""}
+markers = {main = "extra == \"spikingjelly\" and python_version < \"3.12\"", dev = "python_version < \"3.12\""}
 
 [package.source]
 type = "legacy"
@@ -219,7 +219,7 @@ files = [
     {file = "charset_normalizer-3.4.4-py3-none-any.whl", hash = "sha256:7a32c560861a02ff789ad905a2fe94e3f840803362c84fecf1851cb4cf3dc37f"},
     {file = "charset_normalizer-3.4.4.tar.gz", hash = "sha256:94537985111c35f28720e43603b8e7b43a6ecfb2ce1d3058bbe955b73404e21a"},
 ]
-markers = {main = "python_version < \"3.12\" and extra == \"spikingjelly\"", dev = "python_version < \"3.12\""}
+markers = {main = "extra == \"spikingjelly\" and python_version < \"3.12\"", dev = "python_version < \"3.12\""}
 
 [package.source]
 type = "legacy"
@@ -909,7 +909,7 @@ files = [
     {file = "idna-3.11-py3-none-any.whl", hash = "sha256:771a87f49d9defaf64091e6e6fe9c18d4833f140bd19464795bc32d966ca37ea"},
     {file = "idna-3.11.tar.gz", hash = "sha256:795dafcc9c04ed0c1fb032c2aa73654d8e8c5023a7df64a53f39190ada629902"},
 ]
-markers = {main = "(python_version < \"3.12\" or extra == \"visualizer\") and (extra == \"visualizer\" or extra == \"spikingjelly\")", dev = "python_version < \"3.12\""}
+markers = {main = "(extra == \"visualizer\" or extra == \"spikingjelly\") and (python_version < \"3.12\" or extra == \"visualizer\")", dev = "python_version < \"3.12\""}
 
 [package.extras]
 all = ["flake8 (>=7.1.1)", "mypy (>=1.11.2)", "pytest (>=8.3.2)", "ruff (>=0.6.2)"]
@@ -1923,16 +1923,16 @@ reference = "tsinghua"
 
 [[package]]
 name = "paicorelib"
-version = "2.0.0rc3"
+version = "2.0.0"
 description = "Library of PAICORE"
 optional = false
 python-versions = ">=3.10"
-groups = ["main", "dev"]
+groups = ["main"]
+markers = "platform_machine != \"armv7l\""
 files = [
-    {file = "paicorelib-2.0.0rc3-py3-none-any.whl", hash = "sha256:8edf170025830395ee25f0690953ddfc53be8ffec17900ffc5da29aab31a8b28"},
-    {file = "paicorelib-2.0.0rc3.tar.gz", hash = "sha256:86fd0131e5c27a2bc90eeefb6a3d479ea9a908c35cffbaa00f3fd56f7e4e582a"},
+    {file = "paicorelib-2.0.0-py3-none-any.whl", hash = "sha256:5d200adfe15ffb2b3a92d2f7f4ea24d25cbecaf29a3ffe6ee16e1c6b4a69000e"},
+    {file = "paicorelib-2.0.0.tar.gz", hash = "sha256:9a41a1524025d8ab5955014569fde35ba5f0af7607c608bfd5a7cd3eb2899fe5"},
 ]
-markers = {main = "extra == \"visualizer\" and platform_machine != \"armv7l\"", dev = "platform_machine != \"armv7l\""}
 
 [package.dependencies]
 numpy = [
@@ -2339,12 +2339,12 @@ version = "2.12.5"
 description = "Data validation using Python type hints"
 optional = false
 python-versions = ">=3.9"
-groups = ["main", "dev"]
+groups = ["main"]
+markers = "platform_machine != \"armv7l\" or extra == \"visualizer\""
 files = [
     {file = "pydantic-2.12.5-py3-none-any.whl", hash = "sha256:e561593fccf61e8a20fc46dfc2dfe075b8be7d0188df33f221ad1f0139180f9d"},
     {file = "pydantic-2.12.5.tar.gz", hash = "sha256:4d351024c75c0f085a9febbb665ce8c0c6ec5d30e903bdb6394b7ede26aebb49"},
 ]
-markers = {main = "extra == \"visualizer\"", dev = "platform_machine != \"armv7l\""}
 
 [package.dependencies]
 annotated-types = ">=0.6.0"
@@ -2367,7 +2367,8 @@ version = "2.41.5"
 description = "Core functionality for Pydantic validation and serialization"
 optional = false
 python-versions = ">=3.9"
-groups = ["main", "dev"]
+groups = ["main"]
+markers = "platform_machine != \"armv7l\" or extra == \"visualizer\""
 files = [
     {file = "pydantic_core-2.41.5-cp310-cp310-macosx_10_12_x86_64.whl", hash = "sha256:77b63866ca88d804225eaa4af3e664c5faf3568cea95360d21f4725ab6e07146"},
     {file = "pydantic_core-2.41.5-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:dfa8a0c812ac681395907e71e1274819dec685fec28273a28905df579ef137e2"},
@@ -2491,7 +2492,6 @@ files = [
     {file = "pydantic_core-2.41.5-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:56121965f7a4dc965bff783d70b907ddf3d57f6eba29b6d2e5dabfaf07799c51"},
     {file = "pydantic_core-2.41.5.tar.gz", hash = "sha256:08daa51ea16ad373ffd5e7606252cc32f07bc72b28284b6bc9c6df804816476e"},
 ]
-markers = {main = "extra == \"visualizer\"", dev = "platform_machine != \"armv7l\""}
 
 [package.dependencies]
 typing-extensions = ">=4.14.1"
@@ -2692,7 +2692,7 @@ files = [
     {file = "requests-2.32.5-py3-none-any.whl", hash = "sha256:2462f94637a34fd532264295e186976db0f5d453d1cdd31473c85a6a161affb6"},
     {file = "requests-2.32.5.tar.gz", hash = "sha256:dbba0bac56e100853db0ea71b82b4dfd5fe2bf6d3754a8893c3af500cec7d7cf"},
 ]
-markers = {main = "python_version < \"3.12\" and extra == \"spikingjelly\"", dev = "python_version < \"3.12\""}
+markers = {main = "extra == \"spikingjelly\" and python_version < \"3.12\"", dev = "python_version < \"3.12\""}
 
 [package.dependencies]
 certifi = ">=2017.4.17"
@@ -3121,7 +3121,7 @@ files = [
     {file = "torch-2.1.2+cpu-cp39-cp39-linux_x86_64.whl", hash = "sha256:10df25736edb00852eca6041941e99d13502e65773d5c6164372eaaab83d976b"},
     {file = "torch-2.1.2+cpu-cp39-cp39-win_amd64.whl", hash = "sha256:83bac7f809c09700c227abc9e3474e3a847a3f4c1bb2443aa16004f36a1e7e43"},
 ]
-markers = {main = "python_version < \"3.12\" and extra == \"spikingjelly\"", dev = "python_version < \"3.12\""}
+markers = {main = "extra == \"spikingjelly\" and python_version < \"3.12\"", dev = "python_version < \"3.12\""}
 
 [package.dependencies]
 filelock = "*"
@@ -3217,7 +3217,7 @@ files = [
     {file = "torchvision-0.16.2-cp39-cp39-manylinux2014_aarch64.whl", hash = "sha256:8199acdf8ab066a28b84a5b6f4d97b58976d9e164b1acc3a9d14fccfaf74bb3a"},
     {file = "torchvision-0.16.2-cp39-cp39-win_amd64.whl", hash = "sha256:41dd4fa9f176d563fe9f1b9adef3b7e582cdfb60ce8c9bc51b094a025be687c9"},
 ]
-markers = {main = "python_version < \"3.12\" and extra == \"spikingjelly\"", dev = "python_version < \"3.12\""}
+markers = {main = "extra == \"spikingjelly\" and python_version < \"3.12\"", dev = "python_version < \"3.12\""}
 
 [package.dependencies]
 numpy = "*"
@@ -3321,7 +3321,7 @@ files = [
     {file = "typing_extensions-4.15.0-py3-none-any.whl", hash = "sha256:f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548"},
     {file = "typing_extensions-4.15.0.tar.gz", hash = "sha256:0cea48d173cc12fa28ecabc3b837ea3cf6f38c6d1136f85cbaaf598984861466"},
 ]
-markers = {main = "extra == \"visualizer\" or extra == \"spikingjelly\""}
+markers = {main = "platform_machine != \"armv7l\" or extra == \"visualizer\" or extra == \"spikingjelly\""}
 
 [package.source]
 type = "legacy"
@@ -3334,12 +3334,12 @@ version = "0.4.2"
 description = "Runtime typing introspection tools"
 optional = false
 python-versions = ">=3.9"
-groups = ["main", "dev"]
+groups = ["main"]
+markers = "platform_machine != \"armv7l\" or extra == \"visualizer\""
 files = [
     {file = "typing_inspection-0.4.2-py3-none-any.whl", hash = "sha256:4ed1cacbdc298c220f1bd249ed5287caa16f34d44ef4e9c3d0cbad5b521545e7"},
     {file = "typing_inspection-0.4.2.tar.gz", hash = "sha256:ba561c48a67c5958007083d386c3295464928b01faa735ab8547c5692e87f464"},
 ]
-markers = {main = "extra == \"visualizer\"", dev = "platform_machine != \"armv7l\""}
 
 [package.dependencies]
 typing-extensions = ">=4.12.0"
@@ -3378,7 +3378,7 @@ files = [
     {file = "urllib3-2.6.3-py3-none-any.whl", hash = "sha256:bf272323e553dfb2e87d9bfd225ca7b0f467b919d7bbd355436d3fd37cb0acd4"},
     {file = "urllib3-2.6.3.tar.gz", hash = "sha256:1b62b6884944a57dbe321509ab94fd4d3b307075e0c2eae991ac71ee15ad38ed"},
 ]
-markers = {main = "python_version < \"3.12\" and extra == \"spikingjelly\"", dev = "python_version < \"3.12\""}
+markers = {main = "extra == \"spikingjelly\" and python_version < \"3.12\"", dev = "python_version < \"3.12\""}
 
 [package.extras]
 brotli = ["brotli (>=1.2.0) ; platform_python_implementation == \"CPython\"", "brotlicffi (>=1.2.0.0) ; platform_python_implementation != \"CPython\""]
@@ -3421,9 +3421,9 @@ reference = "tsinghua"
 nir = ["nir"]
 snntorch = ["snntorch"]
 spikingjelly = ["spikingjelly"]
-visualizer = ["fastapi", "paicorelib", "uvicorn"]
+visualizer = ["fastapi", "uvicorn"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10"
-content-hash = "8e2ca25314a0904d2e95506a220db0d8c0e093df4725993bdf647dd0fb756d15"
+content-hash = "6b10c91172143a31703021e81ec774fd4a73de761931db0f585e82cdf3cd919d"
