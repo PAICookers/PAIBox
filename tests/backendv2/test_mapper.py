@@ -11,6 +11,7 @@ from paicorelib import (
     CSCAccelerateMode,
     DataSign,
     DataWidth,
+    LeakMultiMode,
     NeuronType,
     OfflineNeuRegLimV2,
     WeightCompressType,
@@ -43,7 +44,9 @@ from paibox.backendv2.routing import (
 from paibox.paiir import (
     LUT_TABLE_SIZE,
     ANNNodeV25,
+    CoreNeuronV25,
     LutCustom,
+    LutReLU,
     compile_to_paiir,
     register_neuron,
 )
@@ -361,6 +364,43 @@ def _shared_sparse_linear_neuron_placements(mapper: Mapper):
         for core_placement in mapper.coreplacements
         for neu_placement in core_placement.neus
     ]
+
+
+@pytest.mark.parametrize("ann", [False, True], ids=["snn", "ann"])
+def test_mapper_compiles_flat_vector_neuron_parameters(tmp_path, ann):
+    kwargs = {
+        "reset_v": torch.tensor([0.0, 1.0, 2.0, 3.0]),
+        "thres_neg": torch.tensor([-4.0, -5.0, -6.0, -7.0]),
+        "thres_pos": torch.tensor([4.0, 5.0, 6.0, 7.0]),
+        "leak_multi_mode": LeakMultiMode.ENABLE,
+        "leak_tau_shift": torch.tensor([0, -1, -2, -3]),
+        "leak_v": torch.tensor([8.0, 9.0, 10.0, 11.0]),
+        "init_v": torch.tensor([12.0, 13.0, 14.0, 15.0]),
+    }
+    act = ANNNodeV25(LutReLU(), **kwargs) if ann else CoreNeuronV25(**kwargs)
+    linear = nn.Linear(3, 4, bias=False)
+    with torch.no_grad():
+        linear.weight.copy_(torch.ones_like(linear.weight))
+    graph = compile_to_paiir(
+        nn.Sequential(linear, act).eval(),
+        torch.zeros(1, 3),
+        input_formats={"InputNode_0": (DataSign.SIGNED, DataWidth.WIDTH_8BIT)},
+        strict=True,
+    )
+    mapper = Mapper()
+    mapper.compile(graph, tmp_path, target_platform="x86", debug=False)
+
+    placements = sorted(
+        _shared_sparse_linear_neuron_placements(mapper),
+        key=lambda placement: placement.raw_neus[0].index.idx,
+    )
+
+    assert len(placements) == 4
+    assert [p.neuron_type for p in placements] == [NeuronType.FULL] * 4
+    assert [p.neu_attrs_part2.reset_v for p in placements] == [0, 1, 2, 3]
+    assert [p.neu_attrs_part2.threshold_pos for p in placements] == [4, 5, 6, 7]
+    assert [p.neu_attrs_part2.leak_tau for p in placements] == [0, -1, -2, -3]
+    assert [p.neu_attrs_part2.leak_v for p in placements] == [8, 9, 10, 11]
 
 
 def test_mapper_builds_output_completion_plan_without_full_compile(monkeypatch):
