@@ -1,12 +1,14 @@
+import numpy as np
 import pytest
 import torch
-from paicorelib import RM
+from paicorelib import RM, DataSign, DataWidth, LeakMultiMode
 from torch import nn
 
-from paibox.backendv2.op_node import CoreOpNode
+from paibox.backendv2 import Mapper
+from paibox.exceptions import AutoOptimizationWarning
 from paibox.paiir import compile_to_paiir, torch_to_paiir
 from paibox.paiir.exceptions import UnsupportedOpError
-from paibox.paiir.ir.core_neuron import CoreNeuronV25, IFNodeV25
+from paibox.paiir.ir.core_neuron import CoreNeuronV25, IFNodeV25, LeakyBeta0NodeV25
 from paibox.paiir.ir.op_node import OfflineCoreOp, StandaloneActOp, StandaloneCompOp
 from tests.paiir.conftest import find_nodes, make_vec_8d
 
@@ -31,7 +33,6 @@ def _lowered_leaky_act(module: nn.Module) -> CoreNeuronV25:
     act_nodes = find_nodes(graph, StandaloneActOp)
     assert len(act_nodes) == 1
     act = act_nodes[0].act
-    assert isinstance(act, CoreNeuronV25)
     return act
 
 
@@ -55,14 +56,13 @@ def test_supported_reset_mechanisms_lower_to_expected_neuron(
     assert type(act) is expected_type
     assert act.reset_mode == reset_mode
     assert act.reset_v == 0
-    assert act.thres_pos == 2.0
+    assert act.thres_pos == 3
     assert act.leak_tau == 0
 
 
 @pytest.mark.parametrize(
     ("reset_mechanism", "reset_delay"),
     [
-        ("subtract", False),
         ("zero", False),
         ("zero", True),
         ("none", False),
@@ -77,9 +77,7 @@ def test_supported_subset_matches_snntorch_spikes(reset_mechanism, reset_delay):
         _leaky(reset_mechanism=reset_mechanism, reset_delay=reset_delay, threshold=1.0)
     )
     act.eval()
-    inputs = torch.tensor(
-        [[0.4, 0.8, 1.2, -0.3], [0.7, 0.15, 0.1, 1.5], [0.6, 0.6, 0.6, 0.2]]
-    )
+    inputs = torch.tensor([[0, 1, 2, -1], [1, 0, 0, 3], [2, 2, 0, 0]])
 
     snntorch_spikes = [leaky(x.unsqueeze(0)).to(torch.int8) for x in inputs]
     paiir_spikes = [act(x.unsqueeze(0)).to(torch.int8) for x in inputs]
@@ -105,7 +103,86 @@ def test_two_linear_leaky_blocks_lower_all_supported_frontend_ops():
         RM.MODE_NORMAL,
         RM.MODE_NONRESET,
     ]
-    assert [node.act.thres_pos for node in act_nodes] == [2.0, 3.0]
+    assert [node.act.thres_pos for node in act_nodes] == [3, 4]
+
+
+def test_subtract_reset_prioritizes_strict_spike_boundary():
+    leaky = _leaky(reset_mechanism="subtract", threshold=1.0)
+    with pytest.warns(AutoOptimizationWarning, match="maximum extra reset 1"):
+        act = _lowered_leaky_act(_leaky(reset_mechanism="subtract", threshold=1.0))
+
+    source_spike = leaky(torch.tensor([[1.0, 2.0]])).to(torch.int8)
+    target_spike = act(torch.tensor([[1.0, 2.0]])).to(torch.int8)
+
+    assert torch.equal(source_spike, target_spike)
+    assert act.thres_pos == 2
+    assert torch.equal(leaky.mem, torch.tensor([[1.0, 1.0]]))
+    assert torch.equal(act.v, torch.tensor([[1.0, 0.0]]))
+
+
+def test_vector_beta_lowers_to_per_neuron_mode_and_shift():
+    beta = torch.tensor([0.0, 0.5, 0.75, 1.0] * 2)
+    threshold = torch.arange(1.0, 9.0)
+
+    with pytest.warns(AutoOptimizationWarning, match="subtract reset"):
+        act = _lowered_leaky_act(_leaky(beta=beta, threshold=threshold))
+
+    assert type(act) is CoreNeuronV25
+    assert torch.equal(act.leak_multi_mode, torch.tensor([1, 0, 0, 0, 1, 0, 0, 0]))
+    assert torch.equal(act.leak_tau, torch.tensor([0, -1, -2, 0] * 2))
+    assert torch.equal(act.thres_pos, torch.arange(2, 10))
+    assert act.has_mixed_dynamics
+
+
+def test_all_beta_zero_uses_beta_zero_node():
+    act = _lowered_leaky_act(_leaky(beta=torch.zeros(8), reset_mechanism="zero"))
+
+    assert type(act) is LeakyBeta0NodeV25
+    assert act.has_lif_dynamics
+
+
+def test_all_beta_zero_nonreset_uses_equivalent_beta_zero_node():
+    act = _lowered_leaky_act(_leaky(beta=torch.zeros(8), reset_mechanism="none"))
+
+    assert type(act) is LeakyBeta0NodeV25
+    assert act.has_lif_dynamics
+
+
+def test_non_grid_beta_uses_nearest_positive_hardware_beta():
+    with pytest.warns(AutoOptimizationWarning, match="max absolute error"):
+        act = _lowered_leaky_act(
+            _leaky(beta=torch.full((8,), 0.1), reset_mechanism="zero")
+        )
+
+    assert torch.equal(act.leak_multi_mode, torch.zeros(8, dtype=torch.int64))
+    assert torch.equal(act.leak_tau, torch.full((8,), -1, dtype=torch.int64))
+
+
+def test_learning_metadata_does_not_affect_current_parameter_values():
+    module = _leaky(
+        beta=torch.full((8,), 0.5),
+        threshold=torch.arange(1.0, 9.0),
+        learn_beta=True,
+        learn_threshold=True,
+        reset_mechanism="zero",
+    )
+
+    act = _lowered_leaky_act(module)
+
+    assert torch.equal(act.leak_tau, torch.full((8,), -1, dtype=torch.int64))
+    assert torch.equal(act.thres_pos, torch.arange(2, 10))
+
+
+@pytest.mark.parametrize("field", ["beta", "threshold"])
+def test_conv_output_rejects_ambiguous_1d_leaky_parameters(field):
+    kwargs = {field: torch.tensor([0.5, 0.75])}
+    model = nn.Sequential(
+        nn.Conv2d(1, 2, kernel_size=3, bias=False),
+        _leaky(reset_mechanism="zero", **kwargs),
+    )
+
+    with pytest.raises(UnsupportedOpError, match="rank-2 Linear/per-feature"):
+        torch_to_paiir(model, torch.zeros(1, 1, 4, 4), strict=True)
 
 
 def test_state_quant_none_is_supported():
@@ -214,27 +291,33 @@ def test_unsupported_snntorch_neurons_are_frontend_hard_errors(module):
             "not equivalent for subtract reset",
             id="reset_delay",
         ),
-        pytest.param(_leaky(beta=0.5), "beta", "0.5", "beta != 1", id="beta_value"),
         pytest.param(
-            _leaky(beta=1.0, learn_beta=True),
+            _leaky(beta=torch.ones(2, 2)),
             "beta",
-            "Parameter",
-            "learnable or non-scalar",
-            id="learn_beta",
+            "shape=(2, 2)",
+            "scalar or 1D",
+            id="beta_rank",
         ),
         pytest.param(
-            _leaky(threshold=torch.ones(2)),
-            "threshold",
-            "Tensor",
-            "learnable or non-scalar",
-            id="threshold_tensor",
+            _leaky(beta=-0.1),
+            "beta",
+            "-0.1",
+            "values must be in [0, 1]",
+            id="beta_below_range",
         ),
         pytest.param(
-            _leaky(threshold=1.0, learn_threshold=True),
+            _leaky(beta=1.1),
+            "beta",
+            "1.1",
+            "values must be in [0, 1]",
+            id="beta_above_range",
+        ),
+        pytest.param(
+            _leaky(threshold=torch.ones(2, 2)),
             "threshold",
-            "Parameter",
-            "learnable or non-scalar",
-            id="learn_threshold",
+            "shape=(2, 2)",
+            "scalar or 1D",
+            id="threshold_rank",
         ),
         pytest.param(
             _leaky(output=True),
@@ -288,13 +371,21 @@ def test_unsupported_leaky_configs_report_field_value_and_reason(
     assert reason in message
 
 
-def test_linear_leaky_compile_preserves_neuron_attrs_for_backendv2():
+def test_linear_leaky_compiles_and_exports_with_vector_neuron_attrs(tmp_path):
+    beta = torch.tensor([0.0, 0.5, 0.75, 1.0])
+    threshold = torch.tensor([1.0, 2.0, 3.0, 4.0])
     model = nn.Sequential(
         nn.Linear(8, 4, bias=False),
-        _leaky(reset_mechanism="subtract", threshold=2.0),
+        _leaky(reset_mechanism="subtract", threshold=threshold, beta=beta),
     )
 
-    graph = compile_to_paiir(model, make_vec_8d(), strict=True)
+    with pytest.warns(AutoOptimizationWarning, match="subtract reset"):
+        graph = compile_to_paiir(
+            model,
+            make_vec_8d(),
+            input_formats={"InputNode_0": (DataSign.SIGNED, DataWidth.WIDTH_8BIT)},
+            strict=True,
+        )
     cores = find_nodes(graph, OfflineCoreOp)
     sequentials = [
         node
@@ -303,9 +394,28 @@ def test_linear_leaky_compile_preserves_neuron_attrs_for_backendv2():
     ]
     assert len(sequentials) == 1
 
-    attrs = CoreOpNode(
-        "snntorch_leaky", sequentials[0], torch.Size((1, 4))
-    ).attrs_part2()
-    assert RM(attrs.reset_mode) == RM.MODE_LINEAR
-    assert attrs.threshold_pos == 2
-    assert attrs.leak_tau == 0
+    mapper = Mapper()
+    mapper.compile(graph, tmp_path, target_platform="x86", debug=False)
+    placements = sorted(
+        (
+            placement
+            for core in mapper.coreplacements
+            for placement in core.neus
+            if len(placement.raw_neus) == 1
+            and placement.raw_neus[0].target.name == sequentials[0].name
+        ),
+        key=lambda placement: placement.raw_neus[0].index.idx,
+    )
+    attrs = [placement.neu_attrs_part2 for placement in placements]
+    assert len(attrs) == 4
+    assert [RM(item.reset_mode) for item in attrs] == [RM.MODE_LINEAR] * 4
+    assert [item.threshold_pos for item in attrs] == [2, 3, 4, 5]
+    assert [item.leak_multi_mode for item in attrs] == [
+        LeakMultiMode.ENABLE,
+        LeakMultiMode.DISABLE,
+        LeakMultiMode.DISABLE,
+        LeakMultiMode.DISABLE,
+    ]
+    assert [item.leak_tau for item in attrs] == [0, -1, -2, 0]
+
+    assert np.load(tmp_path / "cfg_frames.npy").size > 0
