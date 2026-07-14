@@ -21,7 +21,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, ClassVar
 
 import torch
-from paicorelib import LeakAddMode, OutputType, PoolingMode
+from paicorelib import OutputType, PoolingMode
 from torch import Tensor, nn
 from torch.nn import functional as F
 
@@ -344,18 +344,6 @@ class OfflineCoreOp(OpNode):
         """Return shape-independent inputs for neuron-parameter materialization."""
         params, bias = self._src_params()
         return self._with_output_type(params), bias
-
-    @property
-    def neuron_params(self) -> NeuronParams:
-        """Expose pre-materialization parameters to the current backend API."""
-        params, bias = self.src_params()
-        if bias is None:
-            return params
-        if params.leak_add_mode == LeakAddMode.BACKWARD:
-            raise ValueError(
-                "'bias' cannot be fused when 'leak_add_mode' is BACKWARD"
-            )
-        return replace(params, leak_v=params.leak_v + bias)
 
     def _require_output_format_for_hw_lut(self) -> None:
         if not self.core_params._output_format_assigned:

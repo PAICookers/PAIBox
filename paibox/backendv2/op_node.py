@@ -10,6 +10,7 @@ from paicorelib import (
     WeightCompressType,
 )
 from torch import Tensor, nn
+from torch.types import Number
 
 from ..paiir.ir.add_ops import PotentialAddOp
 from ..paiir.ir.calc_params import LutData, OfflineCoreParams
@@ -28,31 +29,8 @@ from ..paiir.ir.op_node import (
 from .core_config import Frontend_Core_Config
 
 
-def _resolve_channel_param(
-    value: float | Tensor, idx: int, shape: torch.Size, name: str
-) -> float:
-    if not torch.is_tensor(value):
-        return value
-    if len(shape) < 2:
-        raise ValueError(f"{name} tensor requires an output channel dimension")
-    if shape[0] != 1:
-        raise ValueError(f"Batch size > 1 not supported for tensor {name}")
-    if value.ndim != 1:
-        raise ValueError(f"{name} tensor must be 1D, got shape={tuple(value.shape)}")
-
-    out_channel = shape[1]
-    if value.numel() != out_channel:
-        raise ValueError(
-            f"{name} tensor size mismatch: got {value.numel()}, expected {out_channel}"
-        )
-
-    channel_stride = shape.numel() // out_channel
-    cur_channel = idx // channel_stride
-    return value[cur_channel].item()
-
-
 class CustomIndex:
-    def __init__(self, idx: int, copy_id: int = 0):
+    def __init__(self, idx: int, copy_id: int = 0) -> None:
         self.idx = idx
         self.copy_id = copy_id
 
@@ -65,8 +43,7 @@ class CustomIndex:
     def __str__(self) -> str:
         return f"(idx: {self.idx}, copy_id: {self.copy_id})"
 
-    def __repr__(self) -> str:
-        return self.__str__()
+    __repr__ = __str__
 
 
 class PaddingOp:
@@ -76,7 +53,7 @@ class PaddingOp:
         shape: tuple[int, ...],
         raw_padding: tuple[int, ...],
         fpad: bool = False,
-    ):
+    ) -> None:
         padding: list[tuple[int, int]] = []
         if not fpad:
             for pad in raw_padding:
@@ -127,7 +104,7 @@ class PaddingOp:
                 break
         return next_in_idx
 
-    def set_remap_dict(self):
+    def set_remap_dict(self) -> None:
         in_idx = [0] * len(self.inshape)
         for i in range(self.inshape.numel()):
             out_idx = in_idx.copy()
@@ -145,14 +122,14 @@ class PaddingOp:
             in_idx = self.next_in_idx(in_idx)
 
 
-def conv2d_without_padding(old_conv: nn.Conv2d):
+def conv2d_without_padding(old_conv: nn.Conv2d) -> nn.Conv2d:
     kernel_size = old_conv.kernel_size
     stride = old_conv.stride
     dilation = old_conv.dilation
 
-    assert (
-        len(kernel_size) == 2 and len(stride) == 2 and len(dilation) == 2
-    ), "Only 2D convolution is supported"
+    assert len(kernel_size) == 2 and len(stride) == 2 and len(dilation) == 2, (
+        "Only 2D convolution is supported"
+    )
     new_conv = nn.Conv2d(
         in_channels=old_conv.in_channels,
         out_channels=old_conv.out_channels,
@@ -169,14 +146,14 @@ def conv2d_without_padding(old_conv: nn.Conv2d):
     return new_conv
 
 
-def conv1d_without_padding(old_conv: nn.Conv1d):
+def conv1d_without_padding(old_conv: nn.Conv1d) -> nn.Conv1d:
     kernel_size = old_conv.kernel_size
     stride = old_conv.stride
     dilation = old_conv.dilation
 
-    assert (
-        len(kernel_size) == 1 and len(stride) == 1 and len(dilation) == 1
-    ), "Only 1D convolution is supported"
+    assert len(kernel_size) == 1 and len(stride) == 1 and len(dilation) == 1, (
+        "Only 1D convolution is supported"
+    )
     new_conv = nn.Conv1d(
         in_channels=old_conv.in_channels,
         out_channels=old_conv.out_channels,
@@ -225,7 +202,7 @@ T_Raw = TypeVar("T_Raw")
 class BaseNode(Generic[T_Raw]):
     """所有 Graph 节点的基类"""
 
-    def __init__(self, name: str, shape: tuple[int, ...], raw_node: T_Raw):
+    def __init__(self, name: str, shape: tuple[int, ...], raw_node: T_Raw) -> None:
         self.name = name
         self.shape = torch.Size(shape)
         self.raw_node = raw_node
@@ -248,47 +225,46 @@ class BaseNode(Generic[T_Raw]):
         return self.output_bit_num_
 
     @abstractmethod
-    def set_io_bit_num(self, direction: int):
+    def set_io_bit_num(self, direction: int) -> None:
         pass
 
     def __hash__(self) -> int:
         return hash(id(self))
 
-    def __repr__(self) -> str:
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.name})"
 
-    def __str__(self) -> str:
-        return self.__repr__()
+    __repr__ = __str__
 
 
-class InNode(BaseNode["InputNode"]):
-    def __init__(self, name: str, raw_node: "InputNode", shape: tuple[int, ...]):
+class InNode(BaseNode[InputNode]):
+    def __init__(self, name: str, raw_node: InputNode, shape: tuple[int, ...]) -> None:
         super().__init__(name, shape, raw_node)
 
-    def set_io_bit_num(self, direction: int):
-        assert (
-            direction == 1
-        ), "InNode should only call set_io_bit_num with direction 1 (from successors)"
+    def set_io_bit_num(self, direction: int) -> None:
+        assert direction == 1, (
+            "InNode should only call set_io_bit_num with direction 1 (from successors)"
+        )
         succ_input_bit_nums = set([succ.input_bit_num for succ in self.successors])
-        assert (
-            len(succ_input_bit_nums) == 1
-        ), "All successors must have the same input bit num"
+        assert len(succ_input_bit_nums) == 1, (
+            "All successors must have the same input bit num"
+        )
 
         self.output_bit_num_ = succ_input_bit_nums.pop()
 
 
-class OutNode(BaseNode["OutputNode"]):
-    def __init__(self, name: str, raw_node: "OutputNode", shape: tuple[int, ...]):
+class OutNode(BaseNode[OutputNode]):
+    def __init__(self, name: str, raw_node: OutputNode, shape: tuple[int, ...]) -> None:
         super().__init__(name, shape, raw_node)
 
-    def set_io_bit_num(self, direction: int):
-        assert (
-            direction == 0
-        ), "OutNode should only call set_io_bit_num with direction 0 (from predecessors)"
+    def set_io_bit_num(self, direction: int) -> None:
+        assert direction == 0, (
+            "OutNode should only call set_io_bit_num with direction 0 (from predecessors)"
+        )
         pred_output_bit_nums = set([pred.output_bit_num for pred in self.predecessors])
-        assert (
-            len(pred_output_bit_nums) == 1
-        ), "All predecessors must have the same output bit num"
+        assert len(pred_output_bit_nums) == 1, (
+            "All predecessors must have the same output bit num"
+        )
 
         self.input_bit_num_ = pred_output_bit_nums.pop()
 
@@ -297,27 +273,27 @@ RemapOp = TransformOp | ConcatOp | PaddingOp
 
 
 class RemapNode(BaseNode[RemapOp]):
-    def __init__(self, name: str, raw_node: RemapOp, shape: tuple[int, ...]):
+    def __init__(self, name: str, raw_node: RemapOp, shape: tuple[int, ...]) -> None:
         super().__init__(name, shape, raw_node)
 
     def get_remap_info(self) -> dict["SourceElem", "RemapElem"]:
         if isinstance(self.raw_node, TransformOp):
-            assert (
-                len(self.predecessors) == 1
-            ), "TransformNode should have exactly one predecessor"
+            assert len(self.predecessors) == 1, (
+                "TransformNode should have exactly one predecessor"
+            )
             pred = self.predecessors[0]
             pred_len = pred.shape.numel()
-            assert (
-                pred_len == self.shape.numel()
-            ), "Total number of elements must match for transform remap"
+            assert pred_len == self.shape.numel(), (
+                "Total number of elements must match for transform remap"
+            )
 
             # Drive the routing transform over an index tensor so backend
             # reorder follows the same logical-layout semantics as the IR.
             flat_indices = torch.arange(pred_len, dtype=torch.int64).reshape(pred.shape)
             reordered = self.raw_node(flat_indices).reshape(-1)
-            assert (
-                reordered.numel() == pred_len
-            ), "TransformOp index remap must preserve element count"
+            assert reordered.numel() == pred_len, (
+                "TransformOp index remap must preserve element count"
+            )
 
             remap_info: dict["SourceElem", "RemapElem"] = {}
             for dst_idx, src_idx in enumerate(reordered.tolist()):
@@ -359,9 +335,9 @@ class RemapNode(BaseNode[RemapOp]):
                 dim_offset += pred.shape[concat_dim]
             return remap_info
         elif isinstance(self.raw_node, PaddingOp):
-            assert (
-                len(self.predecessors) == 1
-            ), "PaddingNode should have exactly one predecessor"
+            assert len(self.predecessors) == 1, (
+                "PaddingNode should have exactly one predecessor"
+            )
             pred = self.predecessors[0]
             pred_len = pred.shape.numel()
             remap_info: dict["SourceElem", "RemapElem"] = {}
@@ -375,13 +351,13 @@ class RemapNode(BaseNode[RemapOp]):
                 f"Unsupported node type for RemapNode: {type(self.raw_node)}"
             )
 
-    def set_io_bit_num(self, direction: int):
+    def set_io_bit_num(self, direction: int) -> None:
         if direction == 1:
             # Get input bit num from successors
             succ_input_bit_nums = set([succ.input_bit_num for succ in self.successors])
-            assert (
-                len(succ_input_bit_nums) == 1
-            ), "All successors must have the same input bit num"
+            assert len(succ_input_bit_nums) == 1, (
+                "All successors must have the same input bit num"
+            )
             self.output_bit_num_ = succ_input_bit_nums.pop()
             self.input_bit_num_ = self.output_bit_num_
         elif direction == 0:
@@ -389,9 +365,9 @@ class RemapNode(BaseNode[RemapOp]):
             pred_output_bit_nums = set(
                 [pred.output_bit_num for pred in self.predecessors]
             )
-            assert (
-                len(pred_output_bit_nums) == 1
-            ), "All predecessors must have the same output bit num"
+            assert len(pred_output_bit_nums) == 1, (
+                "All predecessors must have the same output bit num"
+            )
             self.input_bit_num_ = pred_output_bit_nums.pop()
             self.output_bit_num_ = self.input_bit_num_
         else:
@@ -401,7 +377,9 @@ class RemapNode(BaseNode[RemapOp]):
 
 
 class CoreOpNode(BaseNode["OfflineCoreOp"]):
-    def __init__(self, name: str, raw_node: "OfflineCoreOp", shape: tuple[int, ...]):
+    def __init__(
+        self, name: str, raw_node: "OfflineCoreOp", shape: tuple[int, ...]
+    ) -> None:
         super().__init__(name, shape, raw_node)
         self.comps: list[nn.Module | None] = []
         self.weights: list[Tensor | None] = []
@@ -431,42 +409,48 @@ class CoreOpNode(BaseNode["OfflineCoreOp"]):
         else:
             self.weights = [None] * len(self.comps)
 
-    def attrs_part2(self, idx: int = 0) -> "OfflineNeuFullAttrsV2Part2":
-        neu_attrs = self.raw_node.neuron_params
-        leak_v = _resolve_channel_param(neu_attrs.leak_v, idx, self.shape, "leak_v")
-        thres_pos = _resolve_channel_param(
-            neu_attrs.thres_pos, idx, self.shape, "thres_pos"
-        )
+    def attrs_part2(self, idx: int = 0) -> OfflineNeuFullAttrsV2Part2:
+        neu_attrs = self.raw_node.neu_params
+
+        def _resolve(value: Number | Tensor, idx: int) -> int:
+            v = value[idx].item() if torch.is_tensor(value) else value
+            if isinstance(v, float):
+                return round(v)
+            return int(v)
+
+        resolved = {
+            name: _resolve(getattr(neu_attrs, name), idx)
+            for name in neu_attrs.__vectorized_attrs__
+        }
 
         return OfflineNeuFullAttrsV2Part2(
             reset_mode=neu_attrs.reset_mode,
-            reset_v=round(neu_attrs.reset_v),
+            reset_v=resolved["reset_v"],
             threshold_neg_mode=neu_attrs.thres_neg_mode,
             threshold_pos_mode=neu_attrs.thres_pos_mode,
-            threshold_neg=round(neu_attrs.thres_neg),
-            threshold_pos=round(thres_pos),
+            threshold_neg=resolved["thres_neg"],
+            threshold_pos=resolved["thres_pos"],
             lateral_inhibition=neu_attrs.lateral_inhi,
             leak_multi_sequence=neu_attrs.leak_multi_sequence,
             leak_multi_input=neu_attrs.leak_multi_input,
             leak_multi_mode=neu_attrs.leak_multi_mode,
             leak_add_mode=neu_attrs.leak_add_mode,
-            leak_tau=neu_attrs.leak_tau,
-            leak_v=round(leak_v),
+            leak_tau=resolved["leak_tau"],
+            leak_v=resolved["leak_v"],
             weight_compress=WeightCompressType.DENSE,
-            vjt_initial=round(neu_attrs.init_v),
+            vjt_initial=resolved["init_v"],
         )
 
-    def output_type(self) -> "OutputType":
-        return self.raw_node.neuron_params.output_type
+    def output_type(self) -> OutputType:
+        return self.raw_node.neu_params.output_type
 
-    def core_config(self) -> "Frontend_Core_Config":
+    def core_config(self) -> Frontend_Core_Config:
         return self.frontend_core_config
 
-    def set_io_bit_num(self, direction: int):
-
-        assert (
-            direction == -1
-        ), "CoreOpNode should not call set_io_bit_num with direction 0 or 1, as its input and output bit num are determined by its own configuration rather than predecessors or successors"
+    def set_io_bit_num(self, direction: int) -> None:
+        assert direction == -1, (
+            "CoreOpNode should not call set_io_bit_num with direction 0 or 1, as its input and output bit num are determined by its own configuration rather than predecessors or successors"
+        )
         if self.core_config().add_potential == AddPotentialMode.NORMAL:
             input_bit_num = 2 ** self.core_config().input_width
         else:
@@ -491,7 +475,7 @@ T = TypeVar("T", CoreOpNode, RemapNode, InNode)
 
 
 class BaseElem(Generic[T]):
-    def __init__(self, target: T, index: "CustomIndex"):
+    def __init__(self, target: T, index: "CustomIndex") -> None:
         self.target = target
         self.index = index
 
@@ -509,8 +493,7 @@ class BaseElem(Generic[T]):
         # 假设所有 target 都有 .name 属性
         return f"{getattr(self.target, 'name', 'Unknown')}[{self.index}]"
 
-    def __repr__(self) -> str:
-        return self.__str__()
+    __repr__ = __str__
 
     def get_raw_elem(self) -> "SourceElem":
         return get_elem(self.target, self.index.idx, 0)
@@ -529,13 +512,13 @@ class BaseElem(Generic[T]):
 
 class Neuron(BaseElem["CoreOpNode"]):
     # 仅保留 Neuron 特有的方法
-    def attrs_part2(self) -> "OfflineNeuFullAttrsV2Part2":
+    def attrs_part2(self) -> OfflineNeuFullAttrsV2Part2:
         return self.target.attrs_part2(self.index.idx)
 
-    def output_type(self) -> "OutputType":
+    def output_type(self) -> OutputType:
         return self.target.output_type()
 
-    def core_config(self) -> "Frontend_Core_Config":
+    def core_config(self) -> Frontend_Core_Config:
         return self.target.core_config()
 
     def copy(self, copy_id: int) -> "Neuron":
@@ -567,7 +550,7 @@ SourceElem = Neuron | RemapElem | InputElem
 CoreElem = Neuron | RemapElem
 
 
-def get_elem(Node: BaseNode, idx: int, copy_id: int = 0) -> "SourceElem":
+def get_elem(Node: BaseNode, idx: int, copy_id: int = 0) -> SourceElem:
     if isinstance(Node, InNode):
         return InputElem(Node, CustomIndex(idx, copy_id))
     elif isinstance(Node, RemapNode):
@@ -578,7 +561,7 @@ def get_elem(Node: BaseNode, idx: int, copy_id: int = 0) -> "SourceElem":
         raise NotImplementedError(f"Unsupported node type: {type(Node)}")
 
 
-def insert_padding_nodes(nodes: list[AllNode]):
+def insert_padding_nodes(nodes: list[AllNode]) -> None:
     new_nodes: list[RemapNode] = []
     for node in nodes:
         if not isinstance(node, CoreOpNode):
@@ -649,19 +632,19 @@ def insert_padding_nodes(nodes: list[AllNode]):
     nodes.extend(new_nodes)
 
 
-def set_io_bit_num(nodes: list[AllNode]):
+def set_io_bit_num(nodes: list[AllNode]) -> None:
     unset_nodes = set(nodes)
     node_to_process: list[tuple[AllNode, int]] = [
         (node, -1) for node in nodes if isinstance(node, CoreOpNode)
     ]
     unset_nodes -= set(node for node, _ in node_to_process)
-    assert (
-        len(node_to_process) > 0
-    ), "There should be at least one CoreOpNode to dictate the input/output bit num for the whole graph"
+    assert len(node_to_process) > 0, (
+        "There should be at least one CoreOpNode to dictate the input/output bit num for the whole graph"
+    )
     while unset_nodes or len(node_to_process) > 0:
-        assert (
-            len(node_to_process) > 0
-        ), "There is a cycle in the graph or some nodes are not connected to CoreOpNodes"
+        assert len(node_to_process) > 0, (
+            "There is a cycle in the graph or some nodes are not connected to CoreOpNodes"
+        )
         node, direction = node_to_process.pop(0)
         node.set_io_bit_num(direction)
         for succ in node.successors:
