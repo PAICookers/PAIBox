@@ -1246,6 +1246,11 @@ def _apply_module_lowering_rule(
         if not source_resolution.supported:
             description = registry.describe_source_error(source_resolution)
             raise UnsupportedOpError(node.name, description)
+        context_error = registry.describe_source_context_error(
+            source_resolution, get_output_shape(node)
+        )
+        if context_error is not None:
+            raise UnsupportedOpError(node.name, context_error)
 
         ir_node = registry.lower_source_resolution(source_resolution)
         _register_ir_node(

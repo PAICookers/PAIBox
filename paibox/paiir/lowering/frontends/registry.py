@@ -14,6 +14,7 @@ __all__ = [
     "build_frontend_module_map",
     "collect_erase_types",
     "describe_source_error",
+    "describe_source_context_error",
     "describe_unsupported_module",
     "lower_source_resolution",
     "owned_by_frontend",
@@ -83,6 +84,23 @@ def describe_source_error(resolution: SourceResolution) -> str:
         frontend=resolution.schema.frontend,
         op=resolution.schema.op,
         result=resolution.error,
+    )
+
+
+def describe_source_context_error(
+    resolution: SourceResolution, output_shape
+) -> str | None:
+    """Return a frontend error that depends on propagated FX output shape."""
+    if resolution.schema.frontend != snntorch.name:
+        return None
+    result = snntorch.validate_source_context(resolution.source_op, output_shape)
+    if result is None:
+        return None
+    return format_constraint_error(
+        stage="source",
+        frontend=resolution.schema.frontend,
+        op=resolution.schema.op,
+        result=result,
     )
 
 
