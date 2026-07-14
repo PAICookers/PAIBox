@@ -32,7 +32,7 @@ import copy
 import math
 import warnings
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any, ClassVar, TypeVar
 
 import torch
 from paicorelib import (
@@ -54,13 +54,28 @@ from ...exceptions import AutoOptimizationWarning
 from .calc_params import DEFAULT_NEG_THRESHOLD, NeuronParams
 from .lut_activation import LutActivation
 
-__all__ = ["CoreNeuronV25", "ANNNodeV25", "IFNodeV25", "LIFNodeV25"]
+__all__ = [
+    "CoreNeuronV25",
+    "ANNNodeV25",
+    "IFNodeV25",
+    "LIFNodeV25",
+    "LeakyBeta0NodeV25",
+]
 
 _T = TypeVar("_T", bound="CoreNeuronV25")
+_FIXED_DYNAMICS_ATTRS = (
+    "leak_tau_shift",
+    "leak_multi_input",
+    "leak_multi_mode",
+    "leak_multi_sequence",
+    "lut",
+)
 
 
 class CoreNeuronV25(MemoryModule):
-    _export_attrs: tuple[str, ...] = (
+    __vectorized_attrs__: ClassVar[tuple[str, ...]] = NeuronParams.__vectorized_attrs__
+    __fixed_attrs__: ClassVar[tuple[str, ...]] = ()
+    __export_attrs__: tuple[str, ...] = (
         "reset_mode",
         "reset_v",
         "thres_neg_mode",
@@ -77,25 +92,31 @@ class CoreNeuronV25(MemoryModule):
         "init_v",
     )
 
+    @classmethod
+    def _reject_fixed_attr_overrides(cls, kwargs: dict[str, Any]) -> None:
+        overridden = tuple(name for name in cls.__fixed_attrs__ if name in kwargs)
+        if overridden:
+            raise ValueError(f"{cls.__name__} fixes " + ", ".join(overridden))
+
     def __init__(
         self,
         reset_mode: RM = RM.MODE_NORMAL,
-        reset_v: float = 0,
+        reset_v: float | Tensor = 0,
         thres_pos_mode: ThresholdPosMode = ThresholdPosMode.FIRE,
         thres_neg_mode: ThresholdNegMode | None = None,
-        thres_pos: float | Tensor = 0,
-        thres_neg: float | None = None,
+        thres_pos: float | Tensor = 1,
+        thres_neg: float | Tensor | None = None,
         lateral_inhi: LateralInhibitionMode | bool = LateralInhibitionMode.DISABLE,
         leak_multi_sequence: LeakMultiComparisonOrder = LeakMultiComparisonOrder.AFTER_COMPARE,
         leak_multi_input: LeakMultiInputMode | bool = LeakMultiInputMode.DISABLE,
         leak_multi_mode: LeakMultiMode | bool = LeakMultiMode.DISABLE,
         leak_add_mode: LeakAddMode = LeakAddMode.FORWARD,
-        tau: float = 1,
+        tau: float | Tensor = 1,
         leak_v: float | Tensor = 0,
-        init_v: float = 0,
+        init_v: float | Tensor = 0,
         *,
         lut: LutActivation | None = None,
-        leak_tau_shift: int | None = None,
+        leak_tau_shift: int | Tensor | None = None,
         # For SNN training with surrogate gradients
         surrogate_function: Callable = surrogate.Sigmoid(),
         detach_reset: bool = False,
@@ -132,7 +153,7 @@ class CoreNeuronV25(MemoryModule):
         super().__init__()
 
         self.reset_mode = reset_mode
-        self.reset_v = reset_v
+        self.reset_v = _normalize_numeric_param(reset_v, name="reset_v")
         self.thres_pos_mode = thres_pos_mode
         # Default thres_neg_mode:
         #   SNN (lut=None) -> FLOOR (negative V clamped, single-sided firing)
@@ -145,8 +166,11 @@ class CoreNeuronV25(MemoryModule):
         else:
             self.thres_neg_mode = ThresholdNegMode.FLOOR
 
-        self.thres_pos = _normalize_thres_pos(thres_pos)
-        self.thres_neg = thres_neg if thres_neg is not None else DEFAULT_NEG_THRESHOLD
+        self.thres_pos = _normalize_numeric_param(thres_pos, name="thres_pos")
+        self.thres_neg = _normalize_numeric_param(
+            thres_neg if thres_neg is not None else DEFAULT_NEG_THRESHOLD,
+            name="thres_neg",
+        )
         self.lut = lut
         self.lateral_inhi = LateralInhibitionMode(lateral_inhi)
         self.leak_multi_sequence = leak_multi_sequence
@@ -154,19 +178,20 @@ class CoreNeuronV25(MemoryModule):
         self.leak_multi_mode = LeakMultiMode(leak_multi_mode)
         self.leak_add_mode = leak_add_mode
 
-        self._validate_threshold_bounds()
-
         # tau -> leak_tau (right-shift exponent)
         # Keep the original tau for compensation passes that need the
         # precise value (e.g. AvgPool threshold compensation).
-        self.tau = tau
+        self.tau = _normalize_numeric_param(tau, name="tau")
         if leak_tau_shift is not None:
-            self.leak_tau = leak_tau_shift
+            self.leak_tau = _normalize_leak_tau_shift(leak_tau_shift)
         else:
-            self.leak_tau = self._tau_to_shift(tau)
+            self.leak_tau = self._tau_to_shift(self.tau)
 
-        self.leak_v = self._normalize_leak_v(leak_v)
-        self.init_v = init_v
+        self.leak_v = _normalize_numeric_param(leak_v, name="leak_v")
+        self.init_v = _normalize_numeric_param(init_v, name="init_v")
+
+        self._validate_threshold_bounds()
+        self._validate_dynamics_homogeneity()
 
         self.surrogate_function = surrogate_function
         self.detach_reset = detach_reset
@@ -225,12 +250,16 @@ class CoreNeuronV25(MemoryModule):
     @property
     def has_if_dynamics(self) -> bool:
         """Return True for spike neurons without leak dynamics."""
-        return self.is_snn and self.tau <= 1
+        if not self.is_snn or self.leak_multi_mode != LeakMultiMode.DISABLE:
+            return False
+        if torch.is_tensor(self.leak_tau):
+            return bool(torch.all(self.leak_tau == 0).item())
+        return self.leak_tau == 0
 
     @property
     def has_lif_dynamics(self) -> bool:
         """Return True for spike neurons with leak dynamics."""
-        return self.is_snn and self.tau > 1
+        return self.is_snn and not self.has_if_dynamics
 
     @property
     def output_sign(self) -> bool:
@@ -257,6 +286,7 @@ class CoreNeuronV25(MemoryModule):
 
     def single_step_forward(self, x: Tensor) -> Tensor:
         """Single time-step forward pass reproducing exact chip behaviour."""
+        self._validate_simulation_params()
         if self.training and self.lut is not None:
             raise RuntimeError(
                 f"{self.__class__.__name__} with LUT activation (ANN mode) does not "
@@ -432,32 +462,54 @@ class CoreNeuronV25(MemoryModule):
 
     def _multiplicative_leak(self) -> Tensor:
         """Multiplicative leak: ``v -= shift(v - offset)``."""
-        if self.leak_tau == 0:
-            return self.v
-
         if self.leak_multi_mode == LeakMultiMode.ENABLE:
             return self.v - self._apply_tau_shift(self.v - self.reset_v)
-        else:
-            return self.v - self._apply_tau_shift(self.v)
+        if self.leak_tau == 0:
+            return self.v
+        return self.v - self._apply_tau_shift(self.v)
 
-    def _validate_threshold_bounds(self) -> None:
-        """Validate scalar/per-channel positive threshold configuration."""
-        if torch.is_tensor(self.thres_pos):
-            if self.lut is not None:
-                raise ValueError(
-                    "per-channel 'thres_pos' is only supported in SNN mode"
-                )
-            if torch.any(self.thres_pos < self.thres_neg).item():
-                raise ValueError(
-                    "all per-channel 'thres_pos' values "
-                    f"({self.thres_pos}) must be >= 'thres_neg' ({self.thres_neg})"
-                )
+    def _validate_dynamics_homogeneity(self) -> None:
+        if not self.is_snn or not torch.is_tensor(self.leak_tau):
+            return
+        if self.leak_multi_mode == LeakMultiMode.ENABLE:
             return
 
-        if self.thres_pos < self.thres_neg:
+        zero_shift = self.leak_tau == 0
+        if torch.any(zero_shift).item() and not torch.all(zero_shift).item():
             raise ValueError(
-                f"'thres_pos' ({self.thres_pos}) must be >= 'thres_neg' ({self.thres_neg})"
+                "leak_tau mixes IF (zero shift) and LIF (non-zero shift) dynamics "
+                "while leak_multi_mode is DISABLE"
             )
+
+    def _validate_simulation_params(self) -> None:
+        unsupported = [
+            name
+            for name in ("reset_v", "thres_neg", "leak_tau", "init_v")
+            if torch.is_tensor(getattr(self, name))
+        ]
+        if unsupported:
+            raise NotImplementedError(
+                "vector neuron simulation is not implemented for "
+                + ", ".join(unsupported)
+                + "; compile the model for deployment instead"
+            )
+
+    def _validate_threshold_bounds(self) -> None:
+        """Validate bounds that do not depend on the eventual output shape."""
+        pos = self.thres_pos
+        neg = self.thres_neg
+
+        if torch.is_tensor(pos) and torch.is_tensor(neg):
+            if pos.shape != neg.shape:
+                return
+            neg = neg.to(pos.device)
+
+        invalid = pos < neg
+        if torch.is_tensor(invalid):
+            invalid = bool(torch.any(invalid).item())
+
+        if invalid:
+            raise ValueError(f"'thres_pos' ({pos}) must be >= 'thres_neg' ({neg})")
 
     def _thres_pos_for_v(self) -> float | Tensor:
         """Return scalar threshold or a channel-broadcast tensor for ``self.v``."""
@@ -480,51 +532,81 @@ class CoreNeuronV25(MemoryModule):
             _channel_broadcast_shape(self.v.ndim, threshold.numel())
         )
 
-    def _tau_to_shift(self, tau: float) -> int:
+    def _tau_to_shift(self, tau: float | Tensor) -> int | Tensor:
         """Convert time constant *tau* to a right-shift exponent."""
-        if tau <= 1:
-            return 0
+        if torch.is_tensor(tau):
+            shifts: list[int] = []
+            approximated = 0
+            for value in tau.reshape(-1).tolist():
+                shift, is_approximate = _tau_scalar_to_shift(float(value))
+                shifts.append(shift)
+                approximated += int(is_approximate)
+            if approximated:
+                warnings.warn(
+                    f"{approximated} tau value(s) are not powers of 2; "
+                    "using ceil(log2(tau)) shift approximation",
+                    AutoOptimizationWarning,
+                )
+            return torch.tensor(shifts, dtype=torch.int64, device=tau.device).reshape(
+                tau.shape
+            )
 
-        log2_tau = math.log2(tau)
-
-        if log2_tau.is_integer():
-            exponent = int(log2_tau)
-        else:
-            exponent = math.ceil(log2_tau)
+        shift, is_approximate = _tau_scalar_to_shift(float(tau))
+        if is_approximate:
+            exponent = -shift
             warnings.warn(
                 f"tau={tau} is not a power of 2, using nearest shift bit {exponent}",
                 AutoOptimizationWarning,
             )
-        return -exponent
+        return shift
 
-    def _normalize_leak_v(self, leak_v: float | Tensor) -> float | Tensor:
-        """Normalize *leak_v* to a scalar when all elements are identical."""
-        if isinstance(leak_v, (int, float)):
-            return leak_v
-        if (unique := torch.unique(leak_v)).numel() == 1:
-            return unique.item()
-        return leak_v
-
-    def to_neuron_params(self, bias: Tensor | None = None) -> NeuronParams:
-        """Export as a :class:`NeuronParams` dataclass for backend consumption.
-
-        Args:
-            bias: Optional bias tensor fused into ``leak_v``.  On chip,
-                Conv/Linear bias is realized as additive leak in the neuron.
-        """
-        kwargs = {attr: getattr(self, attr) for attr in self._export_attrs}
-
-        if bias is not None:
-            if self.leak_add_mode == LeakAddMode.BACKWARD:
-                raise ValueError(
-                    "'bias' cannot be fused when 'leak_add_mode' is BACKWARD"
-                )
-            kwargs["leak_v"] += bias
-
-        return NeuronParams(**kwargs)
+    def to_neuron_params(self) -> NeuronParams:
+        """Export raw neuron parameters before output-shape materialization."""
+        return NeuronParams(
+            **{attr: getattr(self, attr) for attr in self.__export_attrs__}
+        )
 
 
-def _resolve_reset(v_reset: float | None) -> tuple[float, RM]:
+def _tau_scalar_to_shift(tau: float) -> tuple[int, bool]:
+    """Return the hardware shift and whether *tau* required approximation."""
+    if tau <= 1:
+        return 0, False
+
+    log2_tau = math.log2(tau)
+    if log2_tau.is_integer():
+        return -int(log2_tau), False
+    return -math.ceil(log2_tau), True
+
+
+def _normalize_numeric_param(value: int | float | Tensor, *, name: str):
+    if not torch.is_tensor(value):
+        return value
+    if value.numel() == 0:
+        raise ValueError(f"{name} must not be empty")
+    if value.ndim == 0:
+        return value.item()
+    return value.detach().clone()
+
+
+def _normalize_leak_tau_shift(value: int | Tensor) -> int | Tensor:
+    if isinstance(value, bool):
+        raise TypeError("leak_tau_shift must be an integer or integer Tensor")
+    if not torch.is_tensor(value):
+        if not isinstance(value, int):
+            raise TypeError("leak_tau_shift must be an integer or integer Tensor")
+        return value
+    if value.dtype not in (
+        torch.uint8,
+        torch.int8,
+        torch.int16,
+        torch.int32,
+        torch.int64,
+    ):
+        raise TypeError("leak_tau_shift Tensor must have an integer dtype")
+    return _normalize_numeric_param(value, name="leak_tau_shift")  # type: ignore
+
+
+def _resolve_reset(v_reset: float | Tensor | None) -> tuple[float | Tensor, RM]:
     """Determine reset mode from *v_reset*.
 
     - ``None`` -> soft reset (MODE_LINEAR), reset_v = 0
@@ -535,36 +617,18 @@ def _resolve_reset(v_reset: float | None) -> tuple[float, RM]:
     return v_reset, RM.MODE_NORMAL  # hard reset
 
 
-def _normalize_thres_pos(thres_pos: float | Tensor) -> float | Tensor:
-    if not torch.is_tensor(thres_pos):
-        return thres_pos
-    if thres_pos.ndim == 0:
-        return thres_pos.item()
-    return _validate_per_channel_threshold(thres_pos, name="thres_pos")
-
-
 def _channel_broadcast_shape(ndim: int, channel_count: int) -> tuple[int, ...]:
     """Broadcast shape for applying a `(C,)` tensor across an `N,C,...` state."""
     return (1, channel_count, *(1 for _ in range(ndim - 2)))
 
 
-def _validate_per_channel_threshold(v_threshold: Tensor, *, name: str) -> Tensor:
-    if not torch.is_tensor(v_threshold):
-        raise ValueError(f"{name} must be a 1D Tensor")
-    if v_threshold.ndim != 1:
-        raise ValueError(
-            f"{name} must be a 1D Tensor, got shape={tuple(v_threshold.shape)}"
-        )
-    if v_threshold.numel() == 0:
-        raise ValueError(f"{name} must not be empty")
-    return v_threshold.detach().clone()
-
-
 class IFNodeV25(CoreNeuronV25):
+    __fixed_attrs__: ClassVar[tuple[str, ...]] = ("tau", *_FIXED_DYNAMICS_ATTRS)
+
     def __init__(
         self,
         v_threshold: float | Tensor = 1.0,
-        v_reset: float | None = 0.0,
+        v_reset: float | Tensor | None = 0.0,
         surrogate_function: Callable = surrogate.Sigmoid(),
         detach_reset: bool = False,
         **kwargs,
@@ -578,13 +642,17 @@ class IFNodeV25(CoreNeuronV25):
             detach_reset: If ``True``, detach the reset operation.
             **kwargs: Forwarded to :class:`CoreNeuronV25`.
         """
-        reset_v, reset_mode = _resolve_reset(v_reset)
+        self._reject_fixed_attr_overrides(kwargs)
 
+        reset_v, reset_mode = _resolve_reset(v_reset)
         super().__init__(
             reset_mode=reset_mode,
             reset_v=reset_v,
             thres_pos=v_threshold,
             tau=1,  # leak_tau_shift=0,
+            leak_multi_input=LeakMultiInputMode.DISABLE,
+            leak_multi_mode=LeakMultiMode.DISABLE,
+            leak_multi_sequence=LeakMultiComparisonOrder.AFTER_COMPARE,
             init_v=reset_v,  # Match SpikingJelly: init_v = v_reset
             surrogate_function=surrogate_function,
             detach_reset=detach_reset,
@@ -593,12 +661,14 @@ class IFNodeV25(CoreNeuronV25):
 
 
 class LIFNodeV25(CoreNeuronV25):
+    __fixed_attrs__: ClassVar[tuple[str, ...]] = _FIXED_DYNAMICS_ATTRS
+
     def __init__(
         self,
-        tau: float = 2.0,
+        tau: float | Tensor = 2.0,
         decay_input: bool = True,
         v_threshold: float | Tensor = 1.0,
-        v_reset: float | None = 0.0,
+        v_reset: float | Tensor | None = 0.0,
         surrogate_function: Callable = surrogate.Sigmoid(),
         detach_reset: bool = False,
         **kwargs,
@@ -614,13 +684,17 @@ class LIFNodeV25(CoreNeuronV25):
             detach_reset: If ``True``, detach the reset operation.
             **kwargs: Forwarded to :class:`CoreNeuronV25`.
         """
-        if tau <= 1:
+        self._reject_fixed_attr_overrides(kwargs)
+
+        invalid_tau = torch.any(tau <= 1).item() if torch.is_tensor(tau) else tau <= 1
+        if invalid_tau:
             raise ValueError(f"tau must be > 1, got {tau}")
 
         reset_v, reset_mode = _resolve_reset(v_reset)
-        leak_multi_mode = (
-            LeakMultiMode.ENABLE if reset_v != 0 else LeakMultiMode.DISABLE
+        has_nonzero_reset = (
+            torch.any(reset_v != 0).item() if torch.is_tensor(reset_v) else reset_v != 0
         )
+        leak_multi_mode = LeakMultiMode(has_nonzero_reset)
 
         super().__init__(
             reset_mode=reset_mode,
@@ -629,6 +703,7 @@ class LIFNodeV25(CoreNeuronV25):
             tau=tau,
             leak_multi_input=decay_input,
             leak_multi_mode=leak_multi_mode,
+            leak_multi_sequence=LeakMultiComparisonOrder.AFTER_COMPARE,
             init_v=reset_v,  # Match SpikingJelly: init_v = v_reset
             surrogate_function=surrogate_function,
             detach_reset=detach_reset,
@@ -637,6 +712,34 @@ class LIFNodeV25(CoreNeuronV25):
 
     def extra_repr(self) -> str:
         return f"leak_tau={self.leak_tau}, " + super().extra_repr()
+
+
+class LeakyBeta0NodeV25(CoreNeuronV25):
+    """Memoryless leaky neuron at the exact ``beta=0``."""
+
+    __fixed_attrs__: ClassVar[tuple[str, ...]] = ("tau", *_FIXED_DYNAMICS_ATTRS)
+
+    def __init__(
+        self,
+        v_threshold: float | Tensor = 1.0,
+        v_reset: float | Tensor | None = 0.0,
+        **kwargs,
+    ) -> None:
+        self._reject_fixed_attr_overrides(kwargs)
+
+        reset_v, reset_mode = _resolve_reset(v_reset)
+        super().__init__(
+            reset_mode=reset_mode,
+            reset_v=reset_v,
+            thres_pos=v_threshold,
+            tau=1,
+            leak_tau_shift=0,
+            leak_multi_input=LeakMultiInputMode.DISABLE,
+            leak_multi_mode=LeakMultiMode.ENABLE,
+            leak_multi_sequence=LeakMultiComparisonOrder.AFTER_COMPARE,
+            init_v=reset_v,
+            **kwargs,
+        )
 
 
 class ANNNodeV25(CoreNeuronV25):

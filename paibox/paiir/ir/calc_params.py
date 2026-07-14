@@ -6,6 +6,7 @@ chip-specific register values (v2.0 or v2.5).
 """
 
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 import torch
 from paicorelib import (
@@ -212,11 +213,20 @@ class NeuronParams:
     these to chip-specific register layouts.
     """
 
+    __vectorized_attrs__: ClassVar[tuple[str, ...]] = (
+        "reset_v",
+        "thres_neg",
+        "thres_pos",
+        "leak_tau",
+        "leak_v",
+        "init_v",
+    )
+
     reset_mode: RM = RM.MODE_NORMAL
-    reset_v: float = 0.0
+    reset_v: float | Tensor = 0.0
     thres_neg_mode: ThresholdNegMode = ThresholdNegMode.FLOOR
     thres_pos_mode: ThresholdPosMode = ThresholdPosMode.FIRE
-    thres_neg: float = DEFAULT_NEG_THRESHOLD
+    thres_neg: float | Tensor = DEFAULT_NEG_THRESHOLD
     thres_pos: float | Tensor = 0.0
     lateral_inhi: LateralInhibitionMode = LateralInhibitionMode.DISABLE
     leak_multi_sequence: LeakMultiComparisonOrder = (
@@ -225,9 +235,9 @@ class NeuronParams:
     leak_multi_input: LeakMultiInputMode = LeakMultiInputMode.DISABLE
     leak_multi_mode: LeakMultiMode = LeakMultiMode.DISABLE
     leak_add_mode: LeakAddMode = LeakAddMode.FORWARD
-    leak_tau: int = 0
+    leak_tau: int | Tensor = 0
     leak_v: float | Tensor = 0.0
-    init_v: float = 0.0
+    init_v: float | Tensor = 0.0
     output_type: OutputType = OutputType.VALUE
 
 

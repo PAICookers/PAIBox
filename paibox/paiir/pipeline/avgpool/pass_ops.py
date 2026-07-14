@@ -6,7 +6,12 @@ from paicorelib import LeakMultiInputMode
 from ...ir.graph import PAIIRGraph
 from ...ir.op_node import SequentialOp
 from .calibration import CalibrationResult, calibrate_avgpool_threshold
-from .utils import get_avgpool_divisor, get_pool_window_size, is_avgpool
+from .utils import (
+    get_avgpool_divisor,
+    get_pool_window_size,
+    is_avgpool,
+    require_scalar_avgpool_neuron_params,
+)
 
 __all__ = ["calibrate_avgpool_thresholds"]
 
@@ -27,6 +32,7 @@ def calibrate_avgpool_thresholds(
             continue
         if not is_avgpool(node.comp):
             continue
+        require_scalar_avgpool_neuron_params(node.act)
         if not node.act.has_lif_dynamics:
             continue
         if isinstance(node.act.thres_pos, torch.Tensor):

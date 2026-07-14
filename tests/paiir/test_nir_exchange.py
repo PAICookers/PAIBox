@@ -7,6 +7,7 @@ from paibox.paiir.exceptions import UnsupportedNIRNodeError
 from paibox.paiir.ir import (
     IFNodeV25,
     InputNode,
+    LeakyBeta0NodeV25,
     LIFNodeV25,
     OutputNode,
     PAIIRGraph,
@@ -466,6 +467,22 @@ def test_export_nir_adjusts_threshold_boundary_and_round_trips():
 def test_export_nir_rejects_soft_reset():
     with pytest.raises(UnsupportedNIRNodeError, match="hard reset"):
         export_to_nir(_manual_linear_if_paiir_graph(soft_reset=True), dt=1e-4)
+
+
+def test_export_nir_rejects_vector_neuron_parameters():
+    graph = _manual_linear_if_paiir_graph()
+    graph.nodes["if"].act.reset_v = torch.tensor([0.0, 0.0])
+
+    with pytest.raises(UnsupportedNIRNodeError, match="vector neuron parameters"):
+        export_to_nir(graph, dt=1e-4)
+
+
+def test_export_nir_rejects_beta_zero_lif_endpoint():
+    graph = _manual_linear_if_paiir_graph()
+    graph.nodes["if"].act = LeakyBeta0NodeV25()
+
+    with pytest.raises(UnsupportedNIRNodeError, match="cannot represent beta=0"):
+        export_to_nir(graph, dt=1e-4)
 
 
 def test_compile_from_nir_runs_standard_paiir_passes():

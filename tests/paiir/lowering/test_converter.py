@@ -12,7 +12,12 @@ from torch import Tensor, nn
 
 from paibox.paiir.exceptions import UnsupportedOpError, UnsupportedOpWarning
 from paibox.paiir.ir.calc_params import LUT_TABLE_SIZE
-from paibox.paiir.ir.core_neuron import ANNNodeV25, IFNodeV25, LIFNodeV25
+from paibox.paiir.ir.core_neuron import (
+    ANNNodeV25,
+    CoreNeuronV25,
+    IFNodeV25,
+    LIFNodeV25,
+)
 from paibox.paiir.ir.lut_activation import LutCustom, LutReLU
 from paibox.paiir.ir.op_node import (
     PadOp,
@@ -431,7 +436,7 @@ class TestRegisterNeuron:
         assert torch.equal(
             seq_nodes[0].act.thres_pos, torch.tensor([1.0, 2.0, 3.0, 4.0])
         )
-        assert isinstance(seq_nodes[0].neuron_params.thres_pos, torch.Tensor)
+        assert isinstance(seq_nodes[0].src_params()[0].thres_pos, torch.Tensor)
 
 
 class ExplicitQuantConv(nn.Module):
@@ -591,6 +596,21 @@ class TestRegisterCanonicalModule:
 
 
 class TestCoreNeuronV25Lowering:
+    def test_vector_neuron_shape_prop_preserves_dtype_for_following_compute(self):
+        graph = torch_to_paiir(
+            nn.Sequential(
+                nn.Linear(3, 4),
+                CoreNeuronV25(reset_v=torch.zeros(4)),
+                nn.Linear(4, 2),
+            ).eval(),
+            torch.zeros(1, 3),
+        )
+
+        act = _find_single_act(graph, CoreNeuronV25)
+        post = find_nodes(graph, StandaloneCompOp)[-1]
+        assert torch.equal(act.reset_v, torch.zeros(4))
+        assert post.output_layouts[0].shape == (1, 2)
+
     def test_ifnodev25_lowers_without_registration_and_does_not_alias_state(self):
         class Model(nn.Module):
             def __init__(self):

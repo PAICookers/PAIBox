@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 
 from ...ir.calc_params import LUT_TABLE_SIZE
+from ...ir.core_neuron import CoreNeuronV25
 from ...ir.lut_activation import LutCustom
 from ...nn import SumPool1d, SumPool2d
 
@@ -19,6 +20,7 @@ __all__ = [
     "get_pool_window_size",
     "is_avgpool",
     "is_value_avgpool",
+    "require_scalar_avgpool_neuron_params",
 ]
 
 
@@ -28,6 +30,20 @@ ValueCodeRange: TypeAlias = tuple[int, int]
 
 _INT32_MAX = torch.iinfo(torch.int32).max
 _INT32_MIN = torch.iinfo(torch.int32).min
+
+
+def require_scalar_avgpool_neuron_params(act: CoreNeuronV25) -> None:
+    """Reject vector fields not supported by AvgPool deployment rewrites."""
+    vector_fields = [
+        name
+        for name in ("reset_v", "thres_neg", "leak_tau", "init_v", "tau")
+        if torch.is_tensor(getattr(act, name))
+    ]
+    if vector_fields:
+        raise ValueError(
+            "AvgPool deployment does not support vector neuron parameter(s): "
+            + ", ".join(vector_fields)
+        )
 
 
 def build_integer_interval_lut(

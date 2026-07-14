@@ -17,7 +17,13 @@ from .calc_params import (
     OfflineCoreParams,
     OnlineCoreParams,
 )
-from .core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
+from .core_neuron import (
+    ANNNodeV25,
+    CoreNeuronV25,
+    IFNodeV25,
+    LIFNodeV25,
+    LeakyBeta0NodeV25,
+)
 from .graph import Edge, PAIIRGraph
 from .ir_base import FormatFlow, InputNode, OutputNode, PAIIRNode, TensorLayout
 from .signal_domain import SignalDomain, SignalSemantics
@@ -63,6 +69,7 @@ __all__ = [
     "IFNodeV25",
     "InputNode",
     "LIFNodeV25",
+    "LeakyBeta0NodeV25",
     "LUT_TABLE_SIZE",
     "LayoutStage",
     "LutActivation",

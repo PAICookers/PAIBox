@@ -37,6 +37,7 @@ from .utils import (
     get_avgpool_divisor,
     get_pool_window_size,
     is_avgpool,
+    require_scalar_avgpool_neuron_params,
 )
 
 __all__ = ["rewrite_delayed_avgpool_division"]
@@ -254,6 +255,7 @@ def _lut_thresholds_within_bounds(lut: LutActivation | None, factor: int) -> boo
 
 
 def _neuron_params_within_bounds(act: CoreNeuronV25, factor: int) -> bool:
+    require_scalar_avgpool_neuron_params(act)
     if isinstance(act.thres_pos, torch.Tensor):
         raise ValueError(
             "Delayed AvgPool division does not support per-channel thres_pos"

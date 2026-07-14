@@ -847,6 +847,16 @@ def _check_snn_act_export(name: str, owner: PAIIRNode, act: CoreNeuronV25) -> No
             value=type(act).__name__,
             reason="ANN/LUT neurons are not representable as NIR IF/LIF",
         )
+    for field in ("reset_v", "thres_neg", "leak_tau", "init_v", "tau"):
+        value = getattr(act, field)
+        if torch.is_tensor(value):
+            _unsupported_export(
+                name,
+                owner,
+                field=field,
+                value=value,
+                reason="vector neuron parameters are not supported by NIR export",
+            )
     if act.reset_mode != RM.MODE_NORMAL:
         _unsupported_export(
             name,
@@ -882,6 +892,14 @@ def _check_snn_act_export(name: str, owner: PAIIRNode, act: CoreNeuronV25) -> No
 
 
 def _check_lif_act_export(name: str, owner: PAIIRNode, act: CoreNeuronV25) -> None:
+    if float(act.tau) <= 1:
+        _unsupported_export(
+            name,
+            owner,
+            field="tau",
+            value=act.tau,
+            reason="NIR LIF requires tau / dt > 1 and cannot represent beta=0",
+        )
     if act.leak_add_mode != LeakAddMode.FORWARD:
         _unsupported_export(
             name,

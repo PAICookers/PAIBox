@@ -668,8 +668,8 @@ def validate_graph(graph: PAIIRGraph) -> None:
     assignment run. In particular, it may remove disconnected nodes produced by
     earlier bypass / fusion decisions.
 
-    Use :func:`validate_compiled_graph` for the final post-pass validation of a
-    fully compiled graph.
+    Use :func:`validate_compiled_graph` for post-pass validation of a compiled
+    semantic graph.
     """
     graph.lint(allow_disconnected=True)
 
@@ -728,9 +728,9 @@ def validate_graph(graph: PAIIRGraph) -> None:
 
 
 def validate_compiled_graph(graph: PAIIRGraph) -> None:
-    """Validate a fully compiled graph before returning it to callers.
+    """Validate a compiled semantic graph before deploy-ready materialization.
 
-    This is the *final* compile-stage validation step. Unlike
+    This is the final semantic compile-stage validation step. Unlike
     :func:`validate_graph`, it does not perform cleanup. Instead it verifies the
     invariants that should hold after all compile-time passes have run:
 
@@ -808,13 +808,6 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
             continue
 
         _validate_lut_mode_consistency(errors, name, node)
-        _validate_per_channel_export_param_contract(
-            errors, name, node, node.neuron_params.thres_pos, "thres_pos"
-        )
-        _validate_per_channel_export_param_contract(
-            errors, name, node, node.neuron_params.leak_v, "leak_v"
-        )
-        _validate_output_domain_consistency(errors, name, node)
         _validate_32bit_input_contract(errors, name, node)
 
         try:
@@ -829,63 +822,6 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
 
     if errors:
         raise GraphValidationError(errors)
-
-
-def _validate_output_domain_consistency(
-    errors: list[str], name: str, node: OfflineCoreOp
-) -> None:
-    if (domain := node.signal_semantics.output_domain) is None:
-        return
-
-    output_type = node.neuron_params.output_type
-    expected = (
-        OutputType.VALUE if domain is SignalDomain.VALUE else OutputType.POTENTIAL
-    )
-    if output_type != expected:
-        errors.append(
-            f"OfflineCoreOp '{name}' output_domain={domain.name} but "
-            f"neuron_params.output_type={output_type.name}"
-        )
-        return
-
-
-def _validate_per_channel_export_param_contract(
-    errors: list[str],
-    name: str,
-    node: OfflineCoreOp,
-    value: float | torch.Tensor,
-    param_name: str,
-) -> None:
-    if not torch.is_tensor(value):
-        return
-
-    output_shape = _single_output_shape(node)
-    if len(output_shape) < 2:
-        errors.append(
-            f"OfflineCoreOp '{name}' has per-channel {param_name} but "
-            f"output_shape={tuple(output_shape)} has no channel dimension"
-        )
-        return
-
-    if output_shape[0] != 1:
-        errors.append(
-            f"OfflineCoreOp '{name}' has per-channel {param_name} but "
-            f"batch size {output_shape[0]} is not supported"
-        )
-
-    if value.ndim != 1:
-        errors.append(
-            f"OfflineCoreOp '{name}' has per-channel {param_name} but "
-            f"shape={tuple(value.shape)} is not a 1D tensor"
-        )
-        return
-
-    channel_count = output_shape[1]
-    if value.numel() != channel_count:
-        errors.append(
-            f"OfflineCoreOp '{name}' {param_name} has {value.numel()} element(s) "
-            f"but output channel count is {channel_count}"
-        )
 
 
 def _validate_32bit_input_contract(
@@ -1379,7 +1315,7 @@ def propagate_signal_semantics(
 
 def _infer_output_signal_domain(node: OfflineCoreOp) -> SignalDomain:
     """Infer the coarse output domain for a generic offline core."""
-    if node.neuron_params.output_type == OutputType.POTENTIAL:
+    if node.src_params()[0].output_type == OutputType.POTENTIAL:
         return SignalDomain.POTENTIAL
     return SignalDomain.VALUE
 
@@ -1522,7 +1458,7 @@ def _infer_node_known_code_range(
 
 
 def validate_deployable_graph(graph: PAIIRGraph) -> None:
-    """Validate that a compiled graph contains only backend-ready IR nodes."""
+    """Validate backend-ready node types and materialized neuron parameters."""
     errors: list[str] = []
 
     for name, node in graph.nodes.items():
@@ -1543,6 +1479,12 @@ def validate_deployable_graph(graph: PAIIRGraph) -> None:
                 f"{type(node).__name__} '{name}' is not part of the backend-ready PAIIR subset"
             )
             continue
+
+        if isinstance(node, OfflineCoreOp):
+            try:
+                _ = node.neu_params
+            except RuntimeError as exc:
+                errors.append(str(exc))
 
         if isinstance(node, PotentialAddOp):
             pred_domains = [
@@ -1877,7 +1819,7 @@ def _infer_node_output_format(
             )
         return merge_data_formats(pred_formats)
 
-    output_type = node.neuron_params.output_type
+    output_type = node.src_params()[0].output_type
     if output_type == OutputType.POTENTIAL:
         return DataSign.SIGNED, DataWidth.WIDTH_32BIT
 

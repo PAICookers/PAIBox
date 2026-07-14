@@ -56,7 +56,13 @@ from torch.fx.passes.shape_prop import ShapeProp
 
 from ..exceptions import UnsupportedOpError, UnsupportedOpWarning
 from ..ir.add_ops import AddOperandKind, AddOperandSpec, GeneralAddOp
-from ..ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
+from ..ir.core_neuron import (
+    ANNNodeV25,
+    CoreNeuronV25,
+    IFNodeV25,
+    LeakyBeta0NodeV25,
+    LIFNodeV25,
+)
 from ..ir.graph import PAIIRGraph
 from ..ir.ir_base import InputNode, OutputNode
 from ..ir.lut_activation import (
@@ -389,6 +395,7 @@ _BUILTIN_PAIIR_NEURONS = (
     CoreNeuronV25,
     IFNodeV25,
     LIFNodeV25,
+    LeakyBeta0NodeV25,
     ANNNodeV25,
 )
 
@@ -466,18 +473,24 @@ def _get_full_module_map(frontend_map: ModuleMapper | None = None) -> ModuleMapp
     return full_map
 
 
+class _PAIIRShapeProp(ShapeProp):
+    """Propagate shapes without executing stateful PAIIR neurons."""
+
+    def call_module(self, target: str, args: tuple[Any, ...], kwargs: dict[str, Any]):
+        module = self.fetch_attr(target)
+        if isinstance(module, CoreNeuronV25):
+            return torch.empty_like(args[0])
+        return super().call_module(target, args, kwargs)
+
+
 def propagate_shapes(gm: fx.GraphModule, *inputs: Tensor) -> None:
     """Populate FX ``tensor_meta`` using the real traced module.
 
-    We intentionally keep this on plain ``ShapeProp`` rather than adding a
-    fake/meta execution path here. PAIIR lowering commonly includes native
-    neuron/LUT modules and custom registered neuron types whose forwards use
-    data-dependent state updates, while later compile passes still require
-    real weight values. A fake/meta branch would therefore need exclusions for
-    common project modules without covering enough of the compile cost to
-    justify the extra complexity and maintenance burden.
+    PAIIR neurons are shape-preserving and stateful, so they contribute an
+    input-shaped placeholder instead of executing ``forward``. Other modules
+    still use ordinary eager ``ShapeProp`` execution.
     """
-    ShapeProp(gm).propagate(*inputs)
+    _PAIIRShapeProp(gm).propagate(*inputs)
 
 
 def propagate_dims(gm: fx.GraphModule) -> None:
