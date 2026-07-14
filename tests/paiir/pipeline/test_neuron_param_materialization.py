@@ -124,6 +124,53 @@ def test_rejects_non_integer_leak_tau(value):
         materialize_neuron_params(_graph_with(node))
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param(
+            torch.tensor([False, True]),
+            torch.tensor([False, False, True, True]),
+            id="bool-per-channel",
+        ),
+        pytest.param(
+            torch.tensor([0, 1], dtype=torch.int32),
+            torch.tensor([0, 0, 1, 1], dtype=torch.int32),
+            id="integer-per-channel",
+        ),
+        pytest.param(torch.tensor(1), 1, id="zero-dimensional"),
+    ],
+)
+def test_materializes_leak_multi_mode(value, expected):
+    node = _ParamOp(NeuronParams(leak_multi_mode=value))
+    _set_output_shape(node, (1, 2, 2))
+
+    materialize_neuron_params(_graph_with(node))
+
+    actual = node.neu_params.leak_multi_mode
+    if torch.is_tensor(expected):
+        assert torch.equal(actual, expected)
+        assert actual.shape == (4,)
+    else:
+        assert actual == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "error", "match"),
+    [
+        pytest.param(
+            torch.tensor([0.0, 1.0]), TypeError, "integer or bool", id="float"
+        ),
+        pytest.param(torch.tensor([0, 2]), ValueError, "0 or 1", id="out-of-range"),
+    ],
+)
+def test_rejects_invalid_leak_multi_mode(value, error, match):
+    node = _ParamOp(NeuronParams(leak_multi_mode=value))
+    _set_output_shape(node, (1, 2))
+
+    with pytest.raises(error, match=match):
+        materialize_neuron_params(_graph_with(node))
+
+
 def test_rank_one_output_materializes_one_logical_neuron():
     node = _ParamOp(NeuronParams(thres_pos=torch.tensor([7])))
     _set_output_shape(node, (1,))

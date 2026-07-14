@@ -403,6 +403,40 @@ def test_mapper_compiles_flat_vector_neuron_parameters(tmp_path, ann):
     assert [p.neu_attrs_part2.leak_v for p in placements] == [8, 9, 10, 11]
 
 
+def test_mapper_vector_mode_controls_part2_and_half_reuse(tmp_path):
+    linear = nn.Linear(3, 4, bias=False)
+    with torch.no_grad():
+        linear.weight.fill_(1)
+    act = CoreNeuronV25(
+        leak_multi_mode=torch.tensor([0, 0, 1, 1]),
+        leak_tau_shift=torch.tensor([0, 0, 0, 0]),
+    )
+    graph = compile_to_paiir(
+        nn.Sequential(linear, act).eval(),
+        torch.zeros(1, 3),
+        input_formats={"InputNode_0": (DataSign.SIGNED, DataWidth.WIDTH_8BIT)},
+        strict=True,
+    )
+    mapper = Mapper()
+    mapper.compile(graph, tmp_path, target_platform="x86", debug=False)
+
+    placements = sorted(
+        _shared_sparse_linear_neuron_placements(mapper),
+        key=lambda placement: placement.raw_neus[0].index.idx,
+    )
+
+    assert [placement.neuron_type for placement in placements] == [
+        NeuronType.FULL,
+        NeuronType.HALF,
+        NeuronType.FULL,
+        NeuronType.HALF,
+    ]
+    assert placements[0].neu_attrs_part2.leak_multi_mode == LeakMultiMode.DISABLE
+    assert placements[1].neu_attrs_part2 is None
+    assert placements[2].neu_attrs_part2.leak_multi_mode == LeakMultiMode.ENABLE
+    assert placements[3].neu_attrs_part2 is None
+
+
 def test_mapper_builds_output_completion_plan_without_full_compile(monkeypatch):
     mapper = Mapper()
     producer_coords = [CoordXY(4, 2), CoordXY(2, 4)]
@@ -705,6 +739,51 @@ def test_mapper_does_not_fold_neurons_with_different_part2_attrs(tmp_path):
         121,
         122,
         123,
+    ]
+
+
+def test_mapper_does_not_fold_neurons_with_different_leak_modes(tmp_path):
+    model = nn.Sequential(
+        nn.Linear(4, 4, bias=False),
+        CoreNeuronV25(
+            leak_multi_mode=torch.tensor([0, 1, 0, 1]),
+            leak_tau_shift=torch.full((4,), -1),
+        ),
+        nn.Linear(4, 2, bias=False),
+    )
+    with torch.no_grad():
+        model[0].weight.copy_(torch.tensor([1, -1, 1, -1]).repeat(4, 1))
+        model[2].weight.copy_(torch.tensor([[1, 1, -1, -1], [-1, 1, -1, 1]]))
+
+    graph = compile_to_paiir(
+        model.eval(),
+        torch.zeros(1, 4),
+        input_formats={"InputNode_0": (DataSign.SIGNED, DataWidth.WIDTH_8BIT)},
+        timesteps=1,
+        auto_reset=True,
+        strict=True,
+    )
+    mapper = Mapper()
+    mapper.compile(graph, tmp_path, target_platform="x86", debug=False)
+
+    placements = _shared_sparse_linear_neuron_placements(mapper)
+    first_layer = sorted(
+        (
+            placement
+            for placement in placements
+            if len(placement.raw_neus) == 1
+            and placement.raw_neus[0].target.name == "SequentialOp_0"
+        ),
+        key=lambda placement: placement.raw_neus[0].index.idx,
+    )
+
+    assert len(first_layer) == 4
+    assert all(placement.folded_neu_attrs_part1 is None for placement in first_layer)
+    assert [placement.neu_attrs_part2.leak_multi_mode for placement in first_layer] == [
+        LeakMultiMode.DISABLE,
+        LeakMultiMode.ENABLE,
+        LeakMultiMode.DISABLE,
+        LeakMultiMode.ENABLE,
     ]
 
 

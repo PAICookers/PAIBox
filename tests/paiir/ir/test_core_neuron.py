@@ -38,6 +38,7 @@ class TestIFNodeV25:
             "reset_v",
             "thres_neg",
             "thres_pos",
+            "leak_multi_mode",
             "leak_tau",
             "leak_v",
             "init_v",
@@ -230,12 +231,108 @@ class TestVectorNeuronParameters:
 
         assert node.has_lif_dynamics
 
-    def test_disabled_leak_rejects_mixed_if_lif_shifts(self):
-        with pytest.raises(ValueError, match="mixes IF .* and LIF"):
+    @pytest.mark.parametrize(
+        ("mode", "expected"),
+        [
+            (LeakMultiMode.ENABLE, LeakMultiMode.ENABLE),
+            (False, LeakMultiMode.DISABLE),
+            (torch.tensor(1), LeakMultiMode.ENABLE),
+            (torch.tensor(False), LeakMultiMode.DISABLE),
+        ],
+    )
+    def test_leak_mode_normalizes_scalar_values(self, mode, expected):
+        node = CoreNeuronV25(leak_multi_mode=mode)
+
+        assert node.leak_multi_mode == expected
+
+    def test_vector_leak_mode_is_detached_and_cloned(self):
+        mode = torch.tensor([0, 1], dtype=torch.int16)
+        node = CoreNeuronV25(leak_multi_mode=mode)
+
+        assert torch.equal(node.leak_multi_mode, mode)
+        assert node.leak_multi_mode is not mode
+        mode[0] = 1
+        assert torch.equal(node.leak_multi_mode, torch.tensor([0, 1], dtype=mode.dtype))
+
+    @pytest.mark.parametrize(
+        ("mode", "error", "message"),
+        [
+            (0, TypeError, "LeakMultiMode, bool"),
+            (torch.tensor([]), ValueError, "must not be empty"),
+            (torch.tensor([0.0, 1.0]), TypeError, "integer or bool dtype"),
+            (torch.tensor([0, 2]), ValueError, "values must be 0 or 1"),
+        ],
+    )
+    def test_leak_mode_rejects_invalid_values(self, mode, error, message):
+        with pytest.raises(error, match=message):
+            CoreNeuronV25(leak_multi_mode=mode)
+
+    def test_vector_mode_and_shift_require_the_same_shape(self):
+        with pytest.raises(ValueError, match="must have the same shape"):
             CoreNeuronV25(
-                leak_multi_mode=LeakMultiMode.DISABLE,
-                leak_tau_shift=torch.tensor([0, -1]),
+                leak_multi_mode=torch.tensor([0, 1]),
+                leak_tau_shift=torch.tensor([[0, -1]]),
             )
+
+    @pytest.mark.parametrize(
+        ("mode", "shift"),
+        [
+            (LeakMultiMode.DISABLE, torch.tensor([0, -1])),
+            (torch.tensor([0, 1]), 0),
+        ],
+    )
+    def test_scalar_mode_or_shift_allows_broadcasting(self, mode, shift):
+        CoreNeuronV25(leak_multi_mode=mode, leak_tau_shift=shift)
+
+    @pytest.mark.parametrize(
+        ("mode", "shift", "dynamics"),
+        [
+            (
+                torch.tensor([0, 0]),
+                torch.tensor([0, 0]),
+                (True, False, False),
+            ),
+            (
+                torch.tensor([1, 0]),
+                torch.tensor([0, -1]),
+                (False, True, False),
+            ),
+            (
+                torch.tensor([0, 0]),
+                torch.tensor([0, -1]),
+                (False, False, True),
+            ),
+            (
+                torch.tensor([1, 0]),
+                torch.tensor([0, 0]),
+                (False, False, True),
+            ),
+        ],
+        ids=("if", "lif", "mixed-shift", "mixed-mode"),
+    )
+    def test_vector_mode_and_shift_define_mutually_exclusive_dynamics(
+        self, mode, shift, dynamics
+    ):
+        node = CoreNeuronV25(
+            leak_multi_mode=mode,
+            leak_tau_shift=shift,
+        )
+
+        assert (
+            node.has_if_dynamics,
+            node.has_lif_dynamics,
+            node.has_mixed_dynamics,
+        ) == dynamics
+
+    def test_vector_leak_mode_is_compile_only(self):
+        node = CoreNeuronV25(leak_multi_mode=torch.tensor([0, 1]))
+
+        with pytest.raises(NotImplementedError, match="leak_multi_mode"):
+            node(torch.tensor([[1, 1]]))
+
+    @pytest.mark.parametrize("node", [IFNodeV25(), LIFNodeV25(), LeakyBeta0NodeV25()])
+    def test_convenience_nodes_keep_scalar_leak_mode(self, node):
+        assert isinstance(node.leak_multi_mode, LeakMultiMode)
 
     @pytest.mark.parametrize(
         "field",

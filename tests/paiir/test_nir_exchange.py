@@ -5,6 +5,7 @@ from torch import nn
 
 from paibox.paiir.exceptions import UnsupportedNIRNodeError
 from paibox.paiir.ir import (
+    CoreNeuronV25,
     IFNodeV25,
     InputNode,
     LeakyBeta0NodeV25,
@@ -469,11 +470,29 @@ def test_export_nir_rejects_soft_reset():
         export_to_nir(_manual_linear_if_paiir_graph(soft_reset=True), dt=1e-4)
 
 
-def test_export_nir_rejects_vector_neuron_parameters():
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        pytest.param("reset_v", torch.tensor([0.0, 0.0]), id="reset-v"),
+        pytest.param("leak_multi_mode", torch.tensor([1, 1]), id="leak-mode"),
+    ],
+)
+def test_export_nir_rejects_vector_neuron_parameters(field, value):
     graph = _manual_linear_if_paiir_graph()
-    graph.nodes["if"].act.reset_v = torch.tensor([0.0, 0.0])
+    setattr(graph.nodes["if"].act, field, value)
 
     with pytest.raises(UnsupportedNIRNodeError, match="vector neuron parameters"):
+        export_to_nir(graph, dt=1e-4)
+
+
+def test_export_nir_rejects_mixed_neuron_dynamics():
+    graph = _manual_linear_if_paiir_graph()
+    graph.nodes["if"].act = CoreNeuronV25(
+        leak_multi_mode=torch.tensor([0, 1]),
+        leak_tau_shift=torch.tensor([0, -1]),
+    )
+
+    with pytest.raises(UnsupportedNIRNodeError, match="mixed IF/LIF"):
         export_to_nir(graph, dt=1e-4)
 
 
