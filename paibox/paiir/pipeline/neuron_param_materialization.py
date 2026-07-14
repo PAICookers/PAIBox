@@ -4,7 +4,7 @@ from dataclasses import replace
 from math import prod
 
 import torch
-from paicorelib import LeakAddMode
+from paicorelib import LeakAddMode, LeakMultiMode
 from torch import Tensor
 
 from ..ir.calc_params import NeuronParams
@@ -63,6 +63,7 @@ def _materialize_params(
         )
         for field in params.__vectorized_attrs__
     }
+    _validate_leak_multi_mode(node_name, values["leak_multi_mode"])
     _validate_leak_tau(node_name, values["leak_tau"])
     _validate_threshold_bounds(node_name, values["thres_pos"], values["thres_neg"])
 
@@ -76,6 +77,43 @@ def _materialize_params(
         values["leak_v"] = values["leak_v"] + bias_flat
 
     return replace(params, **values)
+
+
+def _validate_leak_multi_mode(
+    node_name: str,
+    leak_multi_mode: LeakMultiMode | bool | int | Tensor,
+) -> None:
+    if torch.is_tensor(leak_multi_mode):
+        if leak_multi_mode.dtype not in {
+            torch.bool,
+            torch.uint8,
+            torch.int8,
+            torch.int16,
+            torch.int32,
+            torch.int64,
+        }:
+            raise TypeError(
+                f"OfflineCoreOp '{node_name}' leak_multi_mode must have integer "
+                "or bool dtype"
+            )
+        invalid = torch.any((leak_multi_mode != 0) & (leak_multi_mode != 1))
+        if invalid.item():
+            raise ValueError(
+                f"OfflineCoreOp '{node_name}' leak_multi_mode values must be 0 or 1"
+            )
+        return
+
+    if isinstance(leak_multi_mode, bool):
+        return
+    if not isinstance(leak_multi_mode, (LeakMultiMode, int)):
+        raise TypeError(
+            f"OfflineCoreOp '{node_name}' leak_multi_mode must be a LeakMultiMode, "
+            "bool, or integer/bool Tensor"
+        )
+    if int(leak_multi_mode) not in (0, 1):
+        raise ValueError(
+            f"OfflineCoreOp '{node_name}' leak_multi_mode values must be 0 or 1"
+        )
 
 
 def _validate_leak_tau(node_name: str, leak_tau: int | float | Tensor) -> None:

@@ -34,9 +34,21 @@ _INT32_MIN = torch.iinfo(torch.int32).min
 
 def require_scalar_avgpool_neuron_params(act: CoreNeuronV25) -> None:
     """Reject vector fields not supported by AvgPool deployment rewrites."""
+    if act.has_mixed_dynamics:
+        raise ValueError(
+            "AvgPool deployment does not support mixed IF/LIF neuron dynamics"
+        )
+
     vector_fields = [
         name
-        for name in ("reset_v", "thres_neg", "leak_tau", "init_v", "tau")
+        for name in (
+            "reset_v",
+            "thres_neg",
+            "leak_multi_mode",
+            "leak_tau",
+            "init_v",
+            "tau",
+        )
         if torch.is_tensor(getattr(act, name))
     ]
     if vector_fields:

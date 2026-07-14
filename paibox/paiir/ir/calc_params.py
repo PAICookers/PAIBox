@@ -217,6 +217,7 @@ class NeuronParams:
         "reset_v",
         "thres_neg",
         "thres_pos",
+        "leak_multi_mode",
         "leak_tau",
         "leak_v",
         "init_v",
@@ -233,7 +234,7 @@ class NeuronParams:
         LeakMultiComparisonOrder.AFTER_COMPARE
     )
     leak_multi_input: LeakMultiInputMode = LeakMultiInputMode.DISABLE
-    leak_multi_mode: LeakMultiMode = LeakMultiMode.DISABLE
+    leak_multi_mode: LeakMultiMode | Tensor = LeakMultiMode.DISABLE
     leak_add_mode: LeakAddMode = LeakAddMode.FORWARD
     leak_tau: int | Tensor = 0
     leak_v: float | Tensor = 0.0

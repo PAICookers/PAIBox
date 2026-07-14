@@ -847,7 +847,22 @@ def _check_snn_act_export(name: str, owner: PAIIRNode, act: CoreNeuronV25) -> No
             value=type(act).__name__,
             reason="ANN/LUT neurons are not representable as NIR IF/LIF",
         )
-    for field in ("reset_v", "thres_neg", "leak_tau", "init_v", "tau"):
+    if act.has_mixed_dynamics:
+        _unsupported_export(
+            name,
+            owner,
+            field="act",
+            value=type(act).__name__,
+            reason="mixed IF/LIF neuron dynamics are not representable in NIR",
+        )
+    for field in (
+        "reset_v",
+        "thres_neg",
+        "leak_multi_mode",
+        "leak_tau",
+        "init_v",
+        "tau",
+    ):
         value = getattr(act, field)
         if torch.is_tensor(value):
             _unsupported_export(

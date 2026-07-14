@@ -109,7 +109,7 @@ class CoreNeuronV25(MemoryModule):
         lateral_inhi: LateralInhibitionMode | bool = LateralInhibitionMode.DISABLE,
         leak_multi_sequence: LeakMultiComparisonOrder = LeakMultiComparisonOrder.AFTER_COMPARE,
         leak_multi_input: LeakMultiInputMode | bool = LeakMultiInputMode.DISABLE,
-        leak_multi_mode: LeakMultiMode | bool = LeakMultiMode.DISABLE,
+        leak_multi_mode: LeakMultiMode | bool | Tensor = LeakMultiMode.DISABLE,
         leak_add_mode: LeakAddMode = LeakAddMode.FORWARD,
         tau: float | Tensor = 1,
         leak_v: float | Tensor = 0,
@@ -175,7 +175,7 @@ class CoreNeuronV25(MemoryModule):
         self.lateral_inhi = LateralInhibitionMode(lateral_inhi)
         self.leak_multi_sequence = leak_multi_sequence
         self.leak_multi_input = LeakMultiInputMode(leak_multi_input)
-        self.leak_multi_mode = LeakMultiMode(leak_multi_mode)
+        self.leak_multi_mode = _normalize_leak_multi_mode(leak_multi_mode)
         self.leak_add_mode = leak_add_mode
 
         # tau -> leak_tau (right-shift exponent)
@@ -191,7 +191,7 @@ class CoreNeuronV25(MemoryModule):
         self.init_v = _normalize_numeric_param(init_v, name="init_v")
 
         self._validate_threshold_bounds()
-        self._validate_dynamics_homogeneity()
+        self._validate_vector_dynamics_shapes()
 
         self.surrogate_function = surrogate_function
         self.detach_reset = detach_reset
@@ -250,16 +250,35 @@ class CoreNeuronV25(MemoryModule):
     @property
     def has_if_dynamics(self) -> bool:
         """Return True for spike neurons without leak dynamics."""
-        if not self.is_snn or self.leak_multi_mode != LeakMultiMode.DISABLE:
-            return False
-        if torch.is_tensor(self.leak_tau):
-            return bool(torch.all(self.leak_tau == 0).item())
-        return self.leak_tau == 0
+        return self._classify_dynamics()[0]
 
     @property
     def has_lif_dynamics(self) -> bool:
         """Return True for spike neurons with leak dynamics."""
-        return self.is_snn and not self.has_if_dynamics
+        return self._classify_dynamics()[1]
+
+    @property
+    def has_mixed_dynamics(self) -> bool:
+        """Return True when one neuron contains both IF and LIF dynamics."""
+        return self._classify_dynamics()[2]
+
+    def _classify_dynamics(self) -> tuple[bool, bool, bool]:
+        if not self.is_snn:
+            return False, False, False
+
+        mode_is_disabled = self.leak_multi_mode == LeakMultiMode.DISABLE
+        shift_is_zero = self.leak_tau == 0
+        if torch.is_tensor(mode_is_disabled) and torch.is_tensor(shift_is_zero):
+            shift_is_zero = shift_is_zero.to(mode_is_disabled.device)
+        if_mask = mode_is_disabled & shift_is_zero
+
+        if torch.is_tensor(if_mask):
+            any_if = bool(torch.any(if_mask).item())
+            all_if = bool(torch.all(if_mask).item())
+        else:
+            any_if = all_if = bool(if_mask)
+
+        return all_if, not any_if, any_if and not all_if
 
     @property
     def output_sign(self) -> bool:
@@ -468,23 +487,28 @@ class CoreNeuronV25(MemoryModule):
             return self.v
         return self.v - self._apply_tau_shift(self.v)
 
-    def _validate_dynamics_homogeneity(self) -> None:
-        if not self.is_snn or not torch.is_tensor(self.leak_tau):
-            return
-        if self.leak_multi_mode == LeakMultiMode.ENABLE:
-            return
-
-        zero_shift = self.leak_tau == 0
-        if torch.any(zero_shift).item() and not torch.all(zero_shift).item():
+    def _validate_vector_dynamics_shapes(self) -> None:
+        if (
+            torch.is_tensor(self.leak_multi_mode)
+            and torch.is_tensor(self.leak_tau)
+            and self.leak_multi_mode.shape != self.leak_tau.shape
+        ):
             raise ValueError(
-                "leak_tau mixes IF (zero shift) and LIF (non-zero shift) dynamics "
-                "while leak_multi_mode is DISABLE"
+                "leak_multi_mode and leak_tau_shift tensors must have the same shape, "
+                f"got {tuple(self.leak_multi_mode.shape)} and "
+                f"{tuple(self.leak_tau.shape)}"
             )
 
     def _validate_simulation_params(self) -> None:
         unsupported = [
             name
-            for name in ("reset_v", "thres_neg", "leak_tau", "init_v")
+            for name in (
+                "reset_v",
+                "thres_neg",
+                "leak_multi_mode",
+                "leak_tau",
+                "init_v",
+            )
             if torch.is_tensor(getattr(self, name))
         ]
         if unsupported:
@@ -604,6 +628,35 @@ def _normalize_leak_tau_shift(value: int | Tensor) -> int | Tensor:
     ):
         raise TypeError("leak_tau_shift Tensor must have an integer dtype")
     return _normalize_numeric_param(value, name="leak_tau_shift")  # type: ignore
+
+
+def _normalize_leak_multi_mode(
+    value: LeakMultiMode | bool | Tensor,
+) -> LeakMultiMode | Tensor:
+    if isinstance(value, LeakMultiMode):
+        return value
+    if isinstance(value, bool):
+        return LeakMultiMode(value)
+    if not torch.is_tensor(value):
+        raise TypeError(
+            "leak_multi_mode must be a LeakMultiMode, bool, or integer/bool Tensor"
+        )
+    if value.numel() == 0:
+        raise ValueError("leak_multi_mode must not be empty")
+    if value.dtype not in (
+        torch.bool,
+        torch.uint8,
+        torch.int8,
+        torch.int16,
+        torch.int32,
+        torch.int64,
+    ):
+        raise TypeError("leak_multi_mode Tensor must have an integer or bool dtype")
+    if torch.any((value != 0) & (value != 1)).item():
+        raise ValueError("leak_multi_mode Tensor values must be 0 or 1")
+    if value.ndim == 0:
+        return LeakMultiMode(value.item())
+    return value.detach().clone()
 
 
 def _resolve_reset(v_reset: float | Tensor | None) -> tuple[float | Tensor, RM]:
