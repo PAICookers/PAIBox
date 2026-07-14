@@ -1,10 +1,13 @@
 import pytest
 import torch
 from paicorelib import DataWidth, LeakMultiInputMode, LeakMultiMode
+from torch import nn
 
 import paibox.paiir.pipeline.avgpool.deploy_scheme as deploy_scheme_mod
 from paibox.paiir.ir.calc_params import LUT_TABLE_SIZE, LutData, NeuronParams
-from paibox.paiir.ir.core_neuron import LIFNodeV25
+from paibox.paiir.ir.core_neuron import ANNNodeV25, LIFNodeV25
+from paibox.paiir.ir.lut_activation import LutReLU
+from paibox.paiir.pipeline import compile_to_paiir
 from paibox.paiir.pipeline.avgpool import (
     AvgPoolDeployScheme,
     AvgPoolLIFCandidateScore,
@@ -27,6 +30,19 @@ def make_lif_node(**overrides) -> LIFNodeV25:
     params = {"tau": 4, "decay_input": True, "v_threshold": 1, "v_reset": 0}
     params.update(overrides)
     return LIFNodeV25(**params)
+
+
+@pytest.mark.parametrize("ann", [False, True], ids=["snn", "ann"])
+def test_avgpool_rejects_vector_neuron_parameters(ann: bool) -> None:
+    act = (
+        ANNNodeV25(lut=LutReLU(), reset_v=torch.tensor([0.0, 1.0]))
+        if ann
+        else LIFNodeV25(tau=torch.tensor([2.0, 4.0]))
+    )
+    model = nn.Sequential(nn.AvgPool2d(2), act)
+
+    with pytest.raises(ValueError, match="AvgPool deployment.*vector"):
+        compile_to_paiir(model, torch.zeros(1, 2, 4, 4))
 
 
 class TestAvgPoolLeakParams:

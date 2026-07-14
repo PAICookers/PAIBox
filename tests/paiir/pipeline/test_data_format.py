@@ -443,8 +443,9 @@ class TestPropagateDataFormatANN:
         assert pool.core_params.input_width == DataWidth.WIDTH_2BIT
         assert pool.core_params.snn_mode == SNNMode.SNN
         assert pool.hw_lut_data is None
-        assert pool.neuron_params.thres_neg_mode == ThresholdNegMode.FIRE
-        assert pool.neuron_params.thres_neg == -1.0
+        params, _ = pool.src_params()
+        assert params.thres_neg_mode == ThresholdNegMode.FIRE
+        assert params.thres_neg == -1.0
 
     def test_subtract_tanh(self):
         """Two linear branches with subtraction -> tanh: SIGNED 8BIT."""
@@ -577,9 +578,8 @@ class TestPropagateDataFormatANN:
 
     def test_value_output_without_activation_raises(self):
         class ValueWithoutActOp(OfflineCoreOp):
-            @property
-            def neuron_params(self) -> NeuronParams:
-                return NeuronParams(output_type=OutputType.VALUE)
+            def _src_params(self) -> tuple[NeuronParams, None]:
+                return NeuronParams(output_type=OutputType.VALUE), None
 
         graph = PAIIRGraph("value_without_activation")
         inp = InputNode(shape=torch.Size((1, 1, 4, 4)))
@@ -734,12 +734,12 @@ class TestPropagateEdgeConsistency:
             src = fused.nodes[edge.src]
             dst = fused.nodes[edge.dst]
             if isinstance(src, OfflineCoreOp) and isinstance(dst, OfflineCoreOp):
-                assert (
-                    src.core_params.output_sign == dst.core_params.input_sign
-                ), f"Sign mismatch at edge {edge.src} -> {edge.dst}"
-                assert (
-                    src.core_params.output_width == dst.core_params.input_width
-                ), f"Width mismatch at edge {edge.src} -> {edge.dst}"
+                assert src.core_params.output_sign == dst.core_params.input_sign, (
+                    f"Sign mismatch at edge {edge.src} -> {edge.dst}"
+                )
+                assert src.core_params.output_width == dst.core_params.input_width, (
+                    f"Width mismatch at edge {edge.src} -> {edge.dst}"
+                )
 
     def test_two_layer_ann(self):
         """Conv-ReLU -> Conv-Sigmoid: edge format consistency."""

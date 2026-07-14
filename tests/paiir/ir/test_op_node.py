@@ -184,7 +184,7 @@ class TestAccumulateOp:
 
         assert torch.equal(op(x1, x2), torch.tensor([[1.0, 0.0]]))
         assert op.hw_lut_data is None
-        assert op.neuron_params.output_type is OutputType.POTENTIAL
+        assert op.src_params()[0].output_type is OutputType.POTENTIAL
 
     def test_sign_length_mismatch(self):
         with pytest.raises(ValueError, match="op_signs"):
@@ -195,8 +195,9 @@ class TestAccumulateOp:
         conv1 = nn.Conv2d(3, 8, 3, padding=1, bias=True)
         conv2 = nn.Conv2d(3, 8, 3, padding=1, bias=True)
         op = AccumulateOp(comps=[conv1, conv2], act=IFNodeV25(1), op_signs=(1, 1))
-        params = op.neuron_params
-        assert params.leak_v is not None
+        params, bias = op.src_params()
+        assert params.leak_v == 0
+        assert bias is not None
 
 
 class TestWeights:
@@ -254,10 +255,10 @@ class TestWeights:
         op = StandaloneCompOp(comp=nn.MaxPool2d(2))
 
         op.signal_semantics.output_domain = SignalDomain.VALUE
-        assert op.neuron_params.output_type == OutputType.VALUE
+        assert op.src_params()[0].output_type == OutputType.VALUE
 
         op.signal_semantics.output_domain = SignalDomain.POTENTIAL
-        assert op.neuron_params.output_type == OutputType.POTENTIAL
+        assert op.src_params()[0].output_type == OutputType.POTENTIAL
 
     def test_add_op_returns_none(self):
         op = PotentialAddOp(op_signs=(1, -1))
@@ -319,11 +320,11 @@ class TestWeights:
 
 
 class TestNeuronParams:
-    """Test neuron_params property on OpNode subclasses."""
+    """Test source neuron parameters on OpNode subclasses."""
 
     def test_sequential_snn_neuron_params(self):
         op = SequentialOp(comp=nn.Conv2d(3, 8, 3, padding=1), act=IFNodeV25(1, 0))
-        params = op.neuron_params
+        params, _ = op.src_params()
         assert isinstance(params, NeuronParams)
         assert params.thres_pos == 1
         assert params.reset_mode == RM.MODE_NORMAL
@@ -332,7 +333,7 @@ class TestNeuronParams:
 
     def test_sequential_lut_neuron_params(self):
         op = SequentialOp(comp=nn.Linear(16, 10), act=ANNNodeV25(lut=LutReLU()))
-        params = op.neuron_params
+        params, _ = op.src_params()
         assert isinstance(params, NeuronParams)
         assert params.output_type == OutputType.VALUE
 
@@ -342,23 +343,23 @@ class TestNeuronParams:
             act=LIFNodeV25(tau=2, v_threshold=2),
             op_signs=(1, 1),
         )
-        params = op.neuron_params
+        params, _ = op.src_params()
         assert params.thres_pos == 2
         assert params.leak_tau == -1
 
     def test_add_op_pass_through(self):
         op = PotentialAddOp(op_signs=(1, -1))
-        params = op.neuron_params
+        params, _ = op.src_params()
         assert params.output_type == OutputType.POTENTIAL
 
     def test_standalone_comp_pass_through(self):
         op = StandaloneCompOp(comp=nn.Conv2d(3, 8, 3))
-        params = op.neuron_params
+        params, _ = op.src_params()
         assert params.output_type == OutputType.POTENTIAL
 
     def test_standalone_activation_neuron_params(self):
         op = StandaloneActOp(act=IFNodeV25(1))
-        params = op.neuron_params
+        params, _ = op.src_params()
         assert params.thres_pos == 1
         assert params.output_type == OutputType.VALUE
 
@@ -367,7 +368,7 @@ class TestNeuronParams:
         op.signal_semantics.output_domain = SignalDomain.VALUE
         op.core_params.set_input_format((DataSign.UNSIGNED, DataWidth.WIDTH_1BIT))
 
-        params = op.neuron_params
+        params, _ = op.src_params()
         assert params.output_type == OutputType.VALUE
         assert params.reset_mode == RM.MODE_NORMAL
         assert params.reset_v == 0
@@ -406,7 +407,7 @@ class TestNeuronParams:
         op.core_params.set_input_format((DataSign.UNSIGNED, DataWidth.WIDTH_4BIT))
         op.core_params.set_output_format((DataSign.UNSIGNED, DataWidth.WIDTH_4BIT))
 
-        params = op.neuron_params
+        params, _ = op.src_params()
         data = op.hw_lut_data
 
         assert params.output_type == OutputType.VALUE
@@ -486,7 +487,7 @@ class TestAvgPoolCompensation:
         op = SequentialOp(comp=nn.AvgPool2d(3), act=LIFNodeV25(tau=2, v_threshold=1.0))
         # Apply compensation (window_size=9 for 3x3 pool)
         apply_avgpool_snn_compensation(op.act, window_size=9, decay_input=True)
-        params = op.neuron_params
+        params, _ = op.src_params()
         # LIFNodeV25 default decay_input=True -> leak_multi_input=ENABLE
         # k=3, window_size=9, factor=9 (decay_input=True)
         # theta' = 0 + (1.0 - 0) * 9 = 9.0
@@ -506,7 +507,7 @@ class TestAvgPoolCompensation:
         op.act.leak_multi_mode = LeakMultiMode.DISABLE
         op.act.leak_multi_sequence = LeakMultiComparisonOrder.AFTER_COMPARE
 
-        params = op.neuron_params
+        params, _ = op.src_params()
         # For ANN mode with power-of-2 window_size, leak_tau = -log2(window_size) = -2
         assert params.leak_tau == -2
         assert params.leak_multi_input == LeakMultiInputMode.ENABLE

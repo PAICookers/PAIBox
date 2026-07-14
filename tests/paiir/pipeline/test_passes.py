@@ -43,6 +43,7 @@ from paibox.paiir.ir.op_node import (
 from paibox.paiir.ir.signal_domain import SignalDomain
 from paibox.paiir.lowering.converter import torch_to_paiir
 from paibox.paiir.pipeline.compile import compile_to_paiir
+from paibox.paiir.pipeline.neuron_param_materialization import materialize_neuron_params
 from paibox.paiir.pipeline.passes import (
     GraphCleanupWarning,
     GraphValidationError,
@@ -1321,6 +1322,15 @@ class TestValidateCompiledGraph:
         graph, _ = self._build_compiled_graph()
         validate_compiled_graph(graph)
 
+    def test_deployable_graph_requires_materialized_neuron_params(self):
+        graph, _ = self._build_compiled_graph()
+
+        with pytest.raises(GraphValidationError, match="not materialized"):
+            validate_deployable_graph(graph)
+
+        materialize_neuron_params(graph)
+        validate_deployable_graph(graph)
+
     def test_missing_data_format_assignment_raises(self):
         graph, op = self._build_compiled_graph()
         op.core_params._input_format_assigned = False
@@ -1737,7 +1747,7 @@ class TestSignalSemantics:
         out = fused.output_nodes()[0]
         assert pool.signal_semantics.output_domain == SignalDomain.VALUE
         assert pool.signal_semantics.known_code_range == (0, 254)
-        assert pool.neuron_params.output_type == OutputType.VALUE
+        assert pool.src_params()[0].output_type == OutputType.VALUE
         assert out.signal_semantics.output_domain == SignalDomain.VALUE
         assert out.signal_semantics.known_code_range == (0, 254)
 

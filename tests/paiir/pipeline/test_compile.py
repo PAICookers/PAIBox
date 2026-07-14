@@ -1117,9 +1117,7 @@ class TestFunctionalConv:
         _, comp = _find_single_conv_comp(graph, nn.Conv2d)
         expected_weight = model.weight_int8_buf.to(
             comp.weight.dtype
-        ) * model.weight_scale_buf.view(
-            -1, 1, 1, 1
-        )  # type: ignore
+        ) * model.weight_scale_buf.view(-1, 1, 1, 1)  # type: ignore
         assert comp.weight.detach().equal(expected_weight)
         assert comp.bias is not None
         assert comp.bias.detach().equal(
@@ -1342,7 +1340,7 @@ class TestAvgPool1dCompilation:
 
         # Split-core uses SumPool, no leak parameters needed
         assert isinstance(sumpool_core.comp, SumPool1d)
-        assert sumpool_core.neuron_params.leak_tau == 0
+        assert sumpool_core.neu_params.leak_tau == 0
 
     @pytest.mark.parametrize("kernel_size", AVGPOOL1D_KERNEL_SIZES)
     def test_avgpool1d_data_format(self, kernel_size):
@@ -1678,7 +1676,7 @@ class TestAvgPoolCalibration:
         for node in seq_nodes:
             if hasattr(node, "comp") and isinstance(node.comp, nn.AvgPool1d):
                 # For power-of-2 tau, calibration should keep baseline: 1 * 4 = 4
-                assert node.neuron_params.thres_pos == 4
+                assert node.neu_params.thres_pos == 4
                 return
 
         pytest.fail("No AvgPool+LIF SequentialOp node found")
@@ -1728,7 +1726,7 @@ class TestAvgPoolCalibration:
         )
         assert avgpool_node.avgpool_deploy_metadata is not None
         assert avgpool_node.avgpool_deploy_metadata.uses_calibration is False
-        assert avgpool_node.neuron_params.thres_pos == 2
+        assert avgpool_node.neu_params.thres_pos == 2
 
     def test_shared_core_node_marked_calibrated_writes_back_searched_threshold(
         self, monkeypatch
@@ -1775,7 +1773,7 @@ class TestAvgPoolCalibration:
         )
         assert avgpool_node.avgpool_deploy_metadata is not None
         assert avgpool_node.avgpool_deploy_metadata.uses_calibration is True
-        assert avgpool_node.neuron_params.thres_pos == 1
+        assert avgpool_node.neu_params.thres_pos == 1
 
     def test_calibration_search_range(self):
         """Calibration searches in correct range around baseline."""
