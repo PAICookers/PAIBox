@@ -1,5 +1,6 @@
 import pytest
 import torch
+from paicorelib import LeakMultiMode
 
 from paibox.backendv2.op_node import CoreOpNode
 from paibox.paiir import IFNodeV25
@@ -33,6 +34,7 @@ def test_attrs_part2_resolves_all_flat_neuron_params():
             reset_v=torch.tensor([1.0, 2.0, 3.0, 4.0]),
             thres_neg=torch.tensor([-1.0, -2.0, -3.0, -4.0]),
             thres_pos=torch.tensor([5.0, 6.0, 7.0, 8.0]),
+            leak_multi_mode=torch.tensor([0, 0, 1, 1]),
             leak_tau=torch.tensor([0, -1, -2, -3]),
             leak_v=torch.tensor([9.0, 10.0, 11.0, 12.0]),
             init_v=torch.tensor([13.0, 14.0, 15.0, 16.0]),
@@ -44,6 +46,7 @@ def test_attrs_part2_resolves_all_flat_neuron_params():
     assert attrs.reset_v == 3
     assert attrs.threshold_neg == -3
     assert attrs.threshold_pos == 7
+    assert attrs.leak_multi_mode == LeakMultiMode.ENABLE
     assert attrs.leak_tau == -2
     assert attrs.leak_v == 11
     assert attrs.vjt_initial == 15

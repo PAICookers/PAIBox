@@ -1,15 +1,40 @@
+import pytest
 import torch
 from torch import nn
 
+from paibox.paiir import CoreNeuronV25
 from paibox.paiir.nn import SumPool1d, SumPool2d
 from paibox.paiir.pipeline.avgpool.utils import (
     build_sum_pool,
     get_avgpool_divisor,
     get_pool_window_size,
+    require_scalar_avgpool_neuron_params,
 )
 
 
 class TestAvgPoolUtils:
+    @pytest.mark.parametrize(
+        ("act", "match"),
+        [
+            pytest.param(
+                CoreNeuronV25(leak_multi_mode=torch.tensor([1, 1]), leak_tau_shift=0),
+                "leak_multi_mode",
+                id="vector-mode",
+            ),
+            pytest.param(
+                CoreNeuronV25(
+                    leak_multi_mode=torch.tensor([0, 1]),
+                    leak_tau_shift=torch.tensor([0, -1]),
+                ),
+                "mixed IF/LIF",
+                id="mixed-dynamics",
+            ),
+        ],
+    )
+    def test_rejects_vector_or_mixed_neuron_dynamics(self, act, match):
+        with pytest.raises(ValueError, match=match):
+            require_scalar_avgpool_neuron_params(act)
+
     def test_avgpool_divisor_can_differ_from_window_size(self):
         pool = nn.AvgPool2d(2, divisor_override=1)
         assert get_pool_window_size(pool) == 4

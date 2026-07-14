@@ -4,6 +4,7 @@ from typing import Generic, TypeVar
 import torch
 from paicorelib import (
     AddPotentialMode,
+    LeakMultiMode,
     OfflineNeuFullAttrsV2Part2,
     OutputType,
     SNNMode,
@@ -433,7 +434,7 @@ class CoreOpNode(BaseNode["OfflineCoreOp"]):
             lateral_inhibition=neu_attrs.lateral_inhi,
             leak_multi_sequence=neu_attrs.leak_multi_sequence,
             leak_multi_input=neu_attrs.leak_multi_input,
-            leak_multi_mode=neu_attrs.leak_multi_mode,
+            leak_multi_mode=LeakMultiMode(resolved["leak_multi_mode"]),
             leak_add_mode=neu_attrs.leak_add_mode,
             leak_tau=resolved["leak_tau"],
             leak_v=resolved["leak_v"],
