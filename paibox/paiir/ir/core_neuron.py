@@ -560,16 +560,11 @@ class CoreNeuronV25(MemoryModule):
             )
         return shift
 
-    def to_neuron_params(self, bias: Tensor | None = None) -> NeuronParams:
-        """Export neuron parameters for the current pre-materialization API."""
-        values = {attr: getattr(self, attr) for attr in self.__export_attrs__}
-        if bias is not None:
-            if self.leak_add_mode == LeakAddMode.BACKWARD:
-                raise ValueError(
-                    "'bias' cannot be fused when 'leak_add_mode' is BACKWARD"
-                )
-            values["leak_v"] += bias
-        return NeuronParams(**values)
+    def to_neuron_params(self) -> NeuronParams:
+        """Export raw neuron parameters before output-shape materialization."""
+        return NeuronParams(
+            **{attr: getattr(self, attr) for attr in self.__export_attrs__}
+        )
 
 
 def _tau_scalar_to_shift(tau: float) -> tuple[int, bool]:

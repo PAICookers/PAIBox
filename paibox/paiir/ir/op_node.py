@@ -21,7 +21,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, ClassVar
 
 import torch
-from paicorelib import OutputType, PoolingMode
+from paicorelib import LeakAddMode, OutputType, PoolingMode
 from torch import Tensor, nn
 from torch.nn import functional as F
 
@@ -276,12 +276,26 @@ class OfflineCoreOp(OpNode):
     def __init__(self, core_params: OfflineCoreParams | None = None) -> None:
         super().__init__()
         self.core_params = core_params or OfflineCoreParams()
+        self._neu_params: NeuronParams | None = None
+
+    @property
+    def neu_params(self) -> NeuronParams:
+        """Return materialized deploy-ready neuron parameters."""
+        if self._neu_params is None:
+            raise RuntimeError(
+                f"OfflineCoreOp '{self.name}' neuron parameters are not materialized"
+            )
+        return self._neu_params
+
+    @neu_params.setter
+    def neu_params(self, params: NeuronParams) -> None:
+        self._neu_params = params
 
     def override_compile_state(self, other: OfflineCoreParams) -> None:
         """Override non-semantic compile-time state from another params object."""
         self.core_params.override_compile_state_from(other)
 
-    def _with_domain_derived_output_type(self, params: NeuronParams) -> NeuronParams:
+    def _with_output_type(self, params: NeuronParams) -> NeuronParams:
         """Derive backend-visible output type from propagated frontend domain.
 
         ``signal_semantics.output_domain`` is the frontend semantic source of truth for whether a
@@ -291,10 +305,12 @@ class OfflineCoreOp(OpNode):
         if self.signal_semantics.output_domain is None:
             return params
 
-        if self.signal_semantics.output_domain is SignalDomain.VALUE:
-            return replace(params, output_type=OutputType.VALUE)
-        else:
-            return replace(params, output_type=OutputType.POTENTIAL)
+        output_type = (
+            OutputType.VALUE
+            if self.signal_semantics.output_domain is SignalDomain.VALUE
+            else OutputType.POTENTIAL
+        )
+        return replace(params, output_type=output_type)
 
     @property
     def weights(self) -> list[Tensor] | None:
@@ -320,15 +336,26 @@ class OfflineCoreOp(OpNode):
         """
         return 0, 1
 
+    def _src_params(self) -> tuple[NeuronParams, Tensor | None]:
+        """Return raw neuron parameters and an optional output-channel bias."""
+        return NeuronParams(output_type=OutputType.POTENTIAL), None
+
+    def src_params(self) -> tuple[NeuronParams, Tensor | None]:
+        """Return shape-independent inputs for neuron-parameter materialization."""
+        params, bias = self._src_params()
+        return self._with_output_type(params), bias
+
     @property
     def neuron_params(self) -> NeuronParams:
-        """Neuron configuration for the backend.
-
-        Default: potential output (no neuron/activation).
-        """
-        return self._with_domain_derived_output_type(
-            NeuronParams(output_type=OutputType.POTENTIAL)
-        )
+        """Expose pre-materialization parameters to the current backend API."""
+        params, bias = self.src_params()
+        if bias is None:
+            return params
+        if params.leak_add_mode == LeakAddMode.BACKWARD:
+            raise ValueError(
+                "'bias' cannot be fused when 'leak_add_mode' is BACKWARD"
+            )
+        return replace(params, leak_v=params.leak_v + bias)
 
     def _require_output_format_for_hw_lut(self) -> None:
         if not self.core_params._output_format_assigned:
@@ -406,12 +433,8 @@ class SequentialOp(OfflineCoreOp):
         """Hardware SRAM LUT data for backend export."""
         return self._act_hw_lut_data(self.act)
 
-    @property
-    def neuron_params(self) -> NeuronParams:
-        """Neuron configuration for the backend."""
-        return self._with_domain_derived_output_type(
-            self.act.to_neuron_params(bias=_get_bias(self.comp))
-        )
+    def _src_params(self) -> tuple[NeuronParams, Tensor | None]:
+        return self.act.to_neuron_params(), _get_bias(self.comp)
 
     def extra_repr(self) -> str:
         return f"{super().extra_repr()}, comp={type(self.comp).__name__}, act={type(self.act).__name__}"
@@ -499,9 +522,7 @@ class AccumulateOp(OfflineCoreOp):
         """Hardware SRAM LUT data for backend export."""
         return self._act_hw_lut_data(self.act)
 
-    @property
-    def neuron_params(self) -> NeuronParams:
-        """Neuron configuration with fused bias from all compute ops."""
+    def _src_params(self) -> tuple[NeuronParams, Tensor | None]:
         fused_bias: Tensor | None = None
         for sign, comp in zip(self.signs, self.comps):
             b = _get_bias(comp)
@@ -510,16 +531,9 @@ class AccumulateOp(OfflineCoreOp):
                 fused_bias = term if fused_bias is None else fused_bias + term
 
         if self.act is None:
-            return self._with_domain_derived_output_type(
-                NeuronParams(
-                    leak_v=fused_bias if fused_bias is not None else 0.0,
-                    output_type=OutputType.POTENTIAL,
-                )
-            )
+            return NeuronParams(output_type=OutputType.POTENTIAL), fused_bias
 
-        return self._with_domain_derived_output_type(
-            self.act.to_neuron_params(bias=fused_bias)
-        )
+        return self.act.to_neuron_params(), fused_bias
 
     def extra_repr(self) -> str:
         ops = ", ".join(type(op).__name__ for op in self.comps)
@@ -674,8 +688,7 @@ class StandaloneCompOp(OfflineCoreOp):
             return _tensor_value_range(w)
         return None
 
-    @property
-    def neuron_params(self) -> NeuronParams:
+    def _src_params(self) -> tuple[NeuronParams, Tensor | None]:
         """Backend-visible neuron metadata for standalone compute ops.
 
         Standalone compute ops have no explicit activation stage, so their
@@ -688,21 +701,18 @@ class StandaloneCompOp(OfflineCoreOp):
         ):
             kind = refresh_maxpool_export_kind(self)
             if kind in (MaxPoolExportKind.U_SPIKE, MaxPoolExportKind.S_SPIKE):
-                return self._with_domain_derived_output_type(
-                    build_spike_identity_neuron_params(kind)
-                )
+                return build_spike_identity_neuron_params(kind), None
             if kind is MaxPoolExportKind.LUT:
-                return self._with_domain_derived_output_type(
+                return (
                     build_identity_lut_neuron_params(
                         self.core_params.input_sign,
                         self.core_params.input_width,
                         self.signal_semantics.known_code_range,
-                    )
+                    ),
+                    None,
                 )
 
-        return self._with_domain_derived_output_type(
-            NeuronParams(output_type=OutputType.POTENTIAL)
-        )
+        return NeuronParams(output_type=OutputType.POTENTIAL), _get_bias(self.comp)
 
     @property
     def hw_lut_data(self) -> LutData | None:
@@ -762,10 +772,8 @@ class StandaloneActOp(OfflineCoreOp):
         """Hardware SRAM LUT data for backend export."""
         return self._act_hw_lut_data(self.act)
 
-    @property
-    def neuron_params(self) -> NeuronParams:
-        """Neuron configuration for the backend."""
-        return self._with_domain_derived_output_type(self.act.to_neuron_params())
+    def _src_params(self) -> tuple[NeuronParams, Tensor | None]:
+        return self.act.to_neuron_params(), None
 
     def extra_repr(self) -> str:
         return f"{super().extra_repr()}, act={type(self.act).__name__}"

@@ -38,6 +38,7 @@ from .utils import (
     get_avgpool_divisor,
     get_pool_window_size,
     is_avgpool,
+    require_scalar_avgpool_neuron_params,
 )
 
 __all__ = [
@@ -183,6 +184,8 @@ def _try_handle_avgpool_activation(
         return None
     if len(graph.successors(pred_name)) != 1:
         return None
+
+    require_scalar_avgpool_neuron_params(act_node.act)
 
     if not act_node.act.is_snn:
         # ANN activations only need static AvgPool gain compensation, so the

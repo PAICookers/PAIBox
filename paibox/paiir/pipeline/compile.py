@@ -15,9 +15,9 @@ conversion pipeline:
 6. post-fusion fixed-point rewrites with analysis refresh
 7. :func:`assign_tick_params` -- assign timing parameters
 8. :func:`calibrate_avgpool_thresholds` -- optional AvgPool threshold refinement
-9. :func:`validate_compiled_graph` -- final post-pass validation before returning
-   the graph
-10. :func:`validate_deployable_graph` -- reject residual expression-layer IR
+9. :func:`validate_compiled_graph` -- validate the compiled semantic graph
+10. neuron-parameter materialization -- expand tensors and merge compute bias
+11. :func:`validate_deployable_graph` -- reject residual expression-layer IR
 
 Use :func:`compile_to_paiir` for a one-step compilation, or call the
 individual passes directly for fine-grained control.
@@ -39,6 +39,7 @@ from .avgpool.standalone_rewrite import OutputApprox
 from .data_format import DataFormat
 from .layout_chain_canonicalization import canonicalize_layout_chains
 from .layout_cross_node_elision import commute_pre_activation_transforms
+from .neuron_param_materialization import materialize_neuron_params
 from .pad_folding import fold_zero_pad_into_convs
 from .passes import (
     analyze_graph,
@@ -150,6 +151,7 @@ def _compile_paiir_graph(
         calibrate_avgpool_thresholds(graph)
 
     validate_compiled_graph(graph)
+    materialize_neuron_params(graph)
     validate_deployable_graph(graph)
 
     graph.eval()
@@ -243,10 +245,13 @@ def compile_to_paiir(
     10. :func:`assign_tick_params` -- assign timing parameters
     11. :func:`calibrate_avgpool_thresholds` -- (experimental) refine shared-core
        AvgPool+LIF thresholds via offline integer search
-    12. :func:`validate_compiled_graph` -- final post-pass graph validation
+    12. :func:`validate_compiled_graph` -- post-pass semantic graph validation
         after connectivity cleanup, signal-semantics propagation, data-format
         propagation, and tick assignment
-    13. :func:`validate_deployable_graph` -- ensure no frontend-only IR remains
+    13. neuron-parameter materialization -- expand tensors against each final
+        output shape and merge compute bias into additive leak
+    14. :func:`validate_deployable_graph` -- ensure only backend-ready IR and
+        flat neuron parameters remain
     """
     cfg = compile_config or CompileConfig()
     _timesteps = _resolve_config_arg(timesteps, cfg.timesteps)
