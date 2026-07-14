@@ -2937,14 +2937,14 @@ reference = "tsinghua"
 name = "snntorch"
 version = "1.0.0"
 description = "Deep learning with spiking neural networks."
-optional = true
+optional = false
 python-versions = ">=3.9"
-groups = ["main"]
-markers = "extra == \"snntorch\""
+groups = ["main", "dev"]
 files = [
     {file = "snntorch-1.0.0-py2.py3-none-any.whl", hash = "sha256:b5a85f6f44c6d27c8a1dcea16cb18a630d00b8d2f3cfec85b7e580cb177e606b"},
     {file = "snntorch-1.0.0.tar.gz", hash = "sha256:93c33506a5975c1d0d2387a130def02382789197314cefb2c70511b05a03536e"},
 ]
+markers = {main = "extra == \"snntorch\""}
 
 [package.source]
 type = "legacy"
@@ -3426,4 +3426,4 @@ visualizer = ["fastapi", "uvicorn"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10"
-content-hash = "6b10c91172143a31703021e81ec774fd4a73de761931db0f585e82cdf3cd919d"
+content-hash = "fcc79c9bc691dc65ef9374877e6c36e66c2e3b1a73b39f3316024c59a80dd278"

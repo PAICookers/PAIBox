@@ -40,8 +40,8 @@ paiviz = "paibox.visualizer.cli:main"
 
 [project.optional-dependencies]
 visualizer = ["fastapi>=0.128.0,<1", "uvicorn>=0.38.0,<1"]
-snntorch = ["snntorch>=0.9.0"]
-spikingjelly = ["spikingjelly>=0.0.0.0.12"]
+snntorch = ["snntorch>=0.9.4,<2"]
+spikingjelly = ["spikingjelly>=0.0.0.0.12,<1"]
 nir = ["nir>=1.0.6,<2"]
 
 [project.urls]
@@ -61,7 +61,8 @@ dev = [
     "orjson>=3.11.6",
     "torch>=2.0.0,<2.2.0 ; python_full_version < '3.12'",
     "torch>=2.2.0 ; python_full_version >= '3.12'",
-    "spikingjelly>=0.0.0.0.12",
+    "spikingjelly>=0.0.0.0.12,<1",
+    "snntorch>=0.9.4,<2",
     "tabulate>=0.9.0",
     "ortools==9.14.6206 ; python_full_version < '3.14'",
     "ortools==9.15.6755 ; python_full_version >= '3.14'",

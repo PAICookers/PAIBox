@@ -1480,6 +1480,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "pytest-md" },
     { name = "pytest-xdist" },
+    { name = "snntorch" },
     { name = "spikingjelly" },
     { name = "tabulate" },
     { name = "torch", version = "2.1.2", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(python_full_version < '3.12' and platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux') or (python_full_version < '3.12' and sys_platform == 'darwin')" },
@@ -1498,8 +1499,8 @@ requires-dist = [
     { name = "paicorelib", marker = "platform_machine != 'armv7l'", specifier = ">=2.0.0" },
     { name = "protobuf", specifier = ">=5.27.1,<7" },
     { name = "rich", specifier = ">=14.0.0" },
-    { name = "snntorch", marker = "extra == 'snntorch'", specifier = ">=0.9.0" },
-    { name = "spikingjelly", marker = "extra == 'spikingjelly'", specifier = ">=0.0.0.0.12" },
+    { name = "snntorch", marker = "extra == 'snntorch'", specifier = ">=0.9.4,<2" },
+    { name = "spikingjelly", marker = "extra == 'spikingjelly'", specifier = ">=0.0.0.0.12,<1" },
     { name = "uvicorn", marker = "extra == 'visualizer'", specifier = ">=0.38.0,<1" },
 ]
 provides-extras = ["visualizer", "snntorch", "spikingjelly", "nir"]
@@ -1514,7 +1515,8 @@ dev = [
     { name = "pytest-cov", specifier = ">=7.0" },
     { name = "pytest-md", specifier = ">=0.2" },
     { name = "pytest-xdist", specifier = ">=3.7.0" },
-    { name = "spikingjelly", specifier = ">=0.0.0.0.12" },
+    { name = "snntorch", specifier = ">=0.9.4,<2" },
+    { name = "spikingjelly", specifier = ">=0.0.0.0.12,<1" },
     { name = "tabulate", specifier = ">=0.9.0" },
     { name = "torch", marker = "python_full_version < '3.12'", specifier = ">=2.0.0,<2.2.0", index = "https://download.pytorch.org/whl/cpu" },
     { name = "torch", marker = "python_full_version >= '3.12'", specifier = ">=2.2.0", index = "https://download.pytorch.org/whl/cpu" },
@@ -2249,11 +2251,11 @@ wheels = [
 
 [[package]]
 name = "snntorch"
-version = "0.9.4"
+version = "1.0.0"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
-sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/53/a7/ce6eec2007d505612bc2bfc297d05daf9e507748d7d4a2406cae0d2a5e32/snntorch-0.9.4.tar.gz", hash = "sha256:eaa0dd46675c471bf0b616068ee777564377bcb46b2104840a4ff4332de01909", size = 95103, upload-time = "2025-02-16T21:26:01.332Z" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/49/05/84564a9468c09f6501213eeb4a5c76f35eb82a5c3e1981005e5dba79cd13/snntorch-1.0.0.tar.gz", hash = "sha256:93c33506a5975c1d0d2387a130def02382789197314cefb2c70511b05a03536e", size = 101429, upload-time = "2026-06-29T13:30:14.765Z" }
 wheels = [
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/e0/a6/c9ca7a9a335a302694f0a86d5235fcba797283f94d5cd835e1dc8efdc905/snntorch-0.9.4-py2.py3-none-any.whl", hash = "sha256:34805e8d9d3d50fa8d28eb8ee715d9196a4db115cefe497e026b3ce1b7884388", size = 125619, upload-time = "2025-02-16T21:25:59.057Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/82/bc/38ad8a5fc17dfbfc62cbf896c11e71f20376b4cd57e204325e6c1578dcbb/snntorch-1.0.0-py2.py3-none-any.whl", hash = "sha256:b5a85f6f44c6d27c8a1dcea16cb18a630d00b8d2f3cfec85b7e580cb177e606b", size = 133558, upload-time = "2026-06-29T13:30:13.384Z" },
 ]
 
 [[package]]
