@@ -127,9 +127,9 @@ def conv2d_without_padding(old_conv: nn.Conv2d) -> nn.Conv2d:
     stride = old_conv.stride
     dilation = old_conv.dilation
 
-    assert len(kernel_size) == 2 and len(stride) == 2 and len(dilation) == 2, (
-        "Only 2D convolution is supported"
-    )
+    assert (
+        len(kernel_size) == 2 and len(stride) == 2 and len(dilation) == 2
+    ), "Only 2D convolution is supported"
     new_conv = nn.Conv2d(
         in_channels=old_conv.in_channels,
         out_channels=old_conv.out_channels,
@@ -151,9 +151,9 @@ def conv1d_without_padding(old_conv: nn.Conv1d) -> nn.Conv1d:
     stride = old_conv.stride
     dilation = old_conv.dilation
 
-    assert len(kernel_size) == 1 and len(stride) == 1 and len(dilation) == 1, (
-        "Only 1D convolution is supported"
-    )
+    assert (
+        len(kernel_size) == 1 and len(stride) == 1 and len(dilation) == 1
+    ), "Only 1D convolution is supported"
     new_conv = nn.Conv1d(
         in_channels=old_conv.in_channels,
         out_channels=old_conv.out_channels,
@@ -242,13 +242,13 @@ class InNode(BaseNode[InputNode]):
         super().__init__(name, shape, raw_node)
 
     def set_io_bit_num(self, direction: int) -> None:
-        assert direction == 1, (
-            "InNode should only call set_io_bit_num with direction 1 (from successors)"
-        )
+        assert (
+            direction == 1
+        ), "InNode should only call set_io_bit_num with direction 1 (from successors)"
         succ_input_bit_nums = set([succ.input_bit_num for succ in self.successors])
-        assert len(succ_input_bit_nums) == 1, (
-            "All successors must have the same input bit num"
-        )
+        assert (
+            len(succ_input_bit_nums) == 1
+        ), "All successors must have the same input bit num"
 
         self.output_bit_num_ = succ_input_bit_nums.pop()
 
@@ -258,13 +258,13 @@ class OutNode(BaseNode[OutputNode]):
         super().__init__(name, shape, raw_node)
 
     def set_io_bit_num(self, direction: int) -> None:
-        assert direction == 0, (
-            "OutNode should only call set_io_bit_num with direction 0 (from predecessors)"
-        )
+        assert (
+            direction == 0
+        ), "OutNode should only call set_io_bit_num with direction 0 (from predecessors)"
         pred_output_bit_nums = set([pred.output_bit_num for pred in self.predecessors])
-        assert len(pred_output_bit_nums) == 1, (
-            "All predecessors must have the same output bit num"
-        )
+        assert (
+            len(pred_output_bit_nums) == 1
+        ), "All predecessors must have the same output bit num"
 
         self.input_bit_num_ = pred_output_bit_nums.pop()
 
@@ -278,22 +278,22 @@ class RemapNode(BaseNode[RemapOp]):
 
     def get_remap_info(self) -> dict["SourceElem", "RemapElem"]:
         if isinstance(self.raw_node, TransformOp):
-            assert len(self.predecessors) == 1, (
-                "TransformNode should have exactly one predecessor"
-            )
+            assert (
+                len(self.predecessors) == 1
+            ), "TransformNode should have exactly one predecessor"
             pred = self.predecessors[0]
             pred_len = pred.shape.numel()
-            assert pred_len == self.shape.numel(), (
-                "Total number of elements must match for transform remap"
-            )
+            assert (
+                pred_len == self.shape.numel()
+            ), "Total number of elements must match for transform remap"
 
             # Drive the routing transform over an index tensor so backend
             # reorder follows the same logical-layout semantics as the IR.
             flat_indices = torch.arange(pred_len, dtype=torch.int64).reshape(pred.shape)
             reordered = self.raw_node(flat_indices).reshape(-1)
-            assert reordered.numel() == pred_len, (
-                "TransformOp index remap must preserve element count"
-            )
+            assert (
+                reordered.numel() == pred_len
+            ), "TransformOp index remap must preserve element count"
 
             remap_info: dict["SourceElem", "RemapElem"] = {}
             for dst_idx, src_idx in enumerate(reordered.tolist()):
@@ -335,9 +335,9 @@ class RemapNode(BaseNode[RemapOp]):
                 dim_offset += pred.shape[concat_dim]
             return remap_info
         elif isinstance(self.raw_node, PaddingOp):
-            assert len(self.predecessors) == 1, (
-                "PaddingNode should have exactly one predecessor"
-            )
+            assert (
+                len(self.predecessors) == 1
+            ), "PaddingNode should have exactly one predecessor"
             pred = self.predecessors[0]
             pred_len = pred.shape.numel()
             remap_info: dict["SourceElem", "RemapElem"] = {}
@@ -355,9 +355,9 @@ class RemapNode(BaseNode[RemapOp]):
         if direction == 1:
             # Get input bit num from successors
             succ_input_bit_nums = set([succ.input_bit_num for succ in self.successors])
-            assert len(succ_input_bit_nums) == 1, (
-                "All successors must have the same input bit num"
-            )
+            assert (
+                len(succ_input_bit_nums) == 1
+            ), "All successors must have the same input bit num"
             self.output_bit_num_ = succ_input_bit_nums.pop()
             self.input_bit_num_ = self.output_bit_num_
         elif direction == 0:
@@ -365,9 +365,9 @@ class RemapNode(BaseNode[RemapOp]):
             pred_output_bit_nums = set(
                 [pred.output_bit_num for pred in self.predecessors]
             )
-            assert len(pred_output_bit_nums) == 1, (
-                "All predecessors must have the same output bit num"
-            )
+            assert (
+                len(pred_output_bit_nums) == 1
+            ), "All predecessors must have the same output bit num"
             self.input_bit_num_ = pred_output_bit_nums.pop()
             self.output_bit_num_ = self.input_bit_num_
         else:
@@ -448,9 +448,9 @@ class CoreOpNode(BaseNode["OfflineCoreOp"]):
         return self.frontend_core_config
 
     def set_io_bit_num(self, direction: int) -> None:
-        assert direction == -1, (
-            "CoreOpNode should not call set_io_bit_num with direction 0 or 1, as its input and output bit num are determined by its own configuration rather than predecessors or successors"
-        )
+        assert (
+            direction == -1
+        ), "CoreOpNode should not call set_io_bit_num with direction 0 or 1, as its input and output bit num are determined by its own configuration rather than predecessors or successors"
         if self.core_config().add_potential == AddPotentialMode.NORMAL:
             input_bit_num = 2 ** self.core_config().input_width
         else:
@@ -638,13 +638,13 @@ def set_io_bit_num(nodes: list[AllNode]) -> None:
         (node, -1) for node in nodes if isinstance(node, CoreOpNode)
     ]
     unset_nodes -= set(node for node, _ in node_to_process)
-    assert len(node_to_process) > 0, (
-        "There should be at least one CoreOpNode to dictate the input/output bit num for the whole graph"
-    )
+    assert (
+        len(node_to_process) > 0
+    ), "There should be at least one CoreOpNode to dictate the input/output bit num for the whole graph"
     while unset_nodes or len(node_to_process) > 0:
-        assert len(node_to_process) > 0, (
-            "There is a cycle in the graph or some nodes are not connected to CoreOpNodes"
-        )
+        assert (
+            len(node_to_process) > 0
+        ), "There is a cycle in the graph or some nodes are not connected to CoreOpNodes"
         node, direction = node_to_process.pop(0)
         node.set_io_bit_num(direction)
         for succ in node.successors:

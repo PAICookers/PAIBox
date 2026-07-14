@@ -1117,7 +1117,9 @@ class TestFunctionalConv:
         _, comp = _find_single_conv_comp(graph, nn.Conv2d)
         expected_weight = model.weight_int8_buf.to(
             comp.weight.dtype
-        ) * model.weight_scale_buf.view(-1, 1, 1, 1)  # type: ignore
+        ) * model.weight_scale_buf.view(
+            -1, 1, 1, 1
+        )  # type: ignore
         assert comp.weight.detach().equal(expected_weight)
         assert comp.bias is not None
         assert comp.bias.detach().equal(
