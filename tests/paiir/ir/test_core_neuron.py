@@ -2,21 +2,53 @@ import copy
 
 import pytest
 import torch
-from paicorelib import RM, ThresholdPosMode
+from paicorelib import RM, LeakMultiMode, ThresholdPosMode
 from spikingjelly.activation_based import functional
+from spikingjelly.activation_based import neuron as sj_neuron
 from torch import nn
 
-from paibox.paiir.ir.calc_params import LUT_TABLE_SIZE
+from paibox.paiir.ir.calc_params import LUT_TABLE_SIZE, NeuronParams
 from paibox.paiir.ir.core_neuron import (
     ANNNodeV25,
     CoreNeuronV25,
     IFNodeV25,
+    LeakyBeta0NodeV25,
     LIFNodeV25,
 )
 from paibox.paiir.ir.lut_activation import LutCustom, LutReLU
 
 
+@pytest.mark.parametrize(
+    ("node_type", "name"),
+    [
+        (node_type, name)
+        for node_type in (IFNodeV25, LIFNodeV25, LeakyBeta0NodeV25)
+        for name in node_type.__fixed_attrs__
+    ],
+)
+def test_fixed_neuron_attributes_cannot_be_overridden(node_type, name):
+    with pytest.raises(ValueError, match=f"{node_type.__name__} fixes"):
+        node_type(**{name: 1})
+
+
 class TestIFNodeV25:
+    def test_declares_backend_vectorized_fields(self):
+        assert CoreNeuronV25.__vectorized_attrs__ is NeuronParams.__vectorized_attrs__
+        assert IFNodeV25().__vectorized_attrs__ == (
+            "reset_v",
+            "thres_neg",
+            "thres_pos",
+            "leak_tau",
+            "leak_v",
+            "init_v",
+        )
+
+    def test_declares_if_dynamics(self):
+        node = IFNodeV25()
+
+        assert node.has_if_dynamics
+        assert not node.has_lif_dynamics
+
     def test_spike_and_reset(self):
         """Supra-threshold integer input fires a spike; membrane resets."""
         n = IFNodeV25(5, 0)
@@ -91,6 +123,24 @@ class TestLIFNodeV25:
         n = LIFNodeV25(tau=4)
         assert n.leak_tau == -2  # log2(4) = 2, right shift
 
+    def test_vector_tau_is_lif_family(self):
+        n = LIFNodeV25(tau=torch.tensor([2.0, 4.0]))
+
+        assert torch.equal(n.leak_tau, torch.tensor([-1, -2]))
+        assert n.has_lif_dynamics
+        assert not n.has_if_dynamics
+
+    def test_vector_tau_requires_every_value_gt_one(self):
+        with pytest.raises(ValueError, match="tau must be > 1"):
+            LIFNodeV25(tau=torch.tensor([1.0, 2.0]))
+
+    def test_vector_tau_warns_once_for_approximated_values(self):
+        with pytest.warns(UserWarning, match="2 tau value") as warnings_:
+            n = LIFNodeV25(tau=torch.tensor([2.0, 3.0, 5.0]))
+
+        assert len(warnings_) == 1
+        assert torch.equal(n.leak_tau, torch.tensor([-1, -2, -3]))
+
     def test_tau_non_power_warns(self):
         """Non-power-of-2 tau emits a warning and rounds to nearest."""
         with pytest.warns(UserWarning, match="not a power of 2"):
@@ -133,6 +183,88 @@ class TestLIFNodeV25:
         assert n3.v == 0.0
         assert n3.init_v == 0.0
 
+    @pytest.mark.parametrize("decay_input", [False, True])
+    def test_spike_sequence_matches_spikingjelly_at_power_of_two_tau(self, decay_input):
+        paicore = LIFNodeV25(
+            tau=2.0,
+            decay_input=decay_input,
+            v_threshold=1.0,
+            v_reset=0.0,
+        ).eval()
+        reference = sj_neuron.LIFNode(
+            tau=2.0,
+            decay_input=decay_input,
+            v_threshold=1.0,
+            v_reset=0.0,
+        ).eval()
+        inputs = torch.tensor([0.4, 0.7, 0.9, 0.2, 1.1, 0.3])
+
+        paicore_spikes = [paicore(x.reshape(1)).item() for x in inputs]
+        reference_spikes = [reference(x.reshape(1)).item() for x in inputs]
+
+        assert paicore_spikes == reference_spikes
+
+
+class TestLeakyBeta0NodeV25:
+    def test_is_lif_family_with_complete_leak(self):
+        node = LeakyBeta0NodeV25(v_threshold=5, v_reset=0).eval()
+
+        assert node.leak_tau == 0
+        assert node.leak_multi_mode == LeakMultiMode.ENABLE
+        assert node.has_lif_dynamics
+        assert not node.has_if_dynamics
+
+        assert node(torch.tensor([[3]])).item() == 0
+        assert node.v.item() == 0
+        assert node(torch.tensor([[3]])).item() == 0
+        assert node.v.item() == 0
+        assert node(torch.tensor([[5]])).item() == 1
+
+
+class TestVectorNeuronParameters:
+    def test_enabled_leak_accepts_beta_zero_and_positive_beta_shifts(self):
+        node = CoreNeuronV25(
+            leak_multi_mode=LeakMultiMode.ENABLE,
+            leak_tau_shift=torch.tensor([0, -1, -2]),
+        )
+
+        assert node.has_lif_dynamics
+
+    def test_disabled_leak_rejects_mixed_if_lif_shifts(self):
+        with pytest.raises(ValueError, match="mixes IF .* and LIF"):
+            CoreNeuronV25(
+                leak_multi_mode=LeakMultiMode.DISABLE,
+                leak_tau_shift=torch.tensor([0, -1]),
+            )
+
+    @pytest.mark.parametrize(
+        "field",
+        ["reset_v", "thres_neg", "leak_tau_shift", "init_v"],
+    )
+    def test_new_vector_fields_are_compile_only(self, field):
+        kwargs = {field: torch.tensor([0, 0])}
+        node = CoreNeuronV25(thres_pos=5, **kwargs)
+
+        with pytest.raises(NotImplementedError, match="compile the model"):
+            node(torch.tensor([[1, 1]]))
+
+    def test_shift_tensor_requires_integer_dtype(self):
+        with pytest.raises(TypeError, match="integer dtype"):
+            CoreNeuronV25(leak_tau_shift=torch.tensor([-1.0, -2.0]))
+
+    def test_ann_accepts_vector_numeric_parameters_for_deployment(self):
+        node = ANNNodeV25(
+            LutReLU(),
+            reset_v=torch.tensor([0.0, 1.0]),
+            thres_neg=torch.tensor([-2.0, -3.0]),
+            thres_pos=torch.tensor([2.0, 3.0]),
+            leak_tau_shift=torch.tensor([0, -1]),
+            leak_v=torch.tensor([1.0, 2.0]),
+            init_v=torch.tensor([0.0, 1.0]),
+        )
+
+        assert node.__vectorized_attrs__ == NeuronParams.__vectorized_attrs__
+
 
 class TestPerChannelThreshold:
     def test_if_node_per_channel_forward_uses_channel_thresholds(self):
@@ -167,29 +299,15 @@ class TestPerChannelThreshold:
         assert spike.tolist() == [[[[1]], [[0]]]]
         assert torch.equal(node.v, torch.tensor([[[[0.0]], [[1.0]]]]))
 
-    def test_per_channel_nodes_reject_non_1d_thresholds(self):
-        with pytest.raises(ValueError, match="1D Tensor"):
-            IFNodeV25(torch.ones(1, 3))
+    def test_source_node_accepts_broadcast_threshold_shape(self):
+        node = IFNodeV25(torch.ones(3, 1, 1))
 
-        with pytest.raises(ValueError, match="1D Tensor"):
-            LIFNodeV25(v_threshold=torch.ones(1, 3))
+        assert node.thres_pos.shape == (3, 1, 1)
 
-    def test_per_channel_threshold_is_rejected_for_lut_nodes(self):
-        with pytest.raises(ValueError, match="only supported in SNN mode"):
-            ANNNodeV25(LutReLU(), thres_pos=torch.tensor([1.0, 2.0, 3.0]))
+    def test_per_channel_threshold_is_supported_for_lut_nodes(self):
+        node = ANNNodeV25(LutReLU(), thres_pos=torch.tensor([1.0, 2.0, 3.0]))
 
-    def test_backend_attrs_part2_resolves_threshold_by_channel(self):
-        from paibox.backendv2.op_node import CoreOpNode
-        from paibox.paiir.ir.op_node import StandaloneActOp
-
-        raw_node = StandaloneActOp(IFNodeV25(torch.tensor([1.0, 2.0, 3.0])))
-        raw_node.core_params.tick_start = 0
-        backend_node = CoreOpNode("act", raw_node, (1, 3, 2, 2))
-
-        assert backend_node.attrs_part2(0).threshold_pos == 1
-        assert backend_node.attrs_part2(3).threshold_pos == 1
-        assert backend_node.attrs_part2(4).threshold_pos == 2
-        assert backend_node.attrs_part2(8).threshold_pos == 3
+        assert torch.equal(node.thres_pos, torch.tensor([1.0, 2.0, 3.0]))
 
 
 class TestCoreNeuronCopying:
@@ -561,12 +679,10 @@ class TestCoreNeuronV25ANN:
         # V should NOT be reset to reset_v; it should retain charge value
         assert neuron.v.item() != 0
 
-    def test_ann_to_neuron_params_with_bias(self):
-        """Bias is fused into leak_v (the fixed bug)."""
+    def test_ann_to_neuron_params_is_raw(self):
         neuron = ANNNodeV25(lut=LutReLU())
-        bias = torch.tensor(5.0)
-        params = neuron.to_neuron_params(bias=bias)
-        assert params.leak_v == 5.0
+        params = neuron.to_neuron_params()
+        assert params.leak_v == 0.0
 
     def test_ann_logical_lut_data(self):
         """ANN mode keeps logical LUT data on the activation object."""
