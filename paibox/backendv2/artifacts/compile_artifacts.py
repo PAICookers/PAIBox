@@ -405,14 +405,9 @@ def _thread_decode_mode(output_groups: Sequence[OutputGroup], timesteps: int) ->
     """Derive STREAM/STEP from the final output LCN timestep capacity."""
     if not output_groups:
         return DECODE_MODE_STREAM
-    if len(output_groups) != 1:
-        raise NotImplementedError(
-            "RuntimeParams export currently supports one OutputGroup per thread."
-        )
-
-    out_grp = output_groups[0]
-    ts_width = 8 - int(out_grp.lcn.value)
-    max_stream_timesteps = 1 << ts_width
+    max_stream_timesteps = min(
+        1 << (8 - out_grp.lcn.value) for out_grp in output_groups
+    )
     return DECODE_MODE_STREAM if max_stream_timesteps >= timesteps else DECODE_MODE_STEP
 
 

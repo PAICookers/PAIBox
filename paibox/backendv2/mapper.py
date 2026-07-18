@@ -1,4 +1,5 @@
 import os
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
 
@@ -20,6 +21,7 @@ from .artifacts.utils import (
     make_frame_records,
     resolve_platform_exports,
 )
+from .compile_plan import build_subgraph_compile_plan
 from .coreplacement import (
     CorePlacement,
     EmptyOfflineCorePlacementV2,
@@ -111,6 +113,18 @@ class Mapper:
                 )
 
         return resolved
+
+    def _reset_compile_state(self) -> None:
+        """Discard placement state so one Mapper can compile another graph."""
+        self.groups = []
+        self.routing_groups = []
+        self.next_rg_group = {}
+        self.nodes = []
+        self.output_groups = []
+        self.input_groups = []
+        self.coreplacements = []
+        self.global_starts = {}
+        self.output_completion_plan = None
 
     def generate_routing_groups(self, pai_graph: PAIIRGraph) -> None:
         self.nodes = build_nodes(pai_graph)
@@ -360,6 +374,7 @@ class Mapper:
         literal_format: LiteralFormat = "bin",
         *,
         timesteps: int | None = None,
+        auto_reset: bool | None = None,
         target_board: TargetBoard = "single",
         target_platform: TargetPlatform = "all",
         word_order: WordOrder = "high_first",
@@ -439,11 +454,18 @@ class Mapper:
                 ``"fanin_margin"`` is a conservative fallback that reserves one
                 fanin slot during tiling and avoids generating the boundary case.
         """
+        self._reset_compile_state()
         self.route_scope = get_route_scope(target_board)
         self.timesteps = self._resolve_timesteps(pai_graph, timesteps)
 
         # determine raw_neus in routing groups, other properties remain unset
         self.generate_routing_groups(pai_graph)
+
+        for node in pai_graph.nodes.values():
+            if auto_reset is not None and isinstance(node, OfflineCoreOp):
+                node.core_params.tick_duration = 0 if auto_reset else self.timesteps
+                node.core_params.tick_initial = self.timesteps if auto_reset else 0
+                node.core_params.validate_tick_params()
 
         all_groups: list[RoutingGroup | InputGroup | OutputGroup | RemapGroup] = []
         all_groups.extend(self.input_groups)
@@ -545,4 +567,64 @@ class Mapper:
             export_merged_frames,
             export_proto_python,
             debug,
+        )
+
+    def compile_subgraphs(
+        self,
+        subgraphs: Sequence[PAIIRGraph],
+        output_path: str | Path | None = None,
+        literal_format: LiteralFormat = "bin",
+        *,
+        timesteps: int | None = None,
+        auto_reset: bool = True,
+        target_board: TargetBoard = "single",
+        target_platform: TargetPlatform = "all",
+        word_order: WordOrder = "high_first",
+        export_merged_frames: bool = True,
+        export_proto_python: bool = True,
+        debug: bool = False,
+        unrolling: bool = False,
+        unroll_max_try: int = 4,
+        unroll_max_factor: int | None = 2,
+        unroll_core_selection: Literal["peak_ratio", "quantile"] = "peak_ratio",
+        unroll_peak_ratio: float = 0.8,
+        unroll_quantile: float = 0.5,
+        allow_empty_online_relay_core: bool = False,
+        csc_tail_overflow_fix: Literal[
+            "weight_indice_padding", "fanin_margin"
+        ] = "weight_indice_padding",
+    ) -> None:
+        """Compile caller-partitioned pure PAICORE graphs as one artifact set."""
+        graphs = tuple(subgraphs)
+        if not graphs:
+            raise ValueError("'subgraphs' must contain at least one graph")
+        if timesteps is None:
+            inferred = {self._resolve_timesteps(graph, None) for graph in graphs}
+            if len(inferred) != 1:
+                raise ValueError(
+                    "subgraphs must use one common timestep count; "
+                    f"found {sorted(inferred)}"
+                )
+            timesteps = inferred.pop()
+        plan = build_subgraph_compile_plan(graphs, timesteps, auto_reset)
+        self.compile(
+            plan.graph,
+            output_path,
+            literal_format,
+            timesteps=timesteps,
+            auto_reset=auto_reset,
+            target_board=target_board,
+            target_platform=target_platform,
+            word_order=word_order,
+            export_merged_frames=export_merged_frames,
+            export_proto_python=export_proto_python,
+            debug=debug,
+            unrolling=unrolling,
+            unroll_max_try=unroll_max_try,
+            unroll_max_factor=unroll_max_factor,
+            unroll_core_selection=unroll_core_selection,
+            unroll_peak_ratio=unroll_peak_ratio,
+            unroll_quantile=unroll_quantile,
+            allow_empty_online_relay_core=allow_empty_online_relay_core,
+            csc_tail_overflow_fix=csc_tail_overflow_fix,
         )
