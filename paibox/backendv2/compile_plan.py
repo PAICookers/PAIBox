@@ -36,14 +36,11 @@ def build_subgraph_compile_plan(
     for index, source in enumerate(graphs):
         if not isinstance(source, PAIIRGraph):
             raise TypeError(
-                f"subgraphs[{index}] must be a PAIIRGraph, "
-                f"got {type(source).__name__}"
+                f"subgraphs[{index}] must be a PAIIRGraph, got {type(source).__name__}"
             )
         source.lint()
         unsupported = [
-            node.name
-            for node in source.nodes.values()
-            if isinstance(node, CPUOp)
+            node.name for node in source.nodes.values() if isinstance(node, CPUOp)
         ]
         if unsupported:
             raise ValueError(

@@ -38,7 +38,9 @@ def test_subgraph_plan_namespaces_without_mutating_sources() -> None:
     assert plan.prefixes == ("g0/", "g1/")
     assert all(name.startswith(("g0/", "g1/")) for name in plan.graph.nodes)
 
-    core_nodes = [node for node in plan.graph.nodes.values() if hasattr(node, "core_params")]
+    core_nodes = [
+        node for node in plan.graph.nodes.values() if hasattr(node, "core_params")
+    ]
     assert [node.core_params.tick_start for node in core_nodes] == [1, 2]
     assert all(node.core_params.tick_duration == 0 for node in core_nodes)
     assert all(node.core_params.tick_initial == 2 for node in core_nodes)
