@@ -6,6 +6,7 @@ import pytest
 import torch
 from paicorelib import (
     LCN_EX,
+    RM,
     CoordXY,
     CoordZXYOffset,
     CSCAccelerateMode,
@@ -14,6 +15,8 @@ from paicorelib import (
     LeakMultiMode,
     NeuronType,
     OfflineNeuRegLimV2,
+    ThresholdNegMode,
+    ThresholdPosMode,
     WeightCompressType,
     find_coordxy_shortest_path,
 )
@@ -401,6 +404,40 @@ def test_mapper_compiles_flat_vector_neuron_parameters(tmp_path, ann):
     assert [p.neu_attrs_part2.threshold_pos for p in placements] == [4, 5, 6, 7]
     assert [p.neu_attrs_part2.leak_tau for p in placements] == [0, -1, -2, -3]
     assert [p.neu_attrs_part2.leak_v for p in placements] == [8, 9, 10, 11]
+
+
+@pytest.mark.parametrize(("auto_reset", "expected_duration"), [(None, 0), (False, 3)])
+def test_mapper_preserves_standalone_potential_semantics(
+    tmp_path, auto_reset, expected_duration
+):
+    graph = compile_to_paiir(
+        nn.Linear(3, 2).eval(),
+        torch.zeros(1, 3),
+        input_formats={"InputNode_0": (DataSign.SIGNED, DataWidth.WIDTH_8BIT)},
+        timesteps=3,
+        auto_reset=True,
+    )
+    mapper = Mapper()
+    mapper.compile(
+        graph,
+        tmp_path,
+        auto_reset=auto_reset,
+        target_platform="x86",
+        debug=False,
+    )
+
+    core = mapper.coreplacements[0]
+    attrs = core.neus[0].neu_attrs_part2
+
+    assert mapper.timesteps == 3
+    assert core.frontend_core_config.tick_duration == expected_duration
+    assert core.frontend_core_config.tick_initial == 1
+    assert attrs is not None
+    assert attrs.reset_mode == RM.MODE_NONRESET.value
+    assert attrs.threshold_neg_mode == ThresholdNegMode.FIRE.value
+    assert attrs.threshold_pos_mode == ThresholdPosMode.FIRE.value
+    assert attrs.threshold_neg == 0
+    assert attrs.threshold_pos == 0
 
 
 def test_mapper_vector_mode_controls_part2_and_half_reuse(tmp_path):

@@ -3,10 +3,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
 
-from paicorelib import CoordXY, CoordZXYOffset, find_coordxy_shortest_path
+from paicorelib import CoordXY, CoordZXYOffset, OutputType, find_coordxy_shortest_path
 
 from paibox.paiir import PAIIRGraph
-from paibox.paiir.ir import OfflineCoreOp
+from paibox.paiir.ir import OfflineCoreOp, StandaloneCompOp
 
 from .artifacts.cheader import export_cheader_files, export_cheader_merged
 from .artifacts.compile_artifacts import build_compile_artifacts
@@ -458,14 +458,26 @@ class Mapper:
         self.route_scope = get_route_scope(target_board)
         self.timesteps = self._resolve_timesteps(pai_graph, timesteps)
 
+        for node in pai_graph.nodes.values():
+            if not isinstance(node, OfflineCoreOp):
+                continue
+
+            if auto_reset is not None:
+                node.core_params.tick_duration = 0 if auto_reset else self.timesteps
+
+            if (
+                isinstance(node, StandaloneCompOp)
+                and node.neu_params.output_type == OutputType.POTENTIAL
+            ):
+                # Preserve current VJT, then reinitialise before the next tick.
+                node.core_params.tick_initial = 1
+            elif auto_reset is not None:
+                node.core_params.tick_initial = self.timesteps if auto_reset else 0
+
+            node.core_params.validate_tick_params()
+
         # determine raw_neus in routing groups, other properties remain unset
         self.generate_routing_groups(pai_graph)
-
-        for node in pai_graph.nodes.values():
-            if auto_reset is not None and isinstance(node, OfflineCoreOp):
-                node.core_params.tick_duration = 0 if auto_reset else self.timesteps
-                node.core_params.tick_initial = self.timesteps if auto_reset else 0
-                node.core_params.validate_tick_params()
 
         all_groups: list[RoutingGroup | InputGroup | OutputGroup | RemapGroup] = []
         all_groups.extend(self.input_groups)

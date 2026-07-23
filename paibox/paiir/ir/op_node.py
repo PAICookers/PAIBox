@@ -21,7 +21,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, ClassVar
 
 import torch
-from paicorelib import OutputType, PoolingMode
+from paicorelib import RM, OutputType, PoolingMode, ThresholdNegMode, ThresholdPosMode
 from torch import Tensor, nn
 from torch.nn import functional as F
 
@@ -700,7 +700,17 @@ class StandaloneCompOp(OfflineCoreOp):
                     None,
                 )
 
-        return NeuronParams(output_type=OutputType.POTENTIAL), _get_bias(self.comp)
+        return (
+            NeuronParams(
+                reset_mode=RM.MODE_NONRESET,
+                thres_neg_mode=ThresholdNegMode.FIRE,
+                thres_pos_mode=ThresholdPosMode.FIRE,
+                thres_neg=0,
+                thres_pos=0,
+                output_type=OutputType.POTENTIAL,
+            ),
+            _get_bias(self.comp),
+        )
 
     @property
     def hw_lut_data(self) -> LutData | None:
