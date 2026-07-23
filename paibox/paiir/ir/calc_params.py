@@ -211,6 +211,9 @@ class NeuronParams:
     Full configuration of an offline-core neuron, corresponding 1:1 to
     :class:`~paibox.paiir.ir.core_neuron.CoreNeuronV25` attributes.  The backend maps
     these to chip-specific register layouts.
+
+    Default dynamics model a stateless compute-only core. The owning IR node
+    selects the output type; explicit neuron operators provide all dynamics.
     """
 
     __vectorized_attrs__: ClassVar[tuple[str, ...]] = (
@@ -225,9 +228,9 @@ class NeuronParams:
 
     reset_mode: RM = RM.MODE_NORMAL
     reset_v: float | Tensor = 0.0
-    thres_neg_mode: ThresholdNegMode = ThresholdNegMode.FLOOR
+    thres_neg_mode: ThresholdNegMode = ThresholdNegMode.FIRE
     thres_pos_mode: ThresholdPosMode = ThresholdPosMode.FIRE
-    thres_neg: float | Tensor = DEFAULT_NEG_THRESHOLD
+    thres_neg: float | Tensor = 0.0
     thres_pos: float | Tensor = 0.0
     lateral_inhi: LateralInhibitionMode = LateralInhibitionMode.DISABLE
     leak_multi_sequence: LeakMultiComparisonOrder = (

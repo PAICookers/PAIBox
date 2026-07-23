@@ -45,6 +45,16 @@ from paibox.paiir.pipeline.passes import _infer_node_weight_format
 
 
 class TestNodeCapabilities:
+    def test_neuron_params_default_to_stateless_potential(self):
+        params = NeuronParams()
+
+        assert params.reset_mode == RM.MODE_NORMAL
+        assert params.reset_v == 0
+        assert params.thres_neg_mode == ThresholdNegMode.FIRE
+        assert params.thres_pos_mode == ThresholdPosMode.FIRE
+        assert params.thres_neg == 0
+        assert params.thres_pos == 0
+
     def test_routing_nodes_declare_format_flow_and_zero_tick_depth(self):
         routing_nodes = [TransformOp(), PadOp((1, 1)), SplitOp(sections=2, dim=1)]
 
@@ -259,6 +269,17 @@ class TestWeights:
 
         op.signal_semantics.output_domain = SignalDomain.POTENTIAL
         assert op.src_params()[0].output_type == OutputType.POTENTIAL
+
+    @pytest.mark.parametrize("comp", [nn.Linear(4, 2), nn.Conv2d(1, 2, 1)])
+    def test_standalone_comp_potential_defaults_reset_every_tick(self, comp):
+        params, _ = StandaloneCompOp(comp).src_params()
+
+        assert params.reset_mode == RM.MODE_NORMAL
+        assert params.reset_v == 0
+        assert params.thres_neg_mode == ThresholdNegMode.FIRE
+        assert params.thres_pos_mode == ThresholdPosMode.FIRE
+        assert params.thres_neg == 0
+        assert params.thres_pos == 0
 
     def test_add_op_returns_none(self):
         op = PotentialAddOp(op_signs=(1, -1))

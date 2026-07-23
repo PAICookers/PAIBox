@@ -4,7 +4,13 @@ from collections.abc import Callable
 import pytest
 import torch
 import torch.nn.functional as F
-from paicorelib import DataSign, DataWidth
+from paicorelib import (
+    RM,
+    DataSign,
+    DataWidth,
+    ThresholdNegMode,
+    ThresholdPosMode,
+)
 from spikingjelly.activation_based import layer as sj_layer
 from spikingjelly.activation_based import neuron as sj
 from torch import Tensor, nn
@@ -13,6 +19,7 @@ import paibox.paiir.pipeline.avgpool.fusion as avgpool_fusion
 import paibox.paiir.pipeline.compile as compile_mod
 from paibox.paiir import (
     CompileConfig,
+    CoreNeuronV25,
     LIFNodeV25,
     compile_to_paiir,
     register_module,
@@ -793,6 +800,47 @@ class TestTickParams:
         for node in offline_nodes(graph):
             assert node.core_params.tick_duration == expected_duration
             assert node.core_params.tick_initial == expected_initial
+
+    @pytest.mark.parametrize(
+        ("auto_reset", "expected_duration"),
+        [(True, 0), (False, 3)],
+    )
+    def test_standalone_potential_resets_every_tick(
+        self, auto_reset, expected_duration
+    ):
+        linear = nn.Linear(3, 2)
+        graph = compile_to_paiir(
+            linear.eval(),
+            torch.zeros(1, 3),
+            input_formats={"InputNode_0": (DataSign.SIGNED, DataWidth.WIDTH_8BIT)},
+            timesteps=3,
+            auto_reset=auto_reset,
+        )
+        node = next(
+            node for node in graph.nodes.values() if isinstance(node, StandaloneCompOp)
+        )
+
+        assert node.core_params.tick_duration == expected_duration
+        assert node.core_params.tick_initial == (3 if auto_reset else 0)
+        assert node.neu_params.reset_mode == RM.MODE_NORMAL
+        assert node.neu_params.reset_v == 0
+        assert node.neu_params.thres_neg_mode == ThresholdNegMode.FIRE
+        assert node.neu_params.thres_pos_mode == ThresholdPosMode.FIRE
+        assert node.neu_params.thres_neg == 0
+        assert node.neu_params.thres_pos == 0
+
+        neuron = CoreNeuronV25(
+            reset_mode=node.neu_params.reset_mode,
+            reset_v=node.neu_params.reset_v,
+            thres_neg_mode=node.neu_params.thres_neg_mode,
+            thres_pos_mode=node.neu_params.thres_pos_mode,
+            thres_neg=node.neu_params.thres_neg,
+            thres_pos=node.neu_params.thres_pos,
+        ).eval()
+        neuron(torch.tensor([[5.0, -5.0]]))
+        assert torch.equal(neuron.v, torch.zeros(1, 2))
+        neuron(torch.tensor([[-2.0, 2.0]]))
+        assert torch.equal(neuron.v, torch.zeros(1, 2))
 
     @pytest.mark.parametrize("timesteps", [0, -1], ids=["zero", "negative"])
     def test_invalid_timesteps_raises(self, timesteps):
