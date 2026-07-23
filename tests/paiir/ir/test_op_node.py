@@ -260,6 +260,26 @@ class TestWeights:
         op.signal_semantics.output_domain = SignalDomain.POTENTIAL
         assert op.src_params()[0].output_type == OutputType.POTENTIAL
 
+    @pytest.mark.parametrize("comp", [nn.Linear(4, 2), nn.Conv2d(1, 2, 1)])
+    def test_standalone_comp_preserves_current_potential(self, comp):
+        params, _ = StandaloneCompOp(comp).src_params()
+
+        assert params.reset_mode == RM.MODE_NONRESET
+        assert params.thres_neg_mode == ThresholdNegMode.FIRE
+        assert params.thres_pos_mode == ThresholdPosMode.FIRE
+        assert params.thres_neg == 0
+        assert params.thres_pos == 0
+
+        neuron = CoreNeuronV25(
+            reset_mode=params.reset_mode,
+            thres_neg_mode=params.thres_neg_mode,
+            thres_pos_mode=params.thres_pos_mode,
+            thres_neg=params.thres_neg,
+            thres_pos=params.thres_pos,
+        ).eval()
+        neuron(torch.tensor([[5.0, -5.0]]))
+        assert torch.equal(neuron.v, torch.tensor([[5.0, -5.0]]))
+
     def test_add_op_returns_none(self):
         op = PotentialAddOp(op_signs=(1, -1))
         assert op.weights is None
