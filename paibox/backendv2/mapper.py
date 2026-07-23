@@ -458,14 +458,14 @@ class Mapper:
         self.route_scope = get_route_scope(target_board)
         self.timesteps = self._resolve_timesteps(pai_graph, timesteps)
 
-        # determine raw_neus in routing groups, other properties remain unset
-        self.generate_routing_groups(pai_graph)
-
         for node in pai_graph.nodes.values():
             if auto_reset is not None and isinstance(node, OfflineCoreOp):
                 node.core_params.tick_duration = 0 if auto_reset else self.timesteps
                 node.core_params.tick_initial = self.timesteps if auto_reset else 0
                 node.core_params.validate_tick_params()
+
+        # determine raw_neus in routing groups, other properties remain unset
+        self.generate_routing_groups(pai_graph)
 
         all_groups: list[RoutingGroup | InputGroup | OutputGroup | RemapGroup] = []
         all_groups.extend(self.input_groups)
