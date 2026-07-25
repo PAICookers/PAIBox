@@ -2,7 +2,12 @@ import copy
 
 import pytest
 import torch
-from paicorelib import RM, LeakMultiMode, ThresholdPosMode
+from paicorelib import (
+    RM,
+    LeakMultiComparisonOrder,
+    LeakMultiMode,
+    ThresholdPosMode,
+)
 from spikingjelly.activation_based import functional
 from spikingjelly.activation_based import neuron as sj_neuron
 from torch import nn
@@ -113,6 +118,22 @@ class TestIFNodeV25:
         assert n3.init_v == 0.0
 
 
+class TestCoreNeuronV25MultiplicativeLeak:
+    def test_disabled_shift_uses_direct_shift(self):
+        neuron = CoreNeuronV25(
+            reset_mode=RM.MODE_NONRESET,
+            thres_pos=100,
+            init_v=8,
+            leak_multi_sequence=LeakMultiComparisonOrder.AFTER_COMPARE,
+            leak_multi_mode=LeakMultiMode.DISABLE,
+            leak_tau_shift=-2,
+        )
+
+        neuron(torch.zeros((1, 1), dtype=torch.int64))
+
+        assert neuron.v.item() == 2
+
+
 class TestLIFNodeV25:
     def test_tau_must_gt_1(self):
         """tau <= 1 raises ValueError."""
@@ -166,6 +187,20 @@ class TestLIFNodeV25:
         # decay_input=False: v = 0 + 4 = 4
         # leak: v - (v>>1) = 4 - 2 = 2
         assert n.v.item() == 2
+
+    def test_zero_reset_still_uses_multiplicative_leak(self):
+        """A zero reset does not turn a LIF neuron into a raw-shift neuron."""
+        paicore = LIFNodeV25(
+            tau=4.0, decay_input=False, v_threshold=3.0, v_reset=0.0
+        ).eval()
+        reference = sj_neuron.LIFNode(
+            tau=4.0, decay_input=False, v_threshold=3.0, v_reset=0.0
+        ).eval()
+        inputs = torch.tensor([2.0, 2.0])
+
+        assert paicore.leak_multi_mode == LeakMultiMode.ENABLE
+        assert [paicore(x.reshape(1)).item() for x in inputs] == [0, 1]
+        assert [reference(x.reshape(1)).item() for x in inputs] == [0, 1]
 
     def test_init_v_matches_v_reset(self):
         """Initial membrane potential matches v_reset (SpikingJelly convention)."""

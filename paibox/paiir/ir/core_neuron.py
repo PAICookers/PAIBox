@@ -480,12 +480,10 @@ class CoreNeuronV25(MemoryModule):
             return v >> (-self.leak_tau)
 
     def _multiplicative_leak(self) -> Tensor:
-        """Multiplicative leak: ``v -= shift(v - offset)``."""
+        """Apply the V2.5 leak mode selected by the neuron register."""
         if self.leak_multi_mode == LeakMultiMode.ENABLE:
             return self.v - self._apply_tau_shift(self.v - self.reset_v)
-        if self.leak_tau == 0:
-            return self.v
-        return self.v - self._apply_tau_shift(self.v)
+        return self._apply_tau_shift(self.v)
 
     def _validate_vector_dynamics_shapes(self) -> None:
         if (
@@ -744,18 +742,13 @@ class LIFNodeV25(CoreNeuronV25):
             raise ValueError(f"tau must be > 1, got {tau}")
 
         reset_v, reset_mode = _resolve_reset(v_reset)
-        has_nonzero_reset = (
-            torch.any(reset_v != 0).item() if torch.is_tensor(reset_v) else reset_v != 0
-        )
-        leak_multi_mode = LeakMultiMode(has_nonzero_reset)
-
         super().__init__(
             reset_mode=reset_mode,
             reset_v=reset_v,
             thres_pos=v_threshold,
             tau=tau,
             leak_multi_input=decay_input,
-            leak_multi_mode=leak_multi_mode,
+            leak_multi_mode=LeakMultiMode.ENABLE,
             leak_multi_sequence=LeakMultiComparisonOrder.AFTER_COMPARE,
             init_v=reset_v,  # Match SpikingJelly: init_v = v_reset
             surrogate_function=surrogate_function,

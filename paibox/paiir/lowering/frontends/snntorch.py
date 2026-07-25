@@ -153,11 +153,11 @@ def _beta_to_hardware(
 
     ``beta=0`` maps exactly to complete leakage (multi-leak enabled, shift 0),
     and ``beta=1`` maps exactly to IF behavior (multi-leak disabled, shift 0).
-    Each ``0 < beta < 1`` is approximated by the nearest hardware value
-    ``1 - 2**-k`` for ``k`` in ``[1, 32]``; ties select the smaller ``k`` and
-    therefore the stronger leak. The return value contains mode, signed shift,
-    equivalent tau, the number of approximated elements, and maximum absolute
-    beta error.
+    Each ``0 < beta < 1`` is approximated by the nearest hardware value from
+    the direct-shift and retention grids, ``2**-k`` and ``1 - 2**-k`` for
+    ``k`` in ``[1, 32]``. A tie selects the retention encoding. The return
+    value contains mode, signed shift, equivalent tau, the number of
+    approximated elements, and maximum absolute beta error.
     """
     raw_value = _snapshot_numeric(source_op.attributes.raw("beta"))
     beta = torch.as_tensor(raw_value, dtype=torch.float64)
@@ -171,15 +171,27 @@ def _beta_to_hardware(
     approximated_count = 0
     max_error = 0.0
     if torch.any(interior).item():
-        grid = 1.0 - torch.pow(
-            torch.tensor(2, dtype=torch.float64),
-            -torch.arange(1, 33, dtype=torch.float64),
+        exponents = torch.arange(1, 33, dtype=torch.int64)
+        shifts_grid = -exponents
+        retention_grid = 1.0 - torch.pow(
+            torch.tensor(2, dtype=torch.float64), -exponents.to(torch.float64)
         )
+        direct_grid = torch.pow(
+            torch.tensor(2, dtype=torch.float64), -exponents.to(torch.float64)
+        )
+        grid = torch.cat((retention_grid, direct_grid))
+        grid_modes = torch.cat(
+            (
+                torch.full_like(exponents, int(LeakMultiMode.ENABLE)),
+                torch.full_like(exponents, int(LeakMultiMode.DISABLE)),
+            )
+        )
+        grid_shifts = torch.cat((shifts_grid, shifts_grid))
         distances = torch.abs(beta[interior, None] - grid[None, :])
-        # argmin returns the first match, so midpoint ties select smaller k.
+        # argmin retains the first match, preferring retention on ties.
         grid_indices = torch.argmin(distances, dim=1)
-        exponents = grid_indices + 1
-        shifts[interior] = -exponents
+        modes[interior] = grid_modes[grid_indices]
+        shifts[interior] = grid_shifts[grid_indices]
         errors = distances.gather(1, grid_indices[:, None]).squeeze(1)
         approximated_count = int(torch.count_nonzero(errors).item())
         max_error = float(errors.max().item())

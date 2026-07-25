@@ -1,7 +1,13 @@
 import numpy as np
 import pytest
 import torch
-from paicorelib import RM, DataSign, DataWidth, LeakMultiMode
+from paicorelib import (
+    RM,
+    DataSign,
+    DataWidth,
+    LeakMultiComparisonOrder,
+    LeakMultiMode,
+)
 from torch import nn
 
 from paibox.backendv2 import Mapper
@@ -128,10 +134,26 @@ def test_vector_beta_lowers_to_per_neuron_mode_and_shift():
         act = _lowered_leaky_act(_leaky(beta=beta, threshold=threshold))
 
     assert type(act) is CoreNeuronV25
-    assert torch.equal(act.leak_multi_mode, torch.tensor([1, 0, 0, 0, 1, 0, 0, 0]))
+    assert torch.equal(act.leak_multi_mode, torch.tensor([1, 1, 1, 0, 1, 1, 1, 0]))
     assert torch.equal(act.leak_tau, torch.tensor([0, -1, -2, 0] * 2))
+    assert act.leak_multi_sequence == LeakMultiComparisonOrder.AFTER_COMPARE
     assert torch.equal(act.thres_pos, torch.arange(2, 10))
     assert act.has_mixed_dynamics
+
+
+@pytest.mark.parametrize("beta", [0.5, 0.75])
+def test_exact_hardware_beta_matches_snntorch_spikes(beta):
+    source = _leaky(beta=beta, reset_mechanism="none", threshold=2.0)
+    act = _lowered_leaky_act(
+        _leaky(beta=beta, reset_mechanism="none", threshold=2.0)
+    ).eval()
+    inputs = [torch.full((1, 8), 2.0) for _ in range(3)]
+
+    source_spikes = [source(x).to(torch.int8) for x in inputs]
+    paicore_spikes = [act(x).to(torch.int8) for x in inputs]
+
+    assert act.leak_multi_sequence == LeakMultiComparisonOrder.AFTER_COMPARE
+    assert torch.equal(torch.stack(paicore_spikes), torch.stack(source_spikes))
 
 
 def test_all_beta_zero_uses_beta_zero_node():
@@ -155,7 +177,7 @@ def test_non_grid_beta_uses_nearest_positive_hardware_beta():
         )
 
     assert torch.equal(act.leak_multi_mode, torch.zeros(8, dtype=torch.int64))
-    assert torch.equal(act.leak_tau, torch.full((8,), -1, dtype=torch.int64))
+    assert torch.equal(act.leak_tau, torch.full((8,), -3, dtype=torch.int64))
 
 
 def test_learning_metadata_does_not_affect_current_parameter_values():
@@ -412,8 +434,8 @@ def test_linear_leaky_compiles_and_exports_with_vector_neuron_attrs(tmp_path):
     assert [item.threshold_pos for item in attrs] == [2, 3, 4, 5]
     assert [item.leak_multi_mode for item in attrs] == [
         LeakMultiMode.ENABLE,
-        LeakMultiMode.DISABLE,
-        LeakMultiMode.DISABLE,
+        LeakMultiMode.ENABLE,
+        LeakMultiMode.ENABLE,
         LeakMultiMode.DISABLE,
     ]
     assert [item.leak_tau for item in attrs] == [0, -1, -2, 0]
