@@ -286,13 +286,10 @@ def set_global_signal(
                 f"{[global_signal_direction_name(d) + f':{d}' for d in recv_dirs]}"
             )
 
-    added_points = set(added)
     for p, cp in cp_dict.items():
         send_directions = send_info.get(p, [])
         recv_directions = receive_info.get(p, [])
-        global_send = global_signal_direction_mask(
-            send_directions, include_local=p not in added_points
-        )
+        global_send = global_signal_direction_mask(send_directions, include_local=True)
         global_receive = global_signal_direction_mask(recv_directions)
         cp.auto_core_config.global_send = global_send
         cp.auto_core_config.global_receive = global_receive
