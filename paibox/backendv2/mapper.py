@@ -234,9 +234,9 @@ class Mapper:
         # Z/X/Y decomposition so DATA and completion use the same CPU port.
         output_route_offsets = output_route_plan.output_route_offsets()
         for rg in self.routing_groups:
-            rg.set_detail_dest(output_route_offsets)
+            rg.set_detail_dest(output_route_offsets, self.route_scope)
         for in_grp in self.input_groups:
-            in_grp.set_detail_dest(self.route_scope.default_cpu.coord)
+            in_grp.set_detail_dest(self.route_scope.default_cpu.coord, self.route_scope)
 
     def set_auto_core_config(
         self, control_root_coord: CoordXY, control_offset: CoordZXYOffset
