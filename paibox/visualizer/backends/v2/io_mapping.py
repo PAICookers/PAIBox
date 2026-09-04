@@ -40,7 +40,10 @@ INPUT_BUFFER_WIDTH = 512
 
 
 def build_io_view(
-    artifacts: CompileArtifacts | None, validation: list[ValidationEntry]
+    artifacts: CompileArtifacts | None,
+    validation: list[ValidationEntry],
+    *,
+    include_entries: bool = True,
 ) -> IoView:
     """Build static IO views from protobuf mapping metadata.
 
@@ -50,6 +53,8 @@ def build_io_view(
     """
     if artifacts is None:
         return IoView()
+    if not include_entries:
+        return _build_io_summary_view(artifacts, validation)
 
     tensors: list[IoTensorView] = []
     input_entries: list[IoEntryView] = []
@@ -258,6 +263,179 @@ def build_io_view(
         input_entries=input_entries,
         output_entries=output_entries,
         input_buffer_spans=input_buffer_spans,
+    )
+
+
+def _build_io_summary_view(
+    artifacts: CompileArtifacts, validation: list[ValidationEntry]
+) -> IoView:
+    """Build only the small IO summary needed before a user selects a view."""
+    tensors: list[IoTensorView] = []
+    core_inputs: dict[tuple[int, int, int], list[Any]] = defaultdict(lambda: [0, set()])
+    route_audits: dict[tuple[int, ...], RouteAuditResult] = {}
+    duplicate_slots: dict[tuple[int, int, int, int, int], tuple[str, int]] = {}
+    route_scope = get_route_scope("single")
+
+    for thread in artifacts.io_mapping.threads:
+        thread_id = thread.thread_id
+        for mapping in thread.input_mappings.items:
+            shape = list(mapping.shape.size)
+            plane = _tensor_plane(shape)
+            dtype = _input_dtype(mapping)
+            slice_keys: set[str] = set()
+            expanded_count = 0
+            for entry in mapping.entries:
+                elem_idx = entry.elem_idx
+                if _validate_elem_idx(
+                    validation, "input", thread_id, mapping.name, elem_idx, shape
+                ):
+                    continue
+                coord = _tensor_coord(elem_idx, shape)
+                slice_keys.add(_slice_key(coord, plane))
+                offset = CoordZXYOffset(
+                    entry.core_offset.xy, entry.core_offset.x, entry.core_offset.y
+                )
+                copy_config = AERPacketZXYCopy(
+                    entry.copy_count.xy, entry.copy_count.x, entry.copy_count.y
+                )
+                route_key = (
+                    offset.z,
+                    offset.x,
+                    offset.y,
+                    copy_config.z,
+                    copy_config.x,
+                    copy_config.y,
+                )
+                audit = route_audits.get(route_key)
+                if audit is None:
+                    audit = route_scope.audit_aer_packet(
+                        CoordXY(0, 0), offset, copy_config
+                    )
+                    route_audits[route_key] = audit
+                if not audit.valid:
+                    validation.append(
+                        ValidationEntry(
+                            severity="error",
+                            code="input_aer_route_invalid",
+                            message=(
+                                f"input tensor {mapping.name} thread {thread_id} "
+                                f"elem_idx {elem_idx} has an illegal AER route: "
+                                f"{audit.failure.message if audit.failure else 'unknown audit failure'}"
+                            ),
+                            chip_id=CHIP_ID,
+                            x=audit.actual_local[0].x if audit.actual_local else None,
+                            y=audit.actual_local[0].y if audit.actual_local else None,
+                        )
+                    )
+                base_target = route_coord_path(CoordXY(0, 0), offset)[-1]
+                targets = expand_packet_targets(base_target, copy_config)
+                expanded_count += len(targets)
+                for target in targets:
+                    _validate_input_target(
+                        validation,
+                        thread_id,
+                        mapping.name,
+                        elem_idx,
+                        target.x,
+                        target.y,
+                        entry.tick_relative,
+                        entry.addr_axon,
+                    )
+                    key = (CHIP_ID, target.x, target.y)
+                    core_inputs[key][0] += 1
+                    core_inputs[key][1].add(mapping.name)
+                    slot = (
+                        CHIP_ID,
+                        target.x,
+                        target.y,
+                        entry.tick_relative,
+                        entry.addr_axon,
+                    )
+                    previous = duplicate_slots.get(slot)
+                    if previous is not None:
+                        validation.append(
+                            ValidationEntry(
+                                severity="error",
+                                code="input_buffer_slot_duplicate",
+                                message=(
+                                    f"input buffer slot ({target.x},{target.y}) row "
+                                    f"{entry.tick_relative} bit {entry.addr_axon} receives both "
+                                    f"{previous[0]}[{previous[1]}] and "
+                                    f"{mapping.name}[{elem_idx}]"
+                                ),
+                                chip_id=CHIP_ID,
+                                x=target.x,
+                                y=target.y,
+                            )
+                        )
+                    else:
+                        duplicate_slots[slot] = (mapping.name, elem_idx)
+            tensors.append(
+                IoTensorView(
+                    direction="input",
+                    thread_id=thread_id,
+                    name=mapping.name,
+                    shape=shape,
+                    dim_names=_dim_names(shape),
+                    bit_width=mapping.bit_width,
+                    dtype=dtype,
+                    entry_count=len(mapping.entries),
+                    expanded_entry_count=expanded_count,
+                    plane=plane,
+                    slice_keys=sorted(slice_keys),
+                )
+            )
+
+        output_target_lcn = (
+            thread.output_mappings.target_lcn
+            if thread.output_mappings.HasField("target_lcn")
+            else None
+        )
+        for mapping in thread.output_mappings.items:
+            shape = list(mapping.shape.size)
+            plane = _tensor_plane(shape)
+            output_kind = OutputTensorMapping.OutputKind.Name(mapping.kind)
+            dtype = _output_dtype(mapping)
+            slice_keys: set[str] = set()
+            valid_count = 0
+            for entry in mapping.entries:
+                if _validate_elem_idx(
+                    validation, "output", thread_id, mapping.name, entry.elem_idx, shape
+                ):
+                    continue
+                valid_count += 1
+                slice_keys.add(_slice_key(_tensor_coord(entry.elem_idx, shape), plane))
+            tensors.append(
+                IoTensorView(
+                    direction="output",
+                    thread_id=thread_id,
+                    name=mapping.name,
+                    shape=shape,
+                    dim_names=_dim_names(shape),
+                    bit_width=mapping.bit_width,
+                    dtype=dtype,
+                    output_kind=output_kind,
+                    target_lcn=output_target_lcn,
+                    entry_count=len(mapping.entries),
+                    expanded_entry_count=valid_count,
+                    plane=plane,
+                    slice_keys=sorted(slice_keys),
+                )
+            )
+
+    core_summaries = []
+    for (chip_id, x, y), values in sorted(core_inputs.items()):
+        core_summaries.append(
+            IoCoreSummary(
+                chip_id=chip_id,
+                x=x,
+                y=y,
+                input_count=values[0],
+                input_tensors=sorted(values[1]),
+            )
+        )
+    return IoView(
+        available=bool(tensors), tensors=tensors, core_summaries=core_summaries
     )
 
 
