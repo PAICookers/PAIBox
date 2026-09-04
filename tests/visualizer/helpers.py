@@ -19,9 +19,7 @@ from paibox.backendv2.generated.proto.compile_artifacts_pb2 import (
 def endpoint_map(app: object) -> dict[str, object]:
     """Return registered endpoints keyed by path for direct API tests."""
     return {
-        route.path: route.endpoint
-        for route in app.routes
-        if hasattr(route, "endpoint")
+        route.path: route.endpoint for route in app.routes if hasattr(route, "endpoint")
     }
 
 

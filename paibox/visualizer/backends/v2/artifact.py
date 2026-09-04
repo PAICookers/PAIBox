@@ -177,12 +177,12 @@ class _ArtifactLoadContext:
                             else CoreConfigView()
                         ),
                         lut=decoded.lut if decoded is not None else LutView(),
-                        neurons=decoded.neurons
-                        if decoded is not None
-                        else NeuronView(),
-                        weights=decoded.weights
-                        if decoded is not None
-                        else WeightView(),
+                        neurons=(
+                            decoded.neurons if decoded is not None else NeuronView()
+                        ),
+                        weights=(
+                            decoded.weights if decoded is not None else WeightView()
+                        ),
                         raw_frames=decoded.raw_frames if decoded is not None else [],
                         validation=core_validation,
                     )

@@ -95,16 +95,22 @@ def main() -> int:
     }
     start = time.perf_counter()
     endpoints["/api/cores/{chip_id}/{x}/{y}"](0, core[0], core[1])
-    print(f"core_seconds={time.perf_counter() - start:.3f} peak_rss_mib={_rss_mib():.1f}")
+    print(
+        f"core_seconds={time.perf_counter() - start:.3f} peak_rss_mib={_rss_mib():.1f}"
+    )
 
     if args.load_io:
         start = time.perf_counter()
         endpoints["/api/io/cores/{chip_id}/{x}/{y}"](0, core[0], core[1])
-        print(f"io_seconds={time.perf_counter() - start:.3f} peak_rss_mib={_rss_mib():.1f}")
+        print(
+            f"io_seconds={time.perf_counter() - start:.3f} peak_rss_mib={_rss_mib():.1f}"
+        )
 
     if tracer is not None:
         current, peak = tracer.get_traced_memory()
-        print(f"tracemalloc_current_mib={current / 2**20:.1f} peak_mib={peak / 2**20:.1f}")
+        print(
+            f"tracemalloc_current_mib={current / 2**20:.1f} peak_mib={peak / 2**20:.1f}"
+        )
         tracer.stop()
     del app
     gc.collect()

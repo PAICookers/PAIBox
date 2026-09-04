@@ -103,9 +103,7 @@ def test_load_pb_supports_both_word_orders(tmp_path: Path, word_order: str) -> N
         tmp_path / f"{word_order}.pb",
         frames,
         word_order=(
-            ConfigFrames.HIGH_FIRST
-            if word_order == "high"
-            else ConfigFrames.LOW_FIRST
+            ConfigFrames.HIGH_FIRST if word_order == "high" else ConfigFrames.LOW_FIRST
         ),
     )
 
