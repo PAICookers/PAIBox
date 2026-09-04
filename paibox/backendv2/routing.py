@@ -9,6 +9,7 @@ from paicorelib import (
     LCN_EX,
     AERPacketZXYCopy,
     CoordXY,
+    CoordXYLike,
     CoordZXYOffset,
     CSCAccelerateMode,
     FoldType,
@@ -21,6 +22,7 @@ from paicorelib import (
     OfflineNeuRegLimV2,
     WeightCompressType,
     find_coordxy_shortest_path,
+    to_coordxy,
 )
 from rich.progress import track
 
@@ -49,9 +51,11 @@ from .op_node import (
     SourceElem,
     SourceNode,
 )
+from .route_scope import RouteScope, get_route_scope
 from .weight import Weight
 
 FANIN_BASE = 512
+OutputRouteOffsets = dict[tuple[CoordXY, CoordXY], CoordZXYOffset]
 FOLD_WEIGHT_SKEW_MAX = OfflineNeuRegLimV2.FOLD_SKEW_MAX
 FOLD_AXON_MAX = OfflineNeuRegLimV2.FOLD_AXON_MAX
 
@@ -204,11 +208,11 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
     def get_detail_dest(
         self,
         elems: list[SOURCE_ELEM],
-        self_coord: CoordXY = CoordXY(0, 0),
-        output_route_offsets: (
-            dict[tuple[CoordXY, CoordXY], CoordZXYOffset] | None
-        ) = None,
+        self_coord: CoordXYLike = CoordXY(0, 0),
+        output_route_offsets: OutputRouteOffsets | None = None,
+        route_scope: RouteScope | None = None,
     ) -> OfflineNeuDestInfoV2:
+        self_coord = to_coordxy(self_coord)
         dest_routing_group = self.get_dest(elems[0])
         axon_elem = self.get_axon(elems[0])
         if isinstance(dest_routing_group, RoutingGroup):
@@ -242,6 +246,14 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
 
         if coord_offset is None:
             coord_offset, _ = find_coordxy_shortest_path(dest_coord, start=self_coord)
+
+        scope = route_scope or get_route_scope("single")
+        audit = scope.audit_aer_packet(self_coord, coord_offset, coord_copy)
+        if not audit.valid:
+            raise ValueError(
+                f"Illegal DATA route from {self_coord} to {dest_coord}: "
+                f"{audit.failure.message if audit.failure else 'unknown audit failure'}."
+            )
 
         return OfflineNeuDestInfoV2(
             tick_relative=tick_relative,
@@ -902,7 +914,9 @@ class RoutingGroup(
         self._multicast_config = copy_config
 
     def set_detail_dest(
-        self, output_route_offsets: dict[tuple[CoordXY, CoordXY], CoordZXYOffset]
+        self,
+        output_route_offsets: OutputRouteOffsets,
+        route_scope: RouteScope | None = None,
     ) -> None:
         for core_placement in track(
             self.core_placements,
@@ -914,7 +928,10 @@ class RoutingGroup(
                 # for folded neuron placement, it may contain multiple raw_neus
                 # but we only need to set dest_info for the first raw_neu
                 dest_info = self.get_detail_dest(
-                    neu_placement.raw_neus, core_placement.coord, output_route_offsets
+                    neu_placement.raw_neus,
+                    core_placement.coord,
+                    output_route_offsets,
+                    route_scope,
                 )
                 neu_placement.dest_info = dest_info
 
@@ -1012,9 +1029,15 @@ class InputGroup(Group, SourceGroup[InputElem, InNode]):
     def __str__(self) -> str:
         return self.info()
 
-    def set_detail_dest(self, input_coord: CoordXY = CoordXY(0, 0)) -> None:
+    def set_detail_dest(
+        self,
+        input_coord: CoordXYLike = CoordXY(0, 0),
+        route_scope: RouteScope | None = None,
+    ) -> None:
         for elem in self.raw_elems:
-            dest_info = self.get_detail_dest([elem], input_coord)
+            dest_info = self.get_detail_dest(
+                [elem], input_coord, route_scope=route_scope
+            )
             self.dest_infos[elem] = dest_info
             dest_rg = self.get_dest(elem)
             self.dest_lcn[elem] = dest_rg.lcn

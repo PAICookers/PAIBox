@@ -4,16 +4,18 @@ from dataclasses import replace
 from math import prod
 from typing import Any
 
-from paicorelib.framelib.parser_v2 import (
-    decode_aer_route_fields,
-    expand_aer_destinations,
-)
+from paicorelib import AERPacketZXYCopy, CoordXY, CoordZXYOffset, route_coord_path
 from paicorelib.framelib.utils import LCN_TO_TS_AXON_WIDTHS
 
 from paibox.backendv2.generated.proto.compile_artifacts_pb2 import (
     CompileArtifacts,
     DataType,
     OutputTensorMapping,
+)
+from paibox.backendv2.route_scope import (
+    RouteAuditResult,
+    expand_packet_targets,
+    get_route_scope,
 )
 
 from ...model import (
@@ -52,6 +54,8 @@ def build_io_view(
     tensors: list[IoTensorView] = []
     input_entries: list[IoEntryView] = []
     output_entries: list[IoEntryView] = []
+    route_audits: dict[tuple[int, ...], RouteAuditResult] = {}
+    route_scope = get_route_scope("single")
 
     for thread in artifacts.io_mapping.threads:
         thread_id = thread.thread_id
@@ -79,17 +83,52 @@ def build_io_view(
                 slice_key = _slice_key(coord, plane)
                 full_addr = tick_relative * FANIN_BASE + addr_axon
                 work_timestep, work_axon = _split_input_address(target_lcn, full_addr)
-                for copy_offset_x, copy_offset_y in _copy_offsets(
-                    entry.copy_count.xy,
-                    entry.copy_count.x,
-                    entry.copy_count.y,
-                ):
-                    target_x = (
-                        entry.core_offset.xy + entry.core_offset.x + copy_offset_x
+                # Artifact protobuf fields are already signed backend values;
+                # sign-magnitude decoding is only for raw frame bit fields.
+                offset = CoordZXYOffset(
+                    entry.core_offset.xy, entry.core_offset.x, entry.core_offset.y
+                )
+                copy_config = AERPacketZXYCopy(
+                    entry.copy_count.xy, entry.copy_count.x, entry.copy_count.y
+                )
+                route_key = (
+                    offset.z,
+                    offset.x,
+                    offset.y,
+                    copy_config.z,
+                    copy_config.x,
+                    copy_config.y,
+                )
+                audit = route_audits.get(route_key)
+                if audit is None:
+                    # Audit each distinct packet once. Target entries below use
+                    # the expected copy expansion so an invalid packet's
+                    # accidental online footholds are never shown as targets.
+                    audit = route_scope.audit_aer_packet(
+                        CoordXY(0, 0), offset, copy_config
                     )
-                    target_y = (
-                        entry.core_offset.xy + entry.core_offset.y + copy_offset_y
+                    route_audits[route_key] = audit
+                if not audit.valid:
+                    validation.append(
+                        ValidationEntry(
+                            severity="error",
+                            code="input_aer_route_invalid",
+                            message=(
+                                f"input tensor {mapping.name} thread {thread_id} "
+                                f"elem_idx {elem_idx} has an illegal AER route: "
+                                f"{audit.failure.message if audit.failure else 'unknown audit failure'}"
+                            ),
+                            chip_id=CHIP_ID,
+                            x=audit.actual_local[0].x if audit.actual_local else None,
+                            y=audit.actual_local[0].y if audit.actual_local else None,
+                        )
                     )
+                base_target = route_coord_path(CoordXY(0, 0), offset)[-1]
+                for target in expand_packet_targets(base_target, copy_config):
+                    copy_offset_x = target.x - base_target.x
+                    copy_offset_y = target.y - base_target.y
+                    target_x = target.x
+                    target_y = target.y
                     _validate_input_target(
                         validation,
                         thread_id,
@@ -764,8 +803,3 @@ def _min_optional(values) -> int | None:
 def _max_optional(values) -> int | None:
     filtered = [value for value in values if value is not None]
     return max(filtered) if filtered else None
-
-
-def _copy_offsets(copy_z: int, copy_x: int, copy_y: int) -> tuple[tuple[int, int], ...]:
-    route = decode_aer_route_fields(0, 0, 0, copy_z, copy_x, copy_y)
-    return tuple((coord.x, coord.y) for coord in expand_aer_destinations((0, 0), route))

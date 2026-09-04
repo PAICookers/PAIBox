@@ -1,12 +1,14 @@
 from collections import Counter
 from dataclasses import dataclass, replace
 from enum import Enum
-from functools import lru_cache
 from typing import Literal
 
 from paicorelib import (
     LCN_EX,
     AddPotentialMode,
+    AERPacketZXYCopy,
+    CoordXYLike,
+    CoordZXYOffset,
     CSCAccelerateMode,
     DataSign,
     DataWidth,
@@ -14,6 +16,8 @@ from paicorelib import (
     SNNMode,
     ZeroOutputMode,
     global_signal_direction_names,
+    route_coord_path,
+    to_coordxy,
 )
 from paicorelib.framelib.frame_defs import OfflineConfigFrame3FormatV2
 from paicorelib.framelib.parser_v2 import (
@@ -42,6 +46,7 @@ from paibox.backendv2.compute_pressure import (
     compute_weight_pressure,
     csc_weight_slots_per_sram,
 )
+from paibox.backendv2.route_scope import expand_packet_targets, get_route_scope
 
 from ...model import (
     CoreConfigView,
@@ -64,7 +69,7 @@ SRAM_WORDS = 2
 SRAM_RECORD_BYTES = 16
 WEIGHT_STORAGE_PREVIEW_LIMIT = 256
 
-_RouteKind = Literal["offset", "copy"]
+_RouteKind = Literal["offset", "copy", "copy_local"]
 _RouteAxis = Literal["z", "x", "y"]
 
 
@@ -87,15 +92,6 @@ class _RouteMove:
     y: int
     target_x: int
     target_y: int
-
-
-@dataclass(frozen=True)
-class _RouteState:
-    x: int
-    y: int
-    copy_z: int
-    copy_x: int
-    copy_y: int
 
 
 @dataclass(frozen=True)
@@ -481,6 +477,8 @@ def validate_neuron_destinations(
         )
         if move is None:
             move = _first_copy_destination_violation(record, grid_width, grid_height)
+        if move is None:
+            move = _first_local_delivery_violation(record, core_coord)
         if move is not None:
             _raise_neuron_route_error(
                 record,
@@ -496,7 +494,7 @@ def validate_neuron_destinations(
 
 
 def attach_neuron_destinations(
-    neurons: NeuronView, core_coord: tuple[int, int]
+    neurons: NeuronView, core_coord: CoordXYLike
 ) -> NeuronView:
     records = [
         replace(record, destinations=decode_neuron_destinations(record, core_coord))
@@ -506,23 +504,22 @@ def attach_neuron_destinations(
 
 
 def decode_neuron_destinations(
-    record: NeuronRecordView, core_coord: tuple[int, int]
+    record: NeuronRecordView, core_coord: CoordXYLike
 ) -> list[NeuronDestinationView]:
     """Expand one neuron's base route and multicast copy shape to destinations."""
     route = _route_fields(record)
-    source_x, source_y = core_coord
-    base_x = source_x + route.offset_z + route.offset_x
-    base_y = source_y + route.offset_z + route.offset_y
+    source = to_coordxy(core_coord)
+    offset = CoordZXYOffset(route.offset_z, route.offset_x, route.offset_y)
+    copy_config = AERPacketZXYCopy(route.copy_z, route.copy_x, route.copy_y)
+    base = route_coord_path(source, offset)[-1]
     return [
         NeuronDestinationView(
-            target_x=base_x + copy_offset_x,
-            target_y=base_y + copy_offset_y,
-            copy_offset_x=copy_offset_x,
-            copy_offset_y=copy_offset_y,
+            target_x=target.x,
+            target_y=target.y,
+            copy_offset_x=target.x - base.x,
+            copy_offset_y=target.y - base.y,
         )
-        for copy_offset_x, copy_offset_y in _copy_offsets(
-            route.copy_z, route.copy_x, route.copy_y
-        )
+        for target in expand_packet_targets(base, copy_config)
     ]
 
 
@@ -620,6 +617,31 @@ def _first_copy_destination_violation(
     return None
 
 
+def _first_local_delivery_violation(
+    record: NeuronRecordView, core_coord: CoordXYLike
+) -> _RouteMove | None:
+    """Translate the shared AER audit failure into visualizer diagnostics."""
+    route = _route_fields(record)
+    source = to_coordxy(core_coord)
+    offset = CoordZXYOffset(route.offset_z, route.offset_x, route.offset_y)
+    copy_config = AERPacketZXYCopy(route.copy_z, route.copy_x, route.copy_y)
+    base = route_coord_path(source, offset)[-1]
+    audit = get_route_scope("single").audit_aer_packet(source, offset, copy_config)
+    if audit.valid or audit.failure is None:
+        return None
+    coord = audit.failure.coord or base
+    kind = "copy_local" if audit.failure.stage != "path" else "offset"
+    return _RouteMove(
+        kind,
+        _copy_violation_axis(coord.x - base.x, coord.y - base.y),
+        1,
+        coord.x,
+        coord.y,
+        base.x,
+        base.y,
+    )
+
+
 def _first_axis_violation(
     x: int, y: int, axis: _RouteAxis, steps: int, grid_width: int, grid_height: int
 ) -> tuple[int, int, int] | None:
@@ -654,60 +676,6 @@ def _min_defined(current: int | None, candidate: int) -> int:
     if current is None:
         return candidate
     return min(current, candidate)
-
-
-@lru_cache(maxsize=128)
-def _copy_offsets(copy_z: int, copy_x: int, copy_y: int) -> tuple[tuple[int, int], ...]:
-    """Return ordered multicast offsets for one V2 copy shape.
-
-    Many neurons share identical copy fields. Caching avoids rebuilding the same
-    breadth-first expansion while preserving the ordered, deduplicated offsets
-    expected by the UI.
-    """
-    queue = [_RouteState(0, 0, copy_z, copy_x, copy_y)]
-    offsets: list[tuple[int, int]] = []
-    visited_offsets: set[tuple[int, int]] = set()
-    visited_states: set[_RouteState] = set()
-    cursor = 0
-    while cursor < len(queue):
-        state = queue[cursor]
-        cursor += 1
-        if state in visited_states:
-            continue
-        visited_states.add(state)
-        for foothold, copied in _walk_copy_state(state):
-            if foothold not in visited_offsets:
-                visited_offsets.add(foothold)
-                offsets.append(foothold)
-            queue.append(copied)
-    return tuple(offsets)
-
-
-def _walk_copy_state(
-    state: _RouteState,
-) -> list[tuple[tuple[int, int], _RouteState]]:
-    copied_states: list[tuple[tuple[int, int], _RouteState]] = []
-    copy_z = state.copy_z
-    copy_x = state.copy_x
-    copy_y = state.copy_y
-    while copy_z or copy_x or copy_y:
-        if copy_z:
-            dx, dy = _axis_unit("z", copy_z)
-            copy_z -= _sign(copy_z)
-        elif copy_x:
-            dx, dy = _axis_unit("x", copy_x)
-            copy_x -= _sign(copy_x)
-        else:
-            dx, dy = _axis_unit("y", copy_y)
-            copy_y -= _sign(copy_y)
-        copied_states.append(
-            (
-                (state.x, state.y),
-                _RouteState(state.x + dx, state.y + dy, copy_z, copy_x, copy_y),
-            )
-        )
-    copied_states.append(((state.x, state.y), state))
-    return copied_states
 
 
 def _copy_violation_axis(copy_offset_x: int, copy_offset_y: int) -> _RouteAxis:

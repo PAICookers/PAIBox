@@ -25,7 +25,11 @@ from paicorelib.neuron_defs import ResetMode
 
 from paibox.backendv2.compute_pressure import compute_weight_pressure
 from paibox.visualizer.backends.v2.errors import FrameDecodeError
-from paibox.visualizer.backends.v2.offline_v2 import decode_offline_core
+from paibox.visualizer.backends.v2.offline_v2 import (
+    decode_neuron_destinations,
+    decode_neurons,
+    decode_offline_core,
+)
 
 from ..helpers import make_core_frame
 
@@ -266,7 +270,7 @@ def test_folded_neuron_extra_vjt_records_match_backend_layout() -> None:
         "addr_axon": 12,
         "addr_core_xy": 0,
         "addr_core_x": 1,
-        "addr_core_y": -1,
+        "addr_core_y": 0,
         "addr_copy_xy": 0,
         "addr_copy_x": 0,
         "addr_copy_y": 0,
@@ -738,21 +742,21 @@ def test_neuron_destinations_expand_multicast_copy_targets() -> None:
     parsed = parse_frame_stream(np.concatenate([frame3, neuron]))
     core = parsed.cores[(3, 2)]
 
-    decoded = decode_offline_core(
-        {"neuron_number": len(neuron) // 2},
-        core.packages,
-        core_coord=(3, 2),
-        grid_width=9,
-        grid_height=9,
-    )
+    neurons = decode_neurons({"neuron_number": len(neuron) // 2}, core.packages)
+    destinations = decode_neuron_destinations(neurons.records[0], (3, 2))
 
     assert [
-        (destination.target_x, destination.target_y)
-        for destination in decoded.neurons.records[0].destinations
+        (destination.target_x, destination.target_y) for destination in destinations
     ] == [(4, 2), (5, 3)]
 
 
-def test_neuron_destination_decode_stays_lightweight() -> None:
+def test_neuron_destination_decode_stays_lightweight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_walk(*args: object, **kwargs: object) -> None:
+        raise AssertionError("target-only decode must not walk the complete packet")
+
+    monkeypatch.setattr("paibox.backendv2.route_scope.aer_packet_walk", fail_walk)
     offset = CoordZXYOffset(0, 3, 2)
     dest = {
         "tick_relative": 0,
@@ -783,19 +787,21 @@ def test_neuron_destination_decode_stays_lightweight() -> None:
     parsed = parse_frame_stream(np.concatenate([frame3, neuron]))
     core = parsed.cores[(3, 2)]
 
+    neurons = decode_neurons({"neuron_number": len(neuron) // 2}, core.packages)
     started = perf_counter()
     for _ in range(500):
-        decoded = decode_offline_core(
-            {"neuron_number": len(neuron) // 2},
-            core.packages,
-            core_coord=(3, 2),
-            grid_width=9,
-            grid_height=9,
-        )
+        destinations = decode_neuron_destinations(neurons.records[0], (3, 2))
     elapsed = perf_counter() - started
 
     assert [
-        (destination.target_x, destination.target_y)
-        for destination in decoded.neurons.records[0].destinations
-    ] == [(4, 2), (5, 3), (5, 2), (4, 3), (6, 3), (5, 4), (6, 4)]
+        (destination.target_x, destination.target_y) for destination in destinations
+    ] == [
+        (4, 2),
+        (5, 3),
+        (5, 2),
+        (4, 3),
+        (6, 3),
+        (5, 4),
+        (6, 4),
+    ]
     assert elapsed < 1.0

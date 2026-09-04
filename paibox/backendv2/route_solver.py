@@ -4,7 +4,7 @@ import itertools
 import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from functools import cache
+from functools import lru_cache
 
 from ortools.sat.python import cp_model
 from paicorelib import (
@@ -12,15 +12,24 @@ from paicorelib import (
     CoordXY,
     CoordXYLike,
     CoordXYOffset,
+    CoordZXYOffset,
     aer_packet_area,
     aer_packet_copy_offsets,
+    find_coordxy_shortest_path,
     to_coordxy,
 )
 
-from .route_scope import RouteScope, TargetBoard, get_route_scope
+from .route_scope import RouteAuditResult, RouteScope, TargetBoard, get_route_scope
 from .routing import InputGroup, OutputGroup, RoutingGroup
 
 __all__ = ["RouteSolver", "route_solve"]
+
+
+@lru_cache(maxsize=8192)
+def _shortest_offset(source: CoordXY, target: CoordXY) -> CoordZXYOffset:
+    """Cache the deterministic shortest Z/X/Y route between two coordinates."""
+    offset, _ = find_coordxy_shortest_path(target, start=source)
+    return offset
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +56,7 @@ class _Placement:
     center_y: int
 
 
-@cache
+@lru_cache(maxsize=256)
 def _copy_candidates(
     scope_name: TargetBoard,
 ) -> tuple[tuple[int, tuple[int, int, int]], ...]:
@@ -66,7 +75,7 @@ def _copy_candidates(
     return tuple(sorted(candidates, key=lambda item: (item[0], item[1])))
 
 
-@cache
+@lru_cache(maxsize=256)
 def _smallest_shapes_for_area(
     scope_name: TargetBoard, min_area: int
 ) -> tuple[RouteShape, ...]:
@@ -178,7 +187,6 @@ class RouteSolver:
         self.area_to_placements: list[list[int]] = []
         self.cx: list[cp_model.IntVar] = []
         self.cy: list[cp_model.IntVar] = []
-
         self._validate_inputs()
 
     def solve(self) -> tuple[list[AERPacketZXYCopy], list[list[CoordXY]]]:
@@ -201,6 +209,8 @@ class RouteSolver:
         self._add_uniqueness_constraints()
         if any(self.next_area_id.values()):
             self._add_successor_route_constraints()
+        if self.input_area_ids:
+            self._add_input_route_constraints()
         if not self.feasibility_only:
             # Feasibility mode needs only hard hardware legality. Centers and
             # distances are soft placement-quality terms, so building them would
@@ -366,56 +376,51 @@ class RouteSolver:
                 self._ban_invalid_successor_pairs(src_id, dst_id)
 
     def _ban_invalid_successor_pairs(self, src_id: int, dst_id: int) -> None:
-        """Forbid producer placements incompatible with each consumer shape.
+        """Forbid source/destination placement pairs with illegal DATA paths.
 
-        The hardware legality check depends on the producer coords and the
-        consumer AER copy offsets, not on the consumer base coordinate. Grouping
-        destination placements by copy shape therefore expresses the same logic
-        as pairwise forbidden placement tuples: when shape S is selected, every
-        producer placement that would expand outside the global route grid under
-        S must be false.
-
-        This deliberately uses a grouped `add_at_most_one` instead of
-        `add_forbidden_assignments`. OR-Tools expands negated table constraints
-        into a large SAT encoding on medium route cases; the grouped form keeps
-        the model Boolean-native and much smaller.
+        A destination copy shape is not sufficient to determine legality: the
+        destination base changes the core offset and therefore the point at
+        which each copy dimension is consumed. Pairwise Boolean exclusions keep
+        that hardware dependency explicit without expanding a CP-SAT table.
         """
-        dst_by_shape: dict[
-            tuple[int, int, int], tuple[list[int], tuple[CoordXYOffset, ...]]
-        ] = {}
         for dst_i in self.area_to_placements[dst_id]:
-            dst_shape = self.placements[dst_i].shape
-            shape_key = dst_shape.copy_config.to_tuple()
-            dst_placement_ids, _ = dst_by_shape.setdefault(
-                shape_key, ([], dst_shape.offsets)
-            )
-            dst_placement_ids.append(dst_i)
+            dst_placement = self.placements[dst_i]
+            for src_i in self.area_to_placements[src_id]:
+                src_placement = self.placements[src_i]
+                if self._successor_pair_valid(src_placement, dst_placement):
+                    continue
+                self.model.add_at_most_one([self.x[src_i], self.x[dst_i]])
 
-        for dst_placement_ids, dst_offsets in dst_by_shape.values():
-            invalid_src_xs = [
-                self.x[src_i]
-                for src_i in self.area_to_placements[src_id]
-                if not self._successor_pair_valid(
-                    self.placements[src_i].coords, dst_offsets
-                )
-            ]
-            if invalid_src_xs:
-                self.model.add_at_most_one(
-                    [
-                        *(self.x[dst_i] for dst_i in dst_placement_ids),
-                        *invalid_src_xs,
-                    ]
-                )
+    def _add_input_route_constraints(self) -> None:
+        """Disable input placements whose CPU ingress packet is not exact."""
+        source = self.scope.default_cpu.coord
+        for area_id in self.input_area_ids:
+            for placement_id in self.area_to_placements[area_id]:
+                placement = self.placements[placement_id]
+                if not self._input_placement_valid(source, placement):
+                    self.model.add(self.x[placement_id] == 0)
+
+    def _input_placement_valid(self, source: CoordXY, placement: _Placement) -> bool:
+        """Return whether CPU input reaches exactly one offline placement."""
+        offset = _shortest_offset(source, placement.coords[0])
+        return self._audit_packet(source, offset, placement.shape.copy_config).valid
+
+    def _audit_packet(
+        self, source: CoordXY, offset: CoordZXYOffset, copy_config: AERPacketZXYCopy
+    ) -> RouteAuditResult:
+        """Return the shared cached audit for one immutable route tuple."""
+        return self.scope.audit_aer_packet(source, offset, copy_config)
 
     def _successor_pair_valid(
-        self, src_coords: tuple[CoordXY, ...], dst_offsets: tuple[CoordXYOffset, ...]
+        self, src_placement: _Placement, dst_placement: _Placement
     ) -> bool:
-        """Check the hardware route grid for one producer placement and shape."""
-        for src_coord in src_coords:
-            for offset in dst_offsets:
-                routed_coord = src_coord + offset
-                if not self.scope.is_global_route_coord(routed_coord):
-                    return False
+        """Check every source core against one destination placement."""
+        dst_base = dst_placement.coords[0]
+        copy_config = dst_placement.shape.copy_config
+        for src_coord in src_placement.coords:
+            offset = _shortest_offset(src_coord, dst_base)
+            if not self._audit_packet(src_coord, offset, copy_config).valid:
+                return False
         return True
 
     def _set_objective(self) -> None:

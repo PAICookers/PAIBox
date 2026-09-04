@@ -7,13 +7,44 @@ placement inputs.
 """
 
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Literal
 
-from paicorelib import CoordXY
+from paicorelib import (
+    AERPacket,
+    AERPacketZXYCopy,
+    CoordXY,
+    CoordXYLike,
+    CoordZXYOffset,
+    aer_packet_walk,
+    route_coord_path,
+    to_coordxy,
+)
 
-__all__ = ["CpuEndpoint", "RouteScope", "TargetBoard", "get_route_scope"]
+__all__ = [
+    "CpuEndpoint",
+    "RouteAuditFailure",
+    "RouteAuditResult",
+    "RouteScope",
+    "TargetBoard",
+    "expand_packet_targets",
+    "get_route_scope",
+]
 
 TargetBoard = Literal["single", "array_2x2"]
+RoutePath = tuple[CoordXY, ...]
+LocalCoords = tuple[CoordXY, ...]
+PacketAuditKey = tuple[TargetBoard, int, int, int, int, int, int, int, int]
+TargetExpansionKey = tuple[int, int, int, int, int]
+FailureCode = Literal[
+    "cpu_transit",
+    "path_out_of_scope",
+    "path_target_mismatch",
+    "expected_target_outside_offline",
+    "online_local_delivery",
+    "local_target_set_mismatch",
+]
+FailureStage = Literal["path", "expected_local", "actual_local", "target_set"]
 
 CHIP_ROUTE_SIZE = 9
 CHIP_ARRAY_STRIDE = (9, 9)
@@ -41,6 +72,131 @@ class CpuEndpoint:
     chip_x: int
     chip_y: int
     coord: CoordXY
+
+
+@dataclass(frozen=True, slots=True)
+class RouteAuditFailure:
+    """First failure found while auditing one complete AER packet."""
+
+    code: FailureCode
+    stage: FailureStage
+    coord: CoordXY | None
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class RouteAuditResult:
+    """Result of simulating one complete DATA AER packet.
+
+    Attributes:
+        path: Coordinates visited by the non-multicast Z/X/Y route.
+        actual_local: Coordinates that receive the packet locally according to
+            the hardware multicast expansion.
+        expected_local: Coordinates implied by the destination base and
+            copy fields.
+        failure: First structured reason when the packet is not legal.
+    """
+
+    path: RoutePath
+    actual_local: LocalCoords
+    expected_local: LocalCoords
+    failure: RouteAuditFailure | None = None
+
+    @property
+    def valid(self) -> bool:
+        """Return whether the complete packet matches its offline targets."""
+        return self.failure is None
+
+
+@lru_cache(maxsize=4096)
+def _expand_packet_targets_cached(key: TargetExpansionKey) -> LocalCoords:
+    """Expand copy-only states without constructing a complete AER packet."""
+    base_x, base_y, copy_z, copy_x, copy_y = key
+    targets: list[CoordXY] = []
+    seen: set[tuple[int, int]] = set()
+
+    def add(x: int, y: int) -> None:
+        point = (x, y)
+        if point not in seen:
+            seen.add(point)
+            targets.append(CoordXY(x, y))
+
+    # This is the PAIlib copy state machine with packet offsets removed.  The
+    # queue is required because every multicast branch continues with its own
+    # remaining copy counts; flattening the dimensions would change the
+    # hardware's reachable target set for mixed-sign copies.
+    queue = [(base_x, base_y, copy_z, copy_x, copy_y)]
+    queue_index = 0
+    while queue_index < len(queue):
+        x, y, z_copy, x_copy, y_copy = queue[queue_index]
+        queue_index += 1
+        while True:
+            if z_copy > 0:
+                z_copy -= 1
+                add(x, y)
+                queue.append((x + 1, y + 1, z_copy, x_copy, y_copy))
+            elif z_copy < 0:
+                z_copy += 1
+                add(x, y)
+                queue.append((x - 1, y - 1, z_copy, x_copy, y_copy))
+            elif x_copy > 0:
+                x_copy -= 1
+                add(x, y)
+                queue.append((x + 1, y, z_copy, x_copy, y_copy))
+            elif x_copy < 0:
+                x_copy += 1
+                add(x, y)
+                queue.append((x - 1, y, z_copy, x_copy, y_copy))
+            elif y_copy > 0:
+                y_copy -= 1
+                add(x, y)
+                queue.append((x, y + 1, z_copy, x_copy, y_copy))
+            elif y_copy < 0:
+                y_copy += 1
+                add(x, y)
+                queue.append((x, y - 1, z_copy, x_copy, y_copy))
+            else:
+                add(x, y)
+                break
+
+    return tuple(targets)
+
+
+def expand_packet_targets(
+    base: CoordXYLike, copy_config: AERPacketZXYCopy
+) -> LocalCoords:
+    """Return deterministic local target coordinates for a copy configuration.
+
+    This target-only helper deliberately does not call ``aer_packet_walk``.
+    Use :meth:`RouteScope.audit_aer_packet` when the complete hardware route,
+    including transit and actual local footholds, must be validated.
+    """
+    point = to_coordxy(base)
+    return _expand_packet_targets_cached(
+        (point.x, point.y, copy_config.z, copy_config.x, copy_config.y)
+    )
+
+
+@lru_cache(maxsize=8192)
+def _audit_packet_cached(key: PacketAuditKey) -> RouteAuditResult:
+    """Evaluate a normalized packet once and reuse its immutable result."""
+    (
+        scope_name,
+        source_x,
+        source_y,
+        offset_z,
+        offset_x,
+        offset_y,
+        copy_z,
+        copy_x,
+        copy_y,
+    ) = key
+    scope = get_route_scope(scope_name)
+    return scope._audit_aer_packet(
+        CoordXY(source_x, source_y),
+        CoordZXYOffset(offset_z, offset_x, offset_y),
+        AERPacketZXYCopy(copy_z, copy_x, copy_y),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +297,129 @@ class RouteScope:
                 continue
             return False
         return True
+
+    def audit_aer_packet(
+        self, source: CoordXYLike, offset: CoordZXYOffset, copy_config: AERPacketZXYCopy
+    ) -> RouteAuditResult:
+        """Validate route geometry and exact local delivery of one DATA packet.
+
+        The PAICORE router consumes each core offset dimension before the next
+        one and handles the matching copy dimension immediately after it. The
+        PAIlib primitives are the source of truth for this ordered simulation;
+        this method adds board policy: CPU coordinates are endpoints only, and
+        normal DATA may be delivered only to offline cores.
+
+        Args:
+            source: Absolute source core or CPU coordinate.
+            offset: Complete packet core offset in Z/X/Y order.
+            copy_config: Complete packet copy count in Z/X/Y order.
+
+        Returns:
+            An immutable audit containing the physical path, actual local
+            footholds, expected target footholds, and optional failure details.
+        """
+        source = to_coordxy(source)
+        key: PacketAuditKey = (
+            self.name,
+            source.x,
+            source.y,
+            offset.z,
+            offset.x,
+            offset.y,
+            copy_config.z,
+            copy_config.x,
+            copy_config.y,
+        )
+        return _audit_packet_cached(key)
+
+    def _audit_aer_packet(
+        self, source: CoordXY, offset: CoordZXYOffset, copy_config: AERPacketZXYCopy
+    ) -> RouteAuditResult:
+        """Run the uncached hardware simulation for a normalized packet."""
+        path = route_coord_path(source, offset)
+        target = path[-1]
+        expected = expand_packet_targets(target, copy_config)
+        actual_local = tuple(aer_packet_walk(AERPacket(source, offset, copy_config)))
+
+        failure = self._packet_path_failure(path, target)
+        if failure is None:
+            invalid_expected = [
+                coord
+                for coord in expected
+                if coord not in self.offline_core_coords and coord != target
+            ]
+            if invalid_expected:
+                failure = RouteAuditFailure(
+                    "expected_target_outside_offline",
+                    "expected_local",
+                    invalid_expected[0],
+                    "expected local targets leave offline cores: "
+                    f"{invalid_expected[0]}",
+                )
+
+        if failure is None:
+            unexpected_online = [
+                coord for coord in actual_local if coord in self.online_core_coords
+            ]
+            if unexpected_online:
+                failure = RouteAuditFailure(
+                    "online_local_delivery",
+                    "actual_local",
+                    unexpected_online[0],
+                    "DATA packet performs TO_LOCAL on online core "
+                    f"{unexpected_online[0]}",
+                )
+
+        if failure is None and set(actual_local) != set(expected):
+            missing = sorted(
+                set(expected) - set(actual_local), key=lambda c: (c.x, c.y)
+            )
+            unexpected = sorted(
+                set(actual_local) - set(expected), key=lambda c: (c.x, c.y)
+            )
+            coord = missing[0] if missing else (unexpected[0] if unexpected else None)
+            failure = RouteAuditFailure(
+                "local_target_set_mismatch",
+                "target_set",
+                coord,
+                "local delivery set does not match expected targets "
+                f"(missing={missing[:1]}, unexpected={unexpected[:1]})",
+            )
+
+        return RouteAuditResult(path, actual_local, expected, failure)
+
+    def _packet_path_failure(
+        self, path: RoutePath, target: CoordXY
+    ) -> RouteAuditFailure | None:
+        """Return the first board-policy violation in a packet's core path."""
+        for idx, coord in enumerate(path):
+            if coord in self.global_route_coords:
+                continue
+            if idx == 0 and coord in self.cpu_coords:
+                continue
+            if idx == len(path) - 1 and coord in self.cpu_coords:
+                continue
+            if coord in self.cpu_coords:
+                return RouteAuditFailure(
+                    "cpu_transit",
+                    "path",
+                    coord,
+                    f"CPU endpoint {coord} cannot be a route transit",
+                )
+            return RouteAuditFailure(
+                "path_out_of_scope",
+                "path",
+                coord,
+                f"route coordinate {coord} is outside board scope",
+            )
+        if path[-1] != target:
+            return RouteAuditFailure(
+                "path_target_mismatch",
+                "path",
+                path[-1],
+                f"route ended at {path[-1]}, expected {target}",
+            )
+        return None
 
 
 def get_route_scope(target_board: TargetBoard = "single") -> RouteScope:

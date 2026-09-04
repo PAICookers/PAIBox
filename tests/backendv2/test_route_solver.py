@@ -3,7 +3,12 @@ import os
 import time
 
 import pytest
-from paicorelib import CoordXY, CoordXYOffset, aer_packet_copy_offsets
+from paicorelib import (
+    CoordXY,
+    CoordXYOffset,
+    aer_packet_copy_offsets,
+    find_coordxy_shortest_path,
+)
 
 from paibox.backendv2 import route_solver as route_solver_module
 from paibox.backendv2.coreplacement import OfflineCorePlacementV2
@@ -180,6 +185,15 @@ def test_route_solve_array_2x2_can_bias_to_second_cpu():
 
     _assert_valid_coords(coords, scope)
     assert _center(coords[0]) == (9, 2)
+
+
+def test_route_solve_input_placements_have_exact_packet_targets():
+    copy_configs, coords = _solve(areas=[38], input_area_ids=[0], feasibility_only=True)
+
+    offset, _ = find_coordxy_shortest_path(coords[0][0], start=CoordXY(0, 0))
+    audit = SINGLE_SCOPE.audit_aer_packet(CoordXY(0, 0), offset, copy_configs[0])
+    assert audit.valid
+    assert set(audit.actual_local) == set(coords[0])
 
 
 def test_route_solve_derives_io_area_ids(monkeypatch):
