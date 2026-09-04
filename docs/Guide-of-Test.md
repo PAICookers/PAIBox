@@ -23,6 +23,26 @@ pytest-md>=0.2
 pytest-xdist>=3.7.0
 ```
 
+## 覆盖率运行约定
+
+项目使用单一 coverage source（`paibox`）。不要在同一次 pytest 进程中再
+追加 `--cov=paibox.visualizer`；该组合会改变 NumPy 的导入顺序，并可能
+触发 paicorelib CSC 打包函数的 `_NoValueType` 异常。
+
+需要查看 visualizer 专项报告时，先生成全包覆盖率，再按路径筛选：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache CI_ENV=true uv run pytest -q tests/visualizer --cov=paibox --cov-branch --no-cov-on-fail
+UV_CACHE_DIR=/tmp/uv-cache uv run coverage report --include='paibox/visualizer/*'
+```
+
+CSC 帧生成与解码另执行一次无覆盖率 smoke test，避免覆盖率插桩掩盖真实
+测试结果：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache CI_ENV=true uv run pytest -q tests/visualizer/backends/test_backendv2_offline_v2.py -k csc --no-cov
+```
+
 ## 常用测试夹具
 
 几个常用的与测试环境相关的夹具介绍。可直接在 `tests` 目录下的测试项目中使用这些夹具。

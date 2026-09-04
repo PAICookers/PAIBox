@@ -8,6 +8,7 @@ from paicorelib.framelib.parser_v2 import (
     FramePackageInfo,
     FrameParseError,
     ParsedCoreFrames,
+    ParsedFrameStream,
     decode_core_config,
     parse_frame_stream,
     sign_magnitude_to_int,
@@ -27,6 +28,8 @@ from ...model import (
     CoreView,
     FramePackageSummary,
     GlobalSignal,
+    IoCoreSummary,
+    IoView,
     LinkView,
     LutView,
     NeuronView,
@@ -70,6 +73,205 @@ class _CoreConfigSource:
     config_word2_raw: int | None
 
 
+@dataclass(slots=True)
+class _ArtifactLoadContext:
+    """Reusable parsed artifact state for full and lazy viewer models."""
+
+    artifact_path: Path
+    resolved: dict[str, Any]
+    artifacts: CompileArtifacts | None
+    frame_stream: ParsedFrameStream
+    validation: list[ValidationEntry]
+    metadata_by_coord: dict[tuple[int, int], dict[str, Any]]
+    runtime_infos: list[RuntimeInfo]
+    io_view: IoView
+    io_summaries: dict[tuple[int, int, int], IoCoreSummary]
+    core_config_sources: dict[tuple[int, int], _CoreConfigSource]
+    links: list[LinkView]
+    source_control_paths: dict[tuple[int, int], list[ControlPathView]]
+
+    def build_model(self, decode_coords: set[tuple[int, int]] | None) -> ViewerModel:
+        """Build a model, decoding only the requested offline cores.
+
+        ``decode_coords=None`` preserves the public full-loader behavior. An
+        empty set creates a summary-only model for the HTTP server; a singleton
+        set materializes one core after the user selects it.
+        """
+        cores: list[CoreView] = []
+        for y in range(GRID_HEIGHT):
+            for x in range(GRID_WIDTH):
+                coord = (x, y)
+                if decode_coords and coord not in decode_coords:
+                    continue
+                frame_core = self.frame_stream.cores.get(coord)
+                metadata = self.metadata_by_coord.get(coord, {})
+                config_source = self.core_config_sources.get(coord)
+                core_config = config_source.config if config_source else {}
+                core_validation = _validate_core(x, y, core_config, metadata)
+                packages = frame_core.packages if frame_core else []
+                decoded = None
+                if (
+                    frame_core
+                    and chip_core_role(x, y) == "offline"
+                    and (decode_coords is None or coord in decode_coords)
+                ):
+                    try:
+                        decoded = decode_offline_core(
+                            core_config,
+                            packages,
+                            core_coord=coord,
+                            grid_width=GRID_WIDTH,
+                            grid_height=GRID_HEIGHT,
+                        )
+                    except FrameDecodeError as exc:
+                        raise exc.with_context(
+                            chip_id=CHIP_ID, core_x=x, core_y=y
+                        ) from exc
+                package_summaries = _package_summaries(packages)
+                frames_summary = CoreFrameSummary(
+                    frame_type1_count=(
+                        len(frame_core.frame_type1_payloads) if frame_core else 0
+                    ),
+                    frame_type2_count=(
+                        len(frame_core.frame_type2_payloads) if frame_core else 0
+                    ),
+                    frame_type3_count=(
+                        len(frame_core.frame_type3_payloads) if frame_core else 0
+                    ),
+                    package_count=len(package_summaries),
+                )
+                global_send = core_config.get("global_send", 0)
+                global_receive = core_config.get("global_receive", 0)
+                control_paths = self.source_control_paths.get(coord, [])
+                cores.append(
+                    CoreView(
+                        chip_id=CHIP_ID,
+                        x=x,
+                        y=y,
+                        role=chip_core_role(x, y),
+                        used=bool(frame_core or metadata),
+                        source=_source_label(bool(frame_core), bool(metadata)),
+                        nodes=list(metadata.get("nodes", [])),
+                        thread_id=_thread_id(core_config, metadata),
+                        core_config=core_config,
+                        io_summary=self.io_summaries.get((CHIP_ID, x, y)),
+                        global_signal=GlobalSignal(
+                            send_bits=global_send,
+                            receive_bits=global_receive,
+                            send_dirs=global_signal_dirs(
+                                global_send, include_local=True
+                            ),
+                            receive_dirs=global_signal_dirs(global_receive),
+                            sends_local=bool(global_send & (1 << 6)),
+                            is_source=bool(control_paths),
+                            source_thread_ids=[
+                                path.thread_id for path in control_paths
+                            ],
+                            control_paths=control_paths,
+                        ),
+                        frames=frames_summary,
+                        packages=package_summaries,
+                        decoded_core_config=(
+                            decoded.core_config
+                            if decoded is not None
+                            else CoreConfigView()
+                        ),
+                        lut=decoded.lut if decoded is not None else LutView(),
+                        neurons=(
+                            decoded.neurons if decoded is not None else NeuronView()
+                        ),
+                        weights=(
+                            decoded.weights if decoded is not None else WeightView()
+                        ),
+                        raw_frames=decoded.raw_frames if decoded is not None else [],
+                        validation=core_validation,
+                    )
+                )
+
+        io_view = attribute_output_entries_to_cores(self.io_view, cores)
+        io_summaries = io_core_summary_map(io_view)
+        cores = [
+            replace(core, io_summary=io_summaries.get((core.chip_id, core.x, core.y)))
+            for core in cores
+        ]
+        warning_count = sum(1 for item in self.validation if item.severity == "warning")
+        error_count = sum(1 for item in self.validation if item.severity == "error")
+        return ViewerModel(
+            schema_version=1,
+            artifact=ArtifactInfo(
+                path=str(self.artifact_path),
+                kind=self.resolved["kind"],
+                has_pb=self.resolved.get("pb") is not None,
+                has_json=self.resolved.get("json") is not None,
+                has_merged_npy=self.resolved.get("merged_npy") is not None,
+                has_typed_npy=any(
+                    self.resolved.get(f"frame{idx}_npy") for idx in (1, 2, 3)
+                ),
+            ),
+            chips=[
+                ChipView(
+                    chip_id=CHIP_ID,
+                    grid_width=GRID_WIDTH,
+                    grid_height=GRID_HEIGHT,
+                    cores=cores,
+                )
+            ],
+            links=self.links,
+            io=io_view,
+            validation=self.validation,
+            runtime=self.runtime_infos,
+            summary=ViewerSummary(
+                chip_count=1,
+                core_count=len(cores),
+                used_core_count=sum(1 for core in cores if core.used),
+                frame_count=self.frame_stream.frame_count,
+                package_count=len(self.frame_stream.packages),
+                validation_error_count=error_count,
+                validation_warning_count=warning_count,
+            ),
+        )
+
+
+class ArtifactSession:
+    """Lazy server-facing view over one parsed artifact.
+
+    The session keeps compact parsed state and one decoded core. Replacing the
+    cached core releases large neuron/weight/raw-frame lists before another
+    selection is decoded.
+    """
+
+    def __init__(self, context: _ArtifactLoadContext) -> None:
+        self._context = context
+        self.model = context.build_model(set())
+        self._cached_coord: tuple[int, int, int] | None = None
+        self._cached_core: CoreView | None = None
+        self._full_io_view: IoView | None = None
+
+    def core(self, chip_id: int, x: int, y: int) -> CoreView:
+        """Decode and return one requested core, retaining at most one result."""
+        key = (chip_id, x, y)
+        if key == self._cached_coord and self._cached_core is not None:
+            return self._cached_core
+        if chip_id != CHIP_ID or not _coord_in_grid(x, y):
+            raise ArtifactLoadError("core not found")
+        detailed = self._context.build_model({(x, y)})
+        self._cached_coord = key
+        self._cached_core = next(
+            core_item
+            for core_item in detailed.chips[0].cores
+            if core_item.x == x and core_item.y == y
+        )
+        return self._cached_core
+
+    def io_view(self) -> IoView:
+        """Materialize the full IO entries only when an IO endpoint is used."""
+        if self._full_io_view is None:
+            # Summary validation already audits routes. Keep detail expansion
+            # from appending the same diagnostics a second time.
+            self._full_io_view = build_io_view(self._context.artifacts, [])
+        return self._full_io_view
+
+
 CONTROL_PATH_TARGET = (0, 0)
 
 
@@ -80,6 +282,18 @@ def load_artifact(path: str | Path) -> ViewerModel:
     neuron, weight, and raw-frame views. Protobuf metadata is then layered on for
     node/runtime/IO context and cross-check validation.
     """
+    return _load_artifact_context(path, include_io_entries=True).build_model(None)
+
+
+def load_artifact_session(path: str | Path) -> ArtifactSession:
+    """Create a parsed, summary-first session for the local visualizer server."""
+    return ArtifactSession(_load_artifact_context(path, include_io_entries=False))
+
+
+def _load_artifact_context(
+    path: str | Path, *, include_io_entries: bool
+) -> _ArtifactLoadContext:
+    """Parse shared artifact state without decoding every offline core."""
     artifact_path = Path(path).resolve()
     resolved = _resolve_artifact_files(artifact_path)
     artifacts = _load_compile_artifacts(resolved)
@@ -94,135 +308,35 @@ def load_artifact(path: str | Path) -> ViewerModel:
             context=exc.context,
         ) from exc
     validation: list[ValidationEntry] = []
-
     metadata_by_coord, runtime_infos = _metadata_from_artifacts(artifacts, validation)
-    io_view = build_io_view(artifacts, validation)
+    io_view = build_io_view(artifacts, validation, include_entries=include_io_entries)
     io_summaries = io_core_summary_map(io_view)
     core_config_sources = _decode_core_configs(frame_stream.cores)
     links = _build_global_signal_links(core_config_sources)
     source_control_paths = _build_global_source_control_paths(
         core_config_sources, runtime_infos
     )
-    cores: list[CoreView] = []
-
     for y in range(GRID_HEIGHT):
         for x in range(GRID_WIDTH):
-            frame_core = frame_stream.cores.get((x, y))
-            metadata = metadata_by_coord.get((x, y), {})
-            config_source = core_config_sources.get((x, y))
+            coord = (x, y)
+            config_source = core_config_sources.get(coord)
             core_config = config_source.config if config_source else {}
-            core_validation = _validate_core(x, y, core_config, metadata)
-            validation.extend(core_validation)
-
-            global_send = core_config.get("global_send", 0)
-            global_receive = core_config.get("global_receive", 0)
-            control_paths = source_control_paths.get((x, y), [])
-
-            packages = frame_core.packages if frame_core else []
-            package_summaries = _package_summaries(packages)
-            try:
-                decoded = (
-                    decode_offline_core(
-                        core_config,
-                        packages,
-                        core_coord=(x, y),
-                        grid_width=GRID_WIDTH,
-                        grid_height=GRID_HEIGHT,
-                    )
-                    if frame_core and chip_core_role(x, y) == "offline"
-                    else None
-                )
-            except FrameDecodeError as exc:
-                raise exc.with_context(chip_id=CHIP_ID, core_x=x, core_y=y) from exc
-            frames_summary = CoreFrameSummary(
-                frame_type1_count=(
-                    len(frame_core.frame_type1_payloads) if frame_core else 0
-                ),
-                frame_type2_count=(
-                    len(frame_core.frame_type2_payloads) if frame_core else 0
-                ),
-                frame_type3_count=(
-                    len(frame_core.frame_type3_payloads) if frame_core else 0
-                ),
-                package_count=len(package_summaries),
-            )
-            used = bool(frame_core or metadata)
-            cores.append(
-                CoreView(
-                    chip_id=CHIP_ID,
-                    x=x,
-                    y=y,
-                    role=chip_core_role(x, y),
-                    used=used,
-                    source=_source_label(bool(frame_core), bool(metadata)),
-                    nodes=list(metadata.get("nodes", [])),
-                    thread_id=_thread_id(core_config, metadata),
-                    core_config=core_config,
-                    io_summary=io_summaries.get((CHIP_ID, x, y)),
-                    global_signal=GlobalSignal(
-                        send_bits=global_send,
-                        receive_bits=global_receive,
-                        send_dirs=global_signal_dirs(global_send, include_local=True),
-                        receive_dirs=global_signal_dirs(global_receive),
-                        sends_local=bool(global_send & (1 << 6)),
-                        is_source=bool(control_paths),
-                        source_thread_ids=[path.thread_id for path in control_paths],
-                        control_paths=control_paths,
-                    ),
-                    frames=frames_summary,
-                    packages=package_summaries,
-                    decoded_core_config=(
-                        decoded.core_config if decoded is not None else CoreConfigView()
-                    ),
-                    lut=decoded.lut if decoded is not None else LutView(),
-                    neurons=decoded.neurons if decoded is not None else NeuronView(),
-                    weights=decoded.weights if decoded is not None else WeightView(),
-                    raw_frames=decoded.raw_frames if decoded is not None else [],
-                    validation=core_validation,
-                )
-            )
-
-    io_view = attribute_output_entries_to_cores(io_view, cores)
-    io_summaries = io_core_summary_map(io_view)
-    cores = [
-        replace(core, io_summary=io_summaries.get((core.chip_id, core.x, core.y)))
-        for core in cores
-    ]
-
+            metadata = metadata_by_coord.get(coord, {})
+            validation.extend(_validate_core(x, y, core_config, metadata))
     _validate_frame_content(resolved, frames, validation)
-    warning_count = sum(1 for item in validation if item.severity == "warning")
-    error_count = sum(1 for item in validation if item.severity == "error")
-    return ViewerModel(
-        schema_version=1,
-        artifact=ArtifactInfo(
-            path=str(artifact_path),
-            kind=resolved["kind"],
-            has_pb=resolved.get("pb") is not None,
-            has_json=resolved.get("json") is not None,
-            has_merged_npy=resolved.get("merged_npy") is not None,
-            has_typed_npy=any(resolved.get(f"frame{idx}_npy") for idx in (1, 2, 3)),
-        ),
-        chips=[
-            ChipView(
-                chip_id=CHIP_ID,
-                grid_width=GRID_WIDTH,
-                grid_height=GRID_HEIGHT,
-                cores=cores,
-            )
-        ],
-        links=links,
-        io=io_view,
+    return _ArtifactLoadContext(
+        artifact_path=artifact_path,
+        resolved=resolved,
+        artifacts=artifacts,
+        frame_stream=frame_stream,
         validation=validation,
-        runtime=runtime_infos,
-        summary=ViewerSummary(
-            chip_count=1,
-            core_count=len(cores),
-            used_core_count=sum(1 for core in cores if core.used),
-            frame_count=frame_stream.frame_count,
-            package_count=len(frame_stream.packages),
-            validation_error_count=error_count,
-            validation_warning_count=warning_count,
-        ),
+        metadata_by_coord=metadata_by_coord,
+        runtime_infos=runtime_infos,
+        io_view=io_view,
+        io_summaries=io_summaries,
+        core_config_sources=core_config_sources,
+        links=links,
+        source_control_paths=source_control_paths,
     )
 
 
@@ -328,13 +442,13 @@ def _load_frames(
 
     merged_npy = resolved.get("merged_npy")
     if merged_npy is not None:
-        return np.load(merged_npy).astype(np.uint64, copy=False)
+        return np.load(merged_npy, mmap_mode="r").astype(np.uint64, copy=False)
 
     parts = []
     for idx in (1, 2, 3):
         path = resolved.get(f"frame{idx}_npy")
         if path is not None:
-            parts.append(np.load(path).astype(np.uint64, copy=False))
+            parts.append(np.load(path, mmap_mode="r").astype(np.uint64, copy=False))
     if parts:
         return np.concatenate(parts).astype(np.uint64, copy=False)
 
@@ -342,20 +456,15 @@ def _load_frames(
 
 
 def _frames_from_words(config_frames: ConfigFrames) -> np.ndarray:
-    words = list(config_frames.words)
-    if len(words) % 2 != 0:
+    words = np.fromiter(config_frames.words, dtype=np.uint64)
+    if words.size % 2 != 0:
         raise ArtifactLoadError("config frame word count is not even")
-
-    frames = np.zeros(len(words) // 2, dtype=np.uint64)
-    for idx in range(0, len(words), 2):
-        a = int(words[idx])
-        b = int(words[idx + 1])
-        if config_frames.word_order == ConfigFrames.HIGH_FIRST:
-            hi, lo = a, b
-        else:
-            lo, hi = a, b
-        frames[idx // 2] = (np.uint64(hi) << np.uint64(32)) | np.uint64(lo)
-    return frames
+    pairs = words.reshape(-1, 2)
+    if config_frames.word_order == ConfigFrames.HIGH_FIRST:
+        hi, lo = pairs[:, 0], pairs[:, 1]
+    else:
+        lo, hi = pairs[:, 0], pairs[:, 1]
+    return np.left_shift(hi, np.uint64(32)) | lo
 
 
 def _metadata_from_artifacts(
@@ -856,7 +965,7 @@ def _validate_frame_content(
 ) -> None:
     merged_npy = resolved.get("merged_npy")
     if merged_npy is not None:
-        npy_frames = np.load(merged_npy).astype(np.uint64, copy=False)
+        npy_frames = np.load(merged_npy, mmap_mode="r").astype(np.uint64, copy=False)
         if len(npy_frames) != len(frames):
             validation.append(
                 ValidationEntry(

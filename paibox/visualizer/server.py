@@ -9,13 +9,14 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from .artifact import DEFAULT_BACKEND, load_artifact
+from .artifact import DEFAULT_BACKEND, load_artifact_session
 from .model import (
     ChipView,
     CoreView,
     IoCoreSummary,
     IoCoreView,
     IoEntryView,
+    IoView,
     TensorRegionView,
     ViewerModel,
 )
@@ -23,9 +24,11 @@ from .model import (
 
 def create_app(artifact: str | Path, *, backend: str = DEFAULT_BACKEND) -> FastAPI:
     """Create a local, artifact-bound visualizer API and static UI app."""
-    model = load_artifact(artifact, backend=backend)
+    session = load_artifact_session(artifact, backend=backend)
+    model = session.model
     app = FastAPI(title="PAIBox Visualizer")
     app.state.viewer_model = model
+    app.state.artifact_session = session
 
     @app.get("/api/summary")
     def summary() -> dict[str, Any]:
@@ -37,7 +40,8 @@ def create_app(artifact: str | Path, *, backend: str = DEFAULT_BACKEND) -> FastA
 
     @app.get("/api/cores/{chip_id}/{x}/{y}")
     def core(chip_id: int, x: int, y: int) -> dict[str, Any]:
-        return asdict(_find_core(model, chip_id, x, y))
+        _find_core(model, chip_id, x, y)
+        return asdict(session.core(chip_id, x, y))
 
     @app.get("/api/io/summary")
     def io_summary() -> dict[str, Any]:
@@ -50,7 +54,7 @@ def create_app(artifact: str | Path, *, backend: str = DEFAULT_BACKEND) -> FastA
     @app.get("/api/io/cores/{chip_id}/{x}/{y}")
     def io_core(chip_id: int, x: int, y: int) -> dict[str, Any]:
         _find_core(model, chip_id, x, y)
-        return asdict(_build_io_core_view(model, chip_id, x, y))
+        return asdict(_build_io_core_view(session.io_view(), chip_id, x, y))
 
     @app.get("/api/io/regions")
     def io_regions(
@@ -64,8 +68,9 @@ def create_app(artifact: str | Path, *, backend: str = DEFAULT_BACKEND) -> FastA
         offset: int = Query(0, ge=0),
         limit: int = Query(50, ge=1, le=500),
     ) -> dict[str, Any]:
+        io_view = session.io_view()
         records = (
-            model.io.input_regions if direction == "input" else model.io.output_regions
+            io_view.input_regions if direction == "input" else io_view.output_regions
         )
         records = _filter_regions(
             records, thread_id, tensor_name, slice_key, chip_id, x, y
@@ -84,8 +89,9 @@ def create_app(artifact: str | Path, *, backend: str = DEFAULT_BACKEND) -> FastA
         offset: int = Query(0, ge=0),
         limit: int = Query(50, ge=1, le=500),
     ) -> dict[str, Any]:
+        io_view = session.io_view()
         records = (
-            model.io.input_entries if direction == "input" else model.io.output_entries
+            io_view.input_entries if direction == "input" else io_view.output_entries
         )
         records = _filter_entries(
             records, thread_id, tensor_name, slice_key, chip_id, x, y
@@ -182,31 +188,31 @@ def _core_overview_dict(core_item: CoreView) -> dict[str, Any]:
     }
 
 
-def _build_io_core_view(model: ViewerModel, chip_id: int, x: int, y: int) -> IoCoreView:
+def _build_io_core_view(model: IoView, chip_id: int, x: int, y: int) -> IoCoreView:
     """Return the per-core IO subset used by the right-side IO inspector."""
     summary = next(
         (
             item
-            for item in model.io.core_summaries
+            for item in model.core_summaries
             if item.chip_id == chip_id and item.x == x and item.y == y
         ),
         IoCoreSummary(chip_id=chip_id, x=x, y=y),
     )
     input_regions = _filter_regions(
-        model.io.input_regions, None, None, None, chip_id, x, y
+        model.input_regions, None, None, None, chip_id, x, y
     )
     output_regions = _filter_regions(
-        model.io.output_regions, None, None, None, chip_id, x, y
+        model.output_regions, None, None, None, chip_id, x, y
     )
     input_entries = _filter_entries(
-        model.io.input_entries, None, None, None, chip_id, x, y
+        model.input_entries, None, None, None, chip_id, x, y
     )
     output_entries = _filter_entries(
-        model.io.output_entries, None, None, None, chip_id, x, y
+        model.output_entries, None, None, None, chip_id, x, y
     )
     input_buffer_spans = [
         span
-        for span in model.io.input_buffer_spans
+        for span in model.input_buffer_spans
         if span.chip_id == chip_id and span.x == x and span.y == y
     ]
     return IoCoreView(

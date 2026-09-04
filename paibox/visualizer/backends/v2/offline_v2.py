@@ -138,11 +138,14 @@ def decode_offline_core(
     """
     decoded_core = decode_core_config_view(core_config, packages)
     lut = decode_lut_view(core_config, packages)
-    neurons = decode_neurons(core_config, packages)
+    frame3_payload = _frame3_payload(packages)
+    neurons = decode_neurons(core_config, packages, frame3_payload=frame3_payload)
     if core_coord is not None:
         neurons = attach_neuron_destinations(neurons, core_coord)
         validate_neuron_destinations(neurons, core_coord, grid_width, grid_height)
-    weights = decode_weights(core_config, packages, neurons)
+    weights = decode_weights(
+        core_config, packages, neurons, frame3_payload=frame3_payload
+    )
     neurons = apply_sops_summary(core_config, neurons, weights)
     raw_frames = build_raw_frame_records(packages)
     return OfflineDecodeResult(
@@ -333,13 +336,17 @@ def decode_lut_view(
 
 
 def decode_neurons(
-    core_config: dict[str, int], packages: list[FramePackageInfo]
+    core_config: dict[str, int],
+    packages: list[FramePackageInfo],
+    *,
+    frame3_payload: list[tuple[int, str]] | None = None,
 ) -> NeuronView:
     neuron_sram_records = core_config.get("neuron_number", 0)
     if neuron_sram_records <= 0:
         return NeuronView()
 
-    frame3_payload = _frame3_payload(packages)
+    if frame3_payload is None:
+        frame3_payload = _frame3_payload(packages)
     neuron_words = neuron_sram_records * SRAM_WORDS
     neuron_payload = frame3_payload[:neuron_words]
     records: list[NeuronRecordView] = []
@@ -712,6 +719,8 @@ def decode_weights(
     core_config: dict[str, int],
     packages: list[FramePackageInfo],
     neurons: NeuronView,
+    *,
+    frame3_payload: list[tuple[int, str]] | None = None,
 ) -> WeightView:
     """Decode storage-level dense/CSC weight records referenced by neurons.
 
@@ -720,7 +729,8 @@ def decode_weights(
     extra compile-time mapping metadata.
     """
     neuron_words = core_config.get("neuron_number", 0) * SRAM_WORDS
-    frame3_payload = _frame3_payload(packages)
+    if frame3_payload is None:
+        frame3_payload = _frame3_payload(packages)
     if neuron_words >= len(frame3_payload):
         return WeightView()
 

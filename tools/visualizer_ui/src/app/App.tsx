@@ -72,8 +72,6 @@ export function App() {
             sliceKey: firstInput.slice_keys[0] ?? 'all',
           })
         }
-        const firstUsed = chipData[0]?.cores.find((core) => core.used)
-        if (firstUsed) void selectCore(firstUsed)
       })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
   }, [])
@@ -88,7 +86,10 @@ export function App() {
   const links = useMemo(() => buildLinks(chip), [chip])
   const controlPaths = useMemo(() => buildControlPaths(chip), [chip])
   const tickColorMap = useMemo(() => (chip ? buildTickColorMap(chip) : new Map<number, string>()), [chip])
-  const tickComputeRows = chip ? buildTickComputeRows(chip, includePaddingInSops, tickColorMap) : []
+  const tickComputeRows = useMemo(
+    () => (chip ? buildTickComputeRows(chip, includePaddingInSops, tickColorMap) : []),
+    [chip, includePaddingInSops, tickColorMap],
+  )
   const threads = useMemo(() => (chip ? collectThreads(chip) : []), [chip])
 
   async function selectCore(core: CoreOverview) {
@@ -97,9 +98,6 @@ export function App() {
     try {
       const detail = await fetchCore(core.chip_id, core.x, core.y)
       setSelected(detail)
-      if (mapMode === 'io') {
-        setSelectedIoCore(await fetchIoCore(core.chip_id, core.x, core.y))
-      }
     } catch {
       setSelected(null)
       setSelectedIoCore(null)
