@@ -16,6 +16,15 @@ from paibox.backendv2.generated.proto.compile_artifacts_pb2 import (
 )
 
 
+def endpoint_map(app: object) -> dict[str, object]:
+    """Return registered endpoints keyed by path for direct API tests."""
+    return {
+        route.path: route.endpoint
+        for route in app.routes
+        if hasattr(route, "endpoint")
+    }
+
+
 def make_core_frame(
     coord: CoordXY,
     *,
@@ -52,6 +61,7 @@ def write_pb(
     frames: np.ndarray,
     *,
     root_core_offset: tuple[int, int, int] | None = None,
+    word_order: int = ConfigFrames.HIGH_FIRST,
 ) -> Path:
     artifacts = CompileArtifacts()
     artifacts.schema_version = 1
@@ -73,10 +83,13 @@ def write_pb(
     core_tick.tick.tick_duration = 7
     core_tick.tick.tick_initial = 5
     core_tick.nodes.append("SequentialOp_0")
-    artifacts.config_frames.word_order = ConfigFrames.HIGH_FIRST
+    artifacts.config_frames.word_order = word_order
     for frame in frames:
         value = int(frame)
-        artifacts.config_frames.words.append((value >> 32) & 0xFFFFFFFF)
-        artifacts.config_frames.words.append(value & 0xFFFFFFFF)
+        high, low = (value >> 32) & 0xFFFFFFFF, value & 0xFFFFFFFF
+        if word_order == ConfigFrames.HIGH_FIRST:
+            artifacts.config_frames.words.extend((high, low))
+        else:
+            artifacts.config_frames.words.extend((low, high))
     path.write_bytes(artifacts.SerializeToString())
     return path

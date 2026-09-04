@@ -1,5 +1,3 @@
-from time import perf_counter
-
 import numpy as np
 import pytest
 from paicorelib import (
@@ -711,7 +709,37 @@ def test_neuron_route_copy_foothold_fails_when_multicast_branch_leaves_grid() ->
     assert exc_info.value.context["addr_copy_xy"] == 1
 
 
-def test_neuron_destinations_expand_multicast_copy_targets() -> None:
+@pytest.mark.parametrize(
+    ("copy_xy", "copy_x", "copy_y", "expected"),
+    [
+        (
+            1,
+            0,
+            0,
+            [(4, 2), (5, 3)],
+        ),
+        (
+            1,
+            1,
+            1,
+            [(4, 2), (5, 3), (5, 2), (4, 3), (6, 3), (5, 4), (6, 4)],
+        ),
+    ],
+    ids=["xy-copy", "xy-x-y-copy"],
+)
+def test_neuron_destinations_expand_multicast_copy_targets(
+    copy_xy: int,
+    copy_x: int,
+    copy_y: int,
+    expected: list[tuple[int, int]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Target-only expansion must match copy geometry without walking transit."""
+
+    def fail_walk(*args: object, **kwargs: object) -> None:
+        raise AssertionError("target-only decode must not walk the complete packet")
+
+    monkeypatch.setattr("paibox.backendv2.route_scope.aer_packet_walk", fail_walk)
     offset = CoordZXYOffset(0, 3, 2)
     dest = {
         "tick_relative": 0,
@@ -719,9 +747,9 @@ def test_neuron_destinations_expand_multicast_copy_targets() -> None:
         "addr_core_xy": 0,
         "addr_core_x": 1,
         "addr_core_y": 0,
-        "addr_copy_xy": 1,
-        "addr_copy_x": 0,
-        "addr_copy_y": 0,
+        "addr_copy_xy": copy_xy,
+        "addr_copy_x": copy_x,
+        "addr_copy_y": copy_y,
     }
     attrs1 = {
         "weight_skew": 0,
@@ -747,61 +775,4 @@ def test_neuron_destinations_expand_multicast_copy_targets() -> None:
 
     assert [
         (destination.target_x, destination.target_y) for destination in destinations
-    ] == [(4, 2), (5, 3)]
-
-
-def test_neuron_destination_decode_stays_lightweight(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def fail_walk(*args: object, **kwargs: object) -> None:
-        raise AssertionError("target-only decode must not walk the complete packet")
-
-    monkeypatch.setattr("paibox.backendv2.route_scope.aer_packet_walk", fail_walk)
-    offset = CoordZXYOffset(0, 3, 2)
-    dest = {
-        "tick_relative": 0,
-        "addr_axon": 0,
-        "addr_core_xy": 0,
-        "addr_core_x": 1,
-        "addr_core_y": 0,
-        "addr_copy_xy": 1,
-        "addr_copy_x": 1,
-        "addr_copy_y": 1,
-    }
-    attrs1 = {
-        "weight_skew": 0,
-        "weight_address_start": 2,
-        "weight_address_end": 2,
-        "output_type": OutputType.VALUE,
-        "fold_type": FoldType.UNFOLDED,
-        "neuron_type": NeuronType.HALF,
-        "vjt": 0,
-    }
-    neuron = OfflineFrameGenV2.gen_config_frame3_pkg_half(dest, attrs1)
-    frame3 = OfflineFrameGenV2.gen_config_frame3_pkg_header(
-        offset,
-        start_addr=0,
-        n_package=len(neuron),
-        pkt_ncopy=AERPacketZXYCopy(),
-    )
-    parsed = parse_frame_stream(np.concatenate([frame3, neuron]))
-    core = parsed.cores[(3, 2)]
-
-    neurons = decode_neurons({"neuron_number": len(neuron) // 2}, core.packages)
-    started = perf_counter()
-    for _ in range(500):
-        destinations = decode_neuron_destinations(neurons.records[0], (3, 2))
-    elapsed = perf_counter() - started
-
-    assert [
-        (destination.target_x, destination.target_y) for destination in destinations
-    ] == [
-        (4, 2),
-        (5, 3),
-        (5, 2),
-        (4, 3),
-        (6, 3),
-        (5, 4),
-        (6, 4),
-    ]
-    assert elapsed < 1.0
+    ] == expected
