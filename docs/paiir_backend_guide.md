@@ -181,8 +181,8 @@ graph = compile_to_paiir(model, torch.randn(1, 3, 32, 32))
 graph = compile_to_paiir(
     model,
     torch.randn(1, 3, 32, 32),
-    timesteps=100,           # 一次样本/一次推理的时间步数
-    auto_reset=True,         # 每 100 个有效工作步自动复位神经元状态
+    timesteps=100,  # 一次样本/一次推理的时间步数
+    auto_reset=True,  # 每 100 个有效工作步自动复位神经元状态
 )
 
 # 使用 CompileConfig + 关键字覆盖
@@ -300,9 +300,9 @@ validate_deployable_graph(graph)
 ```python
 from paibox.paiir.ir.graph import PAIIRGraph
 
-graph.name: str                        # 图名称
-graph.nodes: dict[str, PAIIRNode]      # 节点字典，key = 节点名
-graph.edges: list[Edge]                # 有向边列表
+graph.name: str  # 图名称
+graph.nodes: dict[str, PAIIRNode]  # 节点字典，key = 节点名
+graph.edges: list[Edge]  # 有向边列表
 ```
 
 ### Edge
@@ -310,10 +310,11 @@ graph.edges: list[Edge]                # 有向边列表
 ```python
 from paibox.paiir.ir.graph import Edge
 
+
 @dataclass(frozen=True)
 class Edge:
-    src: str       # 源节点名
-    dst: str       # 目标节点名
+    src: str  # 源节点名
+    dst: str  # 目标节点名
     src_port: int  # 源节点输出端口号（默认 0，单输出节点恒为 0）
     dst_port: int  # 目标节点输入端口号（默认 0，多输入节点用于保持顺序）
 ```
@@ -432,12 +433,12 @@ for name in graph.topo_sort():
 所有 `OpNode` 子类共享：
 
 ```python
-node.name: str                             # 唯一名称
-node.input_layouts: tuple[TensorLayout, ...]   # 各输入端口的 layout
+node.name: str  # 唯一名称
+node.input_layouts: tuple[TensorLayout, ...]  # 各输入端口的 layout
 node.output_layouts: tuple[TensorLayout, ...]  # 各输出端口的 layout
-node.num_inputs: int                           # 输入端口数量
-node.num_outputs: int                          # 输出端口数量
-node.output_domain                         # SignalDomain.VALUE / POTENTIAL
+node.num_inputs: int  # 输入端口数量
+node.num_outputs: int  # 输出端口数量
+node.output_domain  # SignalDomain.VALUE / POTENTIAL
 ```
 
 其中：
@@ -490,26 +491,26 @@ op.core_params: OfflineCoreParams
 cp = op.core_params
 
 # 工作模式
-cp.snn_mode: SNNMode              # SNN / ANN
-cp.pooling_mode: PoolingMode      # AVERAGE / MAX
-cp.add_potential: AddPotentialMode # 加电位模式
-cp.zero_output: ZeroOutputMode    # 零输出模式
+cp.snn_mode: SNNMode  # SNN / ANN
+cp.pooling_mode: PoolingMode  # AVERAGE / MAX
+cp.add_potential: AddPotentialMode  # 加电位模式
+cp.zero_output: ZeroOutputMode  # 零输出模式
 
 # 数据格式（由 propagate_data_format 填充）
-cp.input_sign: DataSign           # 输入符号（UNSIGNED / SIGNED）
-cp.input_width: DataWidth         # 输入位宽
-cp.output_sign: DataSign          # 输出符号
-cp.output_width: DataWidth        # 输出位宽
-cp.weight_sign: DataSign          # 权重符号
-cp.weight_width: DataWidth        # 权重位宽
+cp.input_sign: DataSign  # 输入符号（UNSIGNED / SIGNED）
+cp.input_width: DataWidth  # 输入位宽
+cp.output_sign: DataSign  # 输出符号
+cp.output_width: DataWidth  # 输出位宽
+cp.weight_sign: DataSign  # 权重符号
+cp.weight_width: DataWidth  # 权重位宽
 
 # 内部硬件时序参数（由 assign_tick_params 从公开 timesteps/auto_reset 映射后填充）
-cp.tick_start: int | None         # 启动时刻（第几个 sync_all）
-cp.tick_duration: int             # 工作时长（0 = 常开）
-cp.tick_initial: int              # 自动复位周期（0 = 不复位）
+cp.tick_start: int | None  # 启动时刻（第几个 sync_all）
+cp.tick_duration: int  # 工作时长（0 = 常开）
+cp.tick_initial: int  # 自动复位周期（0 = 不复位）
 
 # 部署前验证时序参数是否在寄存器范围内
-cp.validate_tick_params()         # 越界或未分配时抛出 ValueError
+cp.validate_tick_params()  # 越界或未分配时抛出 ValueError
 ```
 
 #### 2. 原始参数权重（weights）
@@ -580,8 +581,8 @@ hw_lut: LutData | None = op.hw_lut_data
 @dataclass
 class LutData:
     thresholds: Tensor  # shape (256,)，分桶边界
-    values: Tensor      # shape (256,)，输出值
-    is_float: bool      # True = float32 阈值 + bfloat16 值
+    values: Tensor  # shape (256,)，输出值
+    is_float: bool  # True = float32 阈值 + bfloat16 值
 ```
 
 SNN 模式下 `hw_lut_data` 为 `None`。
@@ -600,11 +601,13 @@ PAIIR IR 在 `op.hw_lut_data` 属性内把 logical LUT 转换为目标 `output_s
 from paibox.paiir.ir.op_node import SequentialOp
 
 seq: SequentialOp
-seq.comp: nn.Module        # 计算模块（Conv2d / Linear / MaxPool2d / AvgPool2d / Adaptive*Pool2d 等）
-seq.act: CoreNeuronV25     # 激活模块
-seq.weights                # list[Tensor] | None，原始参数张量；池化通常为 None
-seq.neuron_params          # NeuronParams（含 bias 融合、AvgPool 补偿）
-seq.hw_lut_data            # LutData | None，硬件 SRAM LUT
+seq.comp: (
+    nn.Module
+)  # 计算模块（Conv2d / Linear / MaxPool2d / AvgPool2d / Adaptive*Pool2d 等）
+seq.act: CoreNeuronV25  # 激活模块
+seq.weights  # list[Tensor] | None，原始参数张量；池化通常为 None
+seq.neuron_params  # NeuronParams（含 bias 融合、AvgPool 补偿）
+seq.hw_lut_data  # LutData | None，硬件 SRAM LUT
 ```
 
 #### AccumulateOp
@@ -613,12 +616,12 @@ seq.hw_lut_data            # LutData | None，硬件 SRAM LUT
 from paibox.paiir.ir.op_node import AccumulateOp
 
 acc: AccumulateOp
-acc.comps: nn.ModuleList   # 计算模块列表
-acc.signs: tuple[int, ...] # 各路径符号，(1, 1) = 加，(1, -1) = 减
-acc.act: CoreNeuronV25     # 激活模块
-acc.weights                # list[Tensor] | None，原始参数张量，与 comps 一一对应
-acc.neuron_params          # NeuronParams（多路径 bias 按 signs 融合）
-acc.hw_lut_data            # LutData | None，硬件 SRAM LUT
+acc.comps: nn.ModuleList  # 计算模块列表
+acc.signs: tuple[int, ...]  # 各路径符号，(1, 1) = 加，(1, -1) = 减
+acc.act: CoreNeuronV25  # 激活模块
+acc.weights  # list[Tensor] | None，原始参数张量，与 comps 一一对应
+acc.neuron_params  # NeuronParams（多路径 bias 按 signs 融合）
+acc.hw_lut_data  # LutData | None，硬件 SRAM LUT
 ```
 
 后端可依赖的最小契约：
@@ -638,7 +641,7 @@ from paibox.paiir.ir.add_ops import PotentialAddOp
 
 add: PotentialAddOp
 add.signs: tuple[int, ...]  # 输入符号
-add.weights                  # None（无原始参数）
+add.weights  # None（无原始参数）
 # neuron_params 为默认直通配置（output_type=POTENTIAL）
 ```
 
@@ -688,8 +691,8 @@ from paibox.paiir.ir.op_node import LayoutStage, ShapeStage, TransformOp
 
 tr: TransformOp
 tr.stages: tuple[LayoutStage | ShapeStage, ...]
-tr.input_layouts[0]    # 输入 layout
-tr.output_layouts[0]   # 输出 layout
+tr.input_layouts[0]  # 输入 layout
+tr.output_layouts[0]  # 输出 layout
 ```
 
 `TransformOp` 是当前 PAIIR 中统一承载 layout / shape 重解释的 routing 节点，不映射到任何芯片核。它的核心行为是按顺序执行 `stages`：
@@ -798,23 +801,27 @@ def extract_topology(graph):
         elif isinstance(node, OutputNode):
             topology["outputs"].append({"name": name, "shape": node.shape})
         elif isinstance(node, (TransformOp, PadOp, ConcatOp)):
-            topology["routing"].append({
-                "name": name,
-                "type": type(node).__name__,
-                "input_order": graph.predecessors(name),
-                "stages": getattr(node, "stages", None),
-                "padding": getattr(node, "padding", None),
-                "dim": getattr(node, "dim", None),
-            })
+            topology["routing"].append(
+                {
+                    "name": name,
+                    "type": type(node).__name__,
+                    "input_order": graph.predecessors(name),
+                    "stages": getattr(node, "stages", None),
+                    "padding": getattr(node, "padding", None),
+                    "dim": getattr(node, "dim", None),
+                }
+            )
         elif isinstance(node, OfflineCoreOp):
             topology["cores"].append(name)
 
     for edge in graph.edges:
-        topology["edges"].append({
-            "src": edge.src,
-            "dst": edge.dst,
-            "dst_port": edge.dst_port,
-        })
+        topology["edges"].append(
+            {
+                "src": edge.src,
+                "dst": edge.dst,
+                "dst_port": edge.dst_port,
+            }
+        )
 
     return topology
 ```
@@ -838,7 +845,9 @@ def debug_graph(graph):
         print(f"  Input:  {cp.input_sign.name} {cp.input_width.name}")
         print(f"  Output: {cp.output_sign.name} {cp.output_width.name}")
         print(f"  Weight: {cp.weight_sign.name} {cp.weight_width.name}")
-        print(f"  Timing: start={cp.tick_start}, duration={cp.tick_duration}, initial={cp.tick_initial}")
+        print(
+            f"  Timing: start={cp.tick_start}, duration={cp.tick_duration}, initial={cp.tick_initial}"
+        )
 
         raw_weights = node.weights
         if raw_weights is not None:
@@ -866,21 +875,21 @@ def debug_graph(graph):
 
 ```python
 from paicorelib import (
-    SNNMode,                    # SNN, ANN
-    PoolingMode,                # AVERAGE, MAX
-    DataSign,                   # UNSIGNED, SIGNED
-    DataWidth,                  # WIDTH_1BIT, WIDTH_2BIT, WIDTH_4BIT, WIDTH_8BIT
-    OutputType,                 # VALUE, SPIKE, POTENTIAL, ...
-    ThresholdPosMode,           # FIRE, CEILING
-    ThresholdNegMode,           # FIRE, FLOOR
-    RM,                         # MODE_NORMAL（硬复位）, MODE_LINEAR（软复位）
+    SNNMode,  # SNN, ANN
+    PoolingMode,  # AVERAGE, MAX
+    DataSign,  # UNSIGNED, SIGNED
+    DataWidth,  # WIDTH_1BIT, WIDTH_2BIT, WIDTH_4BIT, WIDTH_8BIT
+    OutputType,  # VALUE, SPIKE, POTENTIAL, ...
+    ThresholdPosMode,  # FIRE, CEILING
+    ThresholdNegMode,  # FIRE, FLOOR
+    RM,  # MODE_NORMAL（硬复位）, MODE_LINEAR（软复位）
     AddPotentialMode,
     ZeroOutputMode,
     LateralInhibitionMode,
-    LeakMultiComparisonOrder,   # BEFORE_COMPARE, AFTER_COMPARE
+    LeakMultiComparisonOrder,  # BEFORE_COMPARE, AFTER_COMPARE
     LeakMultiInputMode,
     LeakMultiMode,
-    LeakAddMode,                # FORWARD, BACKWARD
+    LeakAddMode,  # FORWARD, BACKWARD
 )
 ```
 
@@ -901,9 +910,9 @@ class OfflineCoreParams:
     weight_sign: DataSign = DataSign.SIGNED
     weight_width: DataWidth = DataWidth.WIDTH_8BIT
 
-    tick_start: int | None = None    # None = 待自动分配
-    tick_duration: int = 0           # 0 = 常开
-    tick_initial: int = 0            # 0 = 不自动复位
+    tick_start: int | None = None  # None = 待自动分配
+    tick_duration: int = 0  # 0 = 常开
+    tick_initial: int = 0  # 0 = 不自动复位
 ```
 
 时序参数的寄存器限制：
@@ -924,7 +933,9 @@ class NeuronParams:
     thres_neg: float = -131072
     thres_pos: float = 0.0
     lateral_inhi: LateralInhibitionMode = LateralInhibitionMode.DISABLE
-    leak_multi_sequence: LeakMultiComparisonOrder = LeakMultiComparisonOrder.AFTER_COMPARE
+    leak_multi_sequence: LeakMultiComparisonOrder = (
+        LeakMultiComparisonOrder.AFTER_COMPARE
+    )
     leak_multi_input: LeakMultiInputMode = LeakMultiInputMode.DISABLE
     leak_multi_mode: LeakMultiMode = LeakMultiMode.DISABLE
     leak_add_mode: LeakAddMode = LeakAddMode.FORWARD
@@ -939,8 +950,8 @@ class NeuronParams:
 ```python
 @dataclass
 class LutData:
-    thresholds: Tensor   # shape (256,)
-    values: Tensor       # shape (256,)
+    thresholds: Tensor  # shape (256,)
+    values: Tensor  # shape (256,)
     is_float: bool = False
 ```
 
