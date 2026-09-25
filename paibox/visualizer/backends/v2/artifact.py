@@ -55,7 +55,7 @@ from .io_mapping import (
     build_io_view,
     io_core_summary_map,
 )
-from .offline_v2 import decode_offline_core
+from .offline_v2 import decode_neuron_summary, decode_offline_core
 
 
 class ArtifactLoadError(ValueError):
@@ -110,19 +110,22 @@ class _ArtifactLoadContext:
                 core_validation = _validate_core(x, y, core_config, metadata)
                 packages = frame_core.packages if frame_core else []
                 decoded = None
-                if (
-                    frame_core
-                    and chip_core_role(x, y) == "offline"
-                    and (decode_coords is None or coord in decode_coords)
-                ):
+                neurons = NeuronView()
+                if frame_core and chip_core_role(x, y) == "offline":
                     try:
-                        decoded = decode_offline_core(
-                            core_config,
-                            packages,
-                            core_coord=coord,
-                            grid_width=GRID_WIDTH,
-                            grid_height=GRID_HEIGHT,
-                        )
+                        if decode_coords is None or coord in decode_coords:
+                            decoded = decode_offline_core(
+                                core_config,
+                                packages,
+                                core_coord=coord,
+                                grid_width=GRID_WIDTH,
+                                grid_height=GRID_HEIGHT,
+                            )
+                            neurons = decoded.neurons
+                        else:
+                            neurons = NeuronView(
+                                summary=decode_neuron_summary(core_config, packages)
+                            )
                     except FrameDecodeError as exc:
                         raise exc.with_context(
                             chip_id=CHIP_ID, core_x=x, core_y=y
@@ -177,9 +180,7 @@ class _ArtifactLoadContext:
                             else CoreConfigView()
                         ),
                         lut=decoded.lut if decoded is not None else LutView(),
-                        neurons=(
-                            decoded.neurons if decoded is not None else NeuronView()
-                        ),
+                        neurons=neurons,
                         weights=(
                             decoded.weights if decoded is not None else WeightView()
                         ),

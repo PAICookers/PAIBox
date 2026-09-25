@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 from paicorelib import (
@@ -22,14 +24,16 @@ from paicorelib.framelib.parser_v2 import decode_core_config, parse_frame_stream
 from paicorelib.neuron_defs import ResetMode
 
 from paibox.backendv2.compute_pressure import compute_weight_pressure
+from paibox.visualizer.artifact import load_artifact_session
 from paibox.visualizer.backends.v2.errors import FrameDecodeError
 from paibox.visualizer.backends.v2.offline_v2 import (
     decode_neuron_destinations,
+    decode_neuron_summary,
     decode_neurons,
     decode_offline_core,
 )
 
-from ..helpers import make_core_frame
+from ..helpers import make_core_frame, write_pb
 
 
 def test_decode_core_config_semantic_fields() -> None:
@@ -131,17 +135,16 @@ def test_decode_full_neuron_and_weight_summary() -> None:
     parsed = parse_frame_stream(np.concatenate([frame3, neuron, weight]))
     core = parsed.cores[(2, 2)]
 
-    decoded = decode_offline_core(
-        {
-            "neuron_number": len(neuron) // 2,
-            "weight_sign": 0,
-            "weight_width": DataWidth.WIDTH_8BIT,
-            "input_width": DataWidth.WIDTH_8BIT,
-        },
-        core.packages,
-    )
+    config = {
+        "neuron_number": len(neuron) // 2,
+        "weight_sign": 0,
+        "weight_width": DataWidth.WIDTH_8BIT,
+        "input_width": DataWidth.WIDTH_8BIT,
+    }
+    decoded = decode_offline_core(config, core.packages)
 
     assert decoded.neurons.summary.full_count == 1
+    assert decode_neuron_summary(config, core.packages) == decoded.neurons.summary
     expected_sops = compute_weight_pressure(
         fold_count=1,
         input_width=DataWidth.WIDTH_8BIT,
@@ -234,20 +237,19 @@ def test_decode_folded_neuron_attaches_fold_attrs() -> None:
     parsed = parse_frame_stream(np.concatenate([frame3, neuron, weight]))
     core = parsed.cores[(2, 2)]
 
-    decoded = decode_offline_core(
-        {
-            "neuron_number": len(neuron) // 2,
-            "weight_sign": 0,
-            "weight_width": DataWidth.WIDTH_8BIT,
-            "input_width": DataWidth.WIDTH_8BIT,
-        },
-        core.packages,
-    )
+    config = {
+        "neuron_number": len(neuron) // 2,
+        "weight_sign": 0,
+        "weight_width": DataWidth.WIDTH_8BIT,
+        "input_width": DataWidth.WIDTH_8BIT,
+    }
+    decoded = decode_offline_core(config, core.packages)
 
     assert decoded.neurons.summary.total == 1
     assert decoded.neurons.summary.half_count == 1
     assert decoded.neurons.summary.folded_count == 1
     assert decoded.neurons.summary.synops_pressure == 8192
+    assert decode_neuron_summary(config, core.packages) == decoded.neurons.summary
     assert decoded.neurons.summary.sops_with_padding == 8192
     assert decoded.neurons.summary.sops_without_padding == 8192
     assert decoded.neurons.summary.weight_sram_pressure == 8
@@ -446,14 +448,14 @@ def test_csc_accelerate_relabels_vjt_initial_as_weight_address_start() -> None:
     assert "weight_address_start" in field.description
 
 
-def test_decode_csc_weight_storage_entries_and_padding() -> None:
+def test_decode_csc_weight_storage_entries_and_padding(tmp_path: Path) -> None:
     offset = CoordZXYOffset(0, 2, 2)
     dest = {
         "tick_relative": 1,
         "addr_axon": 12,
         "addr_core_xy": 0,
         "addr_core_x": 1,
-        "addr_core_y": -1,
+        "addr_core_y": 0,
         "addr_copy_xy": 0,
         "addr_copy_x": 0,
         "addr_copy_y": 0,
@@ -534,6 +536,15 @@ def test_decode_csc_weight_storage_entries_and_padding() -> None:
     assert decoded.neurons.summary.sops_with_padding == expected_padded_sops
     assert decoded.neurons.summary.sops_without_padding == expected_unpadded_sops
     assert decoded.neurons.summary.weight_sram_pressure == 1
+    # Exercise the summary model used by Layer Pressure before selecting a core.
+    frames = np.concatenate(
+        [make_core_frame(CoordXY(2, 2), neuron_number=2), frame3, neuron, weight]
+    )
+    session = load_artifact_session(write_pb(tmp_path / "config.pb", frames))
+    overview = next(c for c in session.model.chips[0].cores if (c.x, c.y) == (2, 2))
+    assert overview.neurons.summary == decoded.neurons.summary
+    assert all(not c.neurons.records for c in session.model.chips[0].cores)
+    assert overview.neurons.summary == session.core(0, 2, 2).neurons.summary
     weight_record = decoded.weights.records[0]
     assert weight_record.kind == "sparse"
     assert weight_record.storage_value_count == 5

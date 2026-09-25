@@ -157,6 +157,23 @@ def decode_offline_core(
     )
 
 
+def decode_neuron_summary(
+    core_config: dict[str, int], packages: list[FramePackageInfo]
+) -> NeuronSummaryView:
+    """Compute overview statistics without retaining per-core detail views."""
+    frame3_payload = _frame3_payload(packages)
+    neurons = decode_neurons(core_config, packages, frame3_payload=frame3_payload)
+    # Dense SOPS depend only on address ranges; only CSC needs storage counts
+    # to distinguish real weight slots from padding.
+    sparse_neurons = NeuronView(
+        records=[r for r in neurons.records if _record_weight_kind(r) == "sparse"]
+    )
+    weights = decode_weights(
+        core_config, packages, sparse_neurons, frame3_payload=frame3_payload
+    )
+    return apply_sops_summary(core_config, neurons, weights).summary
+
+
 def decode_core_config_view(
     core_config: dict[str, int],
     packages: list[FramePackageInfo],
