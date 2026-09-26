@@ -3,7 +3,12 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
 
-from paicorelib import CoordXY, CoordZXYOffset, OutputType, find_coordxy_shortest_path
+from paicorelib import (
+    CoordXY,
+    CoordZXYOffset,
+    OutputType,
+    find_coordxy_shortest_path,
+)
 
 from paibox.paiir import PAIIRGraph
 from paibox.paiir.ir import OfflineCoreOp, StandaloneCompOp
@@ -250,9 +255,15 @@ class Mapper:
             if cp.coord == control_root_coord:
                 cp.set_auto_core_config(control_offset)
             else:
-                test_offset, _ = find_coordxy_shortest_path(
-                    self.route_scope.default_cpu.coord, cp.coord
-                )
+                cpu_coord = self.route_scope.default_cpu.coord
+                if self.route_scope.chip_for_coord(
+                    cpu_coord
+                ) != self.route_scope.chip_for_coord(cp.coord):
+                    test_offset = CoordZXYOffset(
+                        0, cp.coord.x - cpu_coord.x, cp.coord.y - cpu_coord.y
+                    )
+                else:
+                    test_offset, _ = find_coordxy_shortest_path(cpu_coord, cp.coord)
                 cp.set_auto_core_config(test_offset)
 
     def _collect_output_producers(self) -> list[OutputProducer]:
@@ -361,6 +372,7 @@ class Mapper:
             self.coreplacements,
             self.global_starts,
             frame_records,
+            target_board=self.route_scope.name,
         )
         if export_x86:
             export_compile_artifacts(out, export_proto_python, debug, artifacts)
@@ -408,10 +420,8 @@ class Mapper:
                 automatic-reset graphs is used first; otherwise a finite and
                 consistent output ``tick_duration`` is used. If neither is
                 available, it defaults to ``1``.
-            target_board: Fixed hardware board topology used by backendv2
-                routing and completion planning. ``"single"`` targets one
-                chip; ``"array_2x2"`` targets the fixed 2x2 chip array with
-                left-bottom CPU as the default endpoint.
+            target_board: BoardName enum or board name. ``"array2x2"`` is an
+                alias for ``"array_2x2"``; artifacts use the canonical name.
             target_platform: Platform-specific artifact set to emit.
                 ``"x86"`` exports ``.npy`` frame arrays, ``"riscv"`` exports
                 C headers, and ``"all"`` exports both. When ``debug=True``,

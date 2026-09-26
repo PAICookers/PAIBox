@@ -16,6 +16,7 @@ from paicorelib import (
     aer_packet_area,
     aer_packet_copy_offsets,
     find_coordxy_shortest_path,
+    route_coord_path,
     to_coordxy,
 )
 
@@ -26,8 +27,21 @@ __all__ = ["RouteSolver", "route_solve"]
 
 
 @lru_cache(maxsize=8192)
-def _shortest_offset(source: CoordXY, target: CoordXY) -> CoordZXYOffset:
-    """Cache the deterministic shortest Z/X/Y route between two coordinates."""
+def _shortest_offset(
+    source: CoordXY, target: CoordXY, scope_name: TargetBoard = "single"
+) -> CoordZXYOffset:
+    """Cache a board-legal deterministic route offset.
+
+    PAICORE's Z/X/Y primitive emits diagonal Z steps before cardinal steps.
+    Across chips that would jump over a corner, so cross-chip routes use the
+    cardinal X/Y form and are checked by the board audit.
+    """
+    scope = get_route_scope(scope_name)
+    if scope.chip_for_coord(source) != scope.chip_for_coord(target):
+        offset = CoordZXYOffset(0, target.x - source.x, target.y - source.y)
+        if scope.route_path_valid(route_coord_path(source, offset), target):
+            return offset
+        raise RuntimeError(f"No board-legal DATA route from {source} to {target}.")
     offset, _ = find_coordxy_shortest_path(target, start=source)
     return offset
 
@@ -60,6 +74,7 @@ class _Placement:
 def _copy_candidates(
     scope_name: TargetBoard,
 ) -> tuple[tuple[int, tuple[int, int, int]], ...]:
+    """Enumerate legal AER copy tuples within the board's hardware limits."""
     scope = get_route_scope(scope_name)
     z_limit, x_limit, y_limit = scope.copy_limits
     offline_capacity = len(scope.offline_core_coords)
@@ -273,7 +288,7 @@ class RouteSolver:
         """Create only placements whose copied cores fit in offline silicon."""
         for base in self.offline_coords:
             coords = tuple(base + offset for offset in shape.offsets)
-            if not all(coord in self.scope.offline_core_coords for coord in coords):
+            if not all(coord in self.offline_coords for coord in coords):
                 continue
 
             center_x = round(sum(coord.x for coord in coords) / len(coords))
@@ -368,8 +383,8 @@ class RouteSolver:
 
         For edge i -> j, each source core of i may emit an AER packet using j's
         copy shape. Every expanded coordinate must stay inside the selected
-        board's global route grid; CPU tiles are endpoints, not pass-through
-        route cells.
+        board's global route grid; CPU coordinates may be NoC transit cells but
+        are not configurable local targets.
         """
         for src_id, next_ids in self.next_area_id.items():
             for dst_id in next_ids:
@@ -402,7 +417,7 @@ class RouteSolver:
 
     def _input_placement_valid(self, source: CoordXY, placement: _Placement) -> bool:
         """Return whether CPU input reaches exactly one offline placement."""
-        offset = _shortest_offset(source, placement.coords[0])
+        offset = _shortest_offset(source, placement.coords[0], self.scope.name)
         return self._audit_packet(source, offset, placement.shape.copy_config).valid
 
     def _audit_packet(
@@ -418,7 +433,7 @@ class RouteSolver:
         dst_base = dst_placement.coords[0]
         copy_config = dst_placement.shape.copy_config
         for src_coord in src_placement.coords:
-            offset = _shortest_offset(src_coord, dst_base)
+            offset = _shortest_offset(src_coord, dst_base, self.scope.name)
             if not self._audit_packet(src_coord, offset, copy_config).valid:
                 return False
         return True

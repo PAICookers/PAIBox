@@ -245,7 +245,12 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
             coord_offset = None
 
         if coord_offset is None:
-            coord_offset, _ = find_coordxy_shortest_path(dest_coord, start=self_coord)
+            if route_scope.chip_for_coord(self_coord) != route_scope.chip_for_coord(dest_coord):
+                coord_offset = CoordZXYOffset(
+                    0, dest_coord.x - self_coord.x, dest_coord.y - self_coord.y
+                )
+            else:
+                coord_offset, _ = find_coordxy_shortest_path(dest_coord, start=self_coord)
 
         scope = route_scope or get_route_scope("single")
         audit = scope.audit_aer_packet(self_coord, coord_offset, coord_copy)

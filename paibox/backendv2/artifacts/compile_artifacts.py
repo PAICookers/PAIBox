@@ -5,6 +5,7 @@ from paicorelib import CoordZXYOffset, DataSign, DataWidth, find_coordxy_shortes
 
 from paibox.paiir.ir.signal_domain import SignalDomain
 
+from ..board import BoardTarget, get_board_profile
 from ..coreplacement import CorePlacement, Frontend_Core_Config
 from ..op_node import Neuron, RemapElem
 from ..routing import InputGroup, OutputGroup, RemapGroup, RoutingGroup, SourceElem
@@ -143,6 +144,7 @@ class ThreadIOMappingData:
         default_factory=OutputTensorMappingsData
     )
     core_ticks: list[CoreTickData] = field(default_factory=list)
+    occupied_chip_count: int = 0
 
 
 @dataclass
@@ -161,6 +163,7 @@ class CompileArtifactsData:
     schema_version: int = 0
     io_mapping: IOMappingData = field(default_factory=IOMappingData)
     config_frames: ConfigFramesData = field(default_factory=ConfigFramesData)
+    target_board: str = ""
 
 
 _DATA_TYPE_BY_FORMAT: Mapping[DataFormat, int] = {
@@ -420,9 +423,15 @@ def build_compile_artifacts(
     coreplacements: Sequence[CorePlacement],
     global_starts: Mapping[int, CoordZXYOffset],
     frame_records: FrameRecords,
+    target_board: BoardTarget = "single",
 ) -> CompileArtifactsData:
     """Build backendv2 compile metadata shared by protobuf and FlatBuffers."""
-    artifacts = CompileArtifactsData(schema_version=SCHEMA_VERSION)
+    profile = get_board_profile(target_board)
+    core_width, core_height = profile.core_grid_size
+    artifacts = CompileArtifactsData(
+        schema_version=SCHEMA_VERSION,
+        target_board=profile.name.value,
+    )
     io_mapping = artifacts.io_mapping
 
     for thread_id, global_start in global_starts.items():
@@ -432,6 +441,30 @@ def build_compile_artifacts(
                 xy=global_start.z, x=global_start.x, y=global_start.y
             ),
         )
+        thread_placements = [
+            core_placement
+            for core_placement in coreplacements
+            if core_placement.default_core_config.thread_number == thread_id
+        ]
+        occupied_chips = {
+            (
+                core_placement.coord.x // core_width,
+                core_placement.coord.y // core_height,
+            )
+            for core_placement in thread_placements
+        }
+        if not occupied_chips:
+            raise ValueError(
+                f"Thread {thread_id} has no physical core placement for "
+                f"target board {target_board!r}."
+            )
+        if len(occupied_chips) > len(profile.chips):
+            raise ValueError(
+                f"Thread {thread_id} occupies {len(occupied_chips)} chips, "
+                f"exceeding target board {profile.name.value!r} capacity "
+                f"{len(profile.chips)}."
+            )
+        thread_mapping.occupied_chip_count = len(occupied_chips)
         io_mapping.threads.append(thread_mapping)
 
         thread_output_groups = [

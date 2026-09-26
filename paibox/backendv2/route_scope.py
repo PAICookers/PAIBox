@@ -6,6 +6,7 @@ the supported hardware layouts are fixed product targets, not user-provided
 placement inputs.
 """
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Literal
@@ -21,6 +22,15 @@ from paicorelib import (
     to_coordxy,
 )
 
+from .board import (
+    BoardCoreAddr,
+    BoardName,
+    BoardProfile,
+    BoardTarget,
+    ChipCoord,
+    get_board_profile,
+)
+
 __all__ = [
     "CpuEndpoint",
     "RouteAuditFailure",
@@ -31,37 +41,21 @@ __all__ = [
     "get_route_scope",
 ]
 
-TargetBoard = Literal["single", "array_2x2"]
+TargetBoard = BoardTarget
 RoutePath = tuple[CoordXY, ...]
 LocalCoords = tuple[CoordXY, ...]
-PacketAuditKey = tuple[TargetBoard, int, int, int, int, int, int, int, int]
+PacketAuditKey = tuple[str, int, int, int, int, int, int, int, int]
 TargetExpansionKey = tuple[int, int, int, int, int]
 FailureCode = Literal[
-    "cpu_transit",
     "path_out_of_scope",
     "path_target_mismatch",
+    "missing_data_edge",
+    "cross_chip_xy",
     "expected_target_outside_offline",
     "online_local_delivery",
     "local_target_set_mismatch",
 ]
 FailureStage = Literal["path", "expected_local", "actual_local", "target_set"]
-
-CHIP_ROUTE_SIZE = 9
-CHIP_ARRAY_STRIDE = (9, 9)
-
-_SINGLE_CPU = CoordXY(0, 0)
-_SINGLE_OFFLINE = frozenset(
-    CoordXY(x, y) for x in range(CHIP_ROUTE_SIZE) for y in range(2, CHIP_ROUTE_SIZE)
-)
-_SINGLE_GLOBAL = frozenset(
-    CoordXY(x, y) for x in range(CHIP_ROUTE_SIZE) for y in range(CHIP_ROUTE_SIZE)
-)
-_SINGLE_ONLINE = frozenset(
-    CoordXY(x, y)
-    for x in range(CHIP_ROUTE_SIZE)
-    for y in range(2)
-    if CoordXY(x, y) != _SINGLE_CPU
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,13 +197,21 @@ def _audit_packet_cached(key: PacketAuditKey) -> RouteAuditResult:
 class RouteScope:
     """Resolved routing resources for one fixed backendv2 board target."""
 
-    name: TargetBoard
     cpu_endpoints: tuple[CpuEndpoint, ...]
     default_cpu: CpuEndpoint
     offline_core_coords: frozenset[CoordXY]
     online_core_coords: frozenset[CoordXY]
     global_route_coords: frozenset[CoordXY]
-    copy_limits: tuple[int, int, int]
+    board: BoardProfile
+
+    @property
+    def name(self) -> str:
+        return self.board.name.value
+
+    @property
+    def copy_limits(self) -> tuple[int, int, int]:
+        """Maximum absolute ``(Z, X, Y)`` AER copy counts for this board."""
+        return self.board.copy_limits
 
     @property
     def cpu_coords(self) -> frozenset[CoordXY]:
@@ -276,9 +278,8 @@ class RouteScope:
     def route_path_valid(self, path: tuple[CoordXY, ...], target: CoordXY) -> bool:
         """Return whether a Z/X/Y route path stays inside this scope.
 
-        CPU tiles are endpoints, not pass-through coordinates. The final target
-        may be a CPU coordinate; every other coordinate must be in
-        ``global_route_coords``.
+        CPU coordinates remain ordinary NoC transit coordinates. A CPU
+        coordinate is a terminal only when it is the final target.
 
         Args:
             path: Absolute coordinate path produced by route-offset expansion.
@@ -291,12 +292,13 @@ class RouteScope:
         if not path or path[-1] != target:
             return False
         for idx, coord in enumerate(path):
-            if coord in self.global_route_coords:
-                continue
-            if idx == len(path) - 1 and coord == target and coord in self.cpu_coords:
-                continue
-            return False
-        return True
+            if coord not in self.global_route_coords:
+                return False
+            if idx and self._step_failure(path[idx - 1], coord) is not None:
+                return False
+        return target in self.global_route_coords and (
+            target not in self.cpu_coords or target == self.default_cpu.coord
+        )
 
     def audit_aer_packet(
         self, source: CoordXYLike, offset: CoordZXYOffset, copy_config: AERPacketZXYCopy
@@ -306,8 +308,8 @@ class RouteScope:
         The PAICORE router consumes each core offset dimension before the next
         one and handles the matching copy dimension immediately after it. The
         PAIlib primitives are the source of truth for this ordered simulation;
-        this method adds board policy: CPU coordinates are endpoints only, and
-        normal DATA may be delivered only to offline cores.
+        this method adds board policy: CPU coordinates may be NoC transit
+        positions, while normal DATA may be delivered only to offline cores.
 
         Args:
             source: Absolute source core or CPU coordinate.
@@ -332,6 +334,34 @@ class RouteScope:
         )
         return _audit_packet_cached(key)
 
+    def data_edge_claims(
+        self,
+        source: CoordXYLike,
+        offset: CoordZXYOffset,
+        copy_config: AERPacketZXYCopy,
+    ) -> frozenset[tuple[ChipCoord, ChipCoord]]:
+        """Return directed physical DATA edges traversed by one packet."""
+        source = to_coordxy(source)
+        path = route_coord_path(source, offset)
+        claims: set[tuple[ChipCoord, ChipCoord]] = set()
+
+        def add_step(left: CoordXY, right: CoordXY) -> None:
+            failure = self._step_failure(left, right)
+            if failure is not None:
+                raise ValueError(failure.message)
+            left_chip, right_chip = (
+                self.chip_for_coord(left),
+                self.chip_for_coord(right),
+            )
+            if left_chip != right_chip:
+                claims.add((left_chip, right_chip))
+
+        for left, right in zip(path, path[1:]):
+            add_step(left, right)
+        for left, right in _iter_copy_steps(path[-1], copy_config):
+            add_step(left, right)
+        return frozenset(claims)
+
     def _audit_aer_packet(
         self, source: CoordXY, offset: CoordZXYOffset, copy_config: AERPacketZXYCopy
     ) -> RouteAuditResult:
@@ -342,6 +372,8 @@ class RouteScope:
         actual_local = tuple(aer_packet_walk(AERPacket(source, offset, copy_config)))
 
         failure = self._packet_path_failure(path, target)
+        if failure is None:
+            failure = self._copy_path_failure(target, copy_config)
         if failure is None:
             invalid_expected = [
                 coord
@@ -388,30 +420,32 @@ class RouteScope:
 
         return RouteAuditResult(path, actual_local, expected, failure)
 
+    def _copy_path_failure(
+        self, base: CoordXY, copy_config: AERPacketZXYCopy
+    ) -> RouteAuditFailure | None:
+        """Audit every multicast branch, including cross-chip copy moves."""
+        for left, right in _iter_copy_steps(base, copy_config):
+            failure = self._step_failure(left, right)
+            if failure is not None:
+                return failure
+        return None
+
     def _packet_path_failure(
         self, path: RoutePath, target: CoordXY
     ) -> RouteAuditFailure | None:
         """Return the first board-policy violation in a packet's core path."""
         for idx, coord in enumerate(path):
-            if coord in self.global_route_coords:
-                continue
-            if idx == 0 and coord in self.cpu_coords:
-                continue
-            if idx == len(path) - 1 and coord in self.cpu_coords:
-                continue
-            if coord in self.cpu_coords:
+            if coord not in self.global_route_coords:
                 return RouteAuditFailure(
-                    "cpu_transit",
+                    "path_out_of_scope",
                     "path",
                     coord,
-                    f"CPU endpoint {coord} cannot be a route transit",
+                    f"route coordinate {coord} is outside board scope",
                 )
-            return RouteAuditFailure(
-                "path_out_of_scope",
-                "path",
-                coord,
-                f"route coordinate {coord} is outside board scope",
-            )
+            if idx:
+                failure = self._step_failure(path[idx - 1], coord)
+                if failure is not None:
+                    return failure
         if path[-1] != target:
             return RouteAuditFailure(
                 "path_target_mismatch",
@@ -419,7 +453,55 @@ class RouteScope:
                 path[-1],
                 f"route ended at {path[-1]}, expected {target}",
             )
+        if target in self.cpu_coords and target != self.default_cpu.coord:
+            return RouteAuditFailure(
+                "path_out_of_scope",
+                "path",
+                target,
+                "only the control CPU may be a final CPU destination",
+            )
         return None
+
+    def _step_failure(
+        self, source: CoordXY, target: CoordXY
+    ) -> RouteAuditFailure | None:
+        dx, dy = target.x - source.x, target.y - source.y
+        src_chip = self.chip_for_coord(source)
+        dst_chip = self.chip_for_coord(target)
+        if abs(dx) == 1 and abs(dy) == 1:
+            if src_chip != dst_chip:
+                return RouteAuditFailure(
+                    "cross_chip_xy",
+                    "path",
+                    target,
+                    "XY route cannot cross a chip boundary",
+                )
+            return None
+        if abs(dx) + abs(dy) != 1:
+            return RouteAuditFailure(
+                "path_out_of_scope",
+                "path",
+                target,
+                f"invalid adjacent route step {source}->{target}",
+            )
+        if src_chip != dst_chip and not self.board.has_edge(src_chip, dst_chip):
+            return RouteAuditFailure(
+                "missing_data_edge",
+                "path",
+                target,
+                f"DATA route crosses undeclared edge {src_chip.xy}->{dst_chip.xy}",
+            )
+        return None
+
+    def chip_for_coord(self, coord: CoordXY) -> ChipCoord:
+        min_x, max_x, min_y, max_y = self.global_bounds
+        if not min_x <= coord.x <= max_x or not min_y <= coord.y <= max_y:
+            raise ValueError(f"coordinate {coord} is outside board bounds")
+        chip = ChipCoord(
+            coord.x // self.board.core_grid_width,
+            coord.y // self.board.core_grid_height,
+        )
+        return self.board.chip_at(chip.x, chip.y)
 
 
 def get_route_scope(target_board: TargetBoard = "single") -> RouteScope:
@@ -431,12 +513,7 @@ def get_route_scope(target_board: TargetBoard = "single") -> RouteScope:
     Returns:
         Immutable `RouteScope` for the selected board target.
     """
-    if target_board not in _ROUTE_SCOPES:
-        supported = ", ".join(sorted(_ROUTE_SCOPES))
-        raise ValueError(
-            f"Unsupported target_board {target_board!r}; expected one of: {supported}."
-        )
-    return _ROUTE_SCOPES[target_board]
+    return _scope_from_profile(get_board_profile(target_board).name)
 
 
 def _bounds(coords: frozenset[CoordXY]) -> tuple[int, int, int, int]:
@@ -451,50 +528,101 @@ def _shift(coords: frozenset[CoordXY], dx: int, dy: int) -> frozenset[CoordXY]:
     return frozenset(CoordXY(coord.x + dx, coord.y + dy) for coord in coords)
 
 
-def _single_scope() -> RouteScope:
-    cpu = CpuEndpoint(0, 0, 0, _SINGLE_CPU)
-    return RouteScope(
-        "single",
-        (cpu,),
-        cpu,
-        _SINGLE_OFFLINE,
-        _SINGLE_ONLINE,
-        _SINGLE_GLOBAL - frozenset((cpu.coord,)),
-        (6, 8, 6),
-    )
+def _iter_copy_steps(
+    base: CoordXY, copy_config: AERPacketZXYCopy
+) -> Iterator[tuple[CoordXY, CoordXY]]:
+    """Yield every multicast branch step in PAICORE copy order."""
+    queue = [(base.x, base.y, copy_config.z, copy_config.x, copy_config.y)]
+    index = 0
+    while index < len(queue):
+        x, y, z_copy, x_copy, y_copy = queue[index]
+        index += 1
+        if z_copy > 0:
+            next_state = (x + 1, y + 1, z_copy - 1, x_copy, y_copy)
+        elif z_copy < 0:
+            next_state = (x - 1, y - 1, z_copy + 1, x_copy, y_copy)
+        elif x_copy > 0:
+            next_state = (x + 1, y, z_copy, x_copy - 1, y_copy)
+        elif x_copy < 0:
+            next_state = (x - 1, y, z_copy, x_copy + 1, y_copy)
+        elif y_copy > 0:
+            next_state = (x, y + 1, z_copy, x_copy, y_copy - 1)
+        elif y_copy < 0:
+            next_state = (x, y - 1, z_copy, x_copy, y_copy + 1)
+        else:
+            continue
+        queue.append(next_state)
+        yield CoordXY(x, y), CoordXY(next_state[0], next_state[1])
 
 
-def _array_2x2_scope() -> RouteScope:
+@lru_cache(maxsize=None)
+def _scope_from_profile(name: BoardName) -> RouteScope:
+    """Derive compiler coordinate pools from one authoritative board profile."""
+    profile = get_board_profile(name)
     offline: set[CoordXY] = set()
     online: set[CoordXY] = set()
     global_route: set[CoordXY] = set()
-    cpus: list[CpuEndpoint] = []
+    cpus = tuple(_cpu_endpoint(profile, endpoint) for endpoint in profile.cpu_ports)
 
-    stride_x, stride_y = CHIP_ARRAY_STRIDE
-    for chip_y in range(2):
-        for chip_x in range(2):
-            chip_id = chip_y * 2 + chip_x
-            dx = chip_x * stride_x
-            dy = chip_y * stride_y
-            cpu = CpuEndpoint(chip_id, chip_x, chip_y, CoordXY(dx, dy))
-            cpus.append(cpu)
-            offline.update(_shift(_SINGLE_OFFLINE, dx, dy))
-            online.update(_shift(_SINGLE_ONLINE, dx, dy))
-            global_route.update(_shift(_SINGLE_GLOBAL, dx, dy))
+    stride_x, stride_y = profile.core_grid_size
+    local_offline, local_online, local_global = _local_core_sets(profile)
+    for chip in profile.chips:
+        # Board coordinates are local 9x9 coordinates translated by chip xy.
+        dx = chip.x * stride_x
+        dy = chip.y * stride_y
+        offline.update(_shift(local_offline, dx, dy))
+        online.update(_shift(local_online, dx, dy))
+        global_route.update(_shift(local_global, dx, dy))
+    # CPU tiles remain in global_route for NoC transit, but are not resources.
+    offline.difference_update(cpu.coord for cpu in cpus)
+    online.difference_update(cpu.coord for cpu in cpus)
 
-    cpu_coords = {cpu.coord for cpu in cpus}
     return RouteScope(
-        "array_2x2",
-        tuple(cpus),
-        cpus[0],
+        cpus,
+        _find_control_cpu(profile, cpus),
         frozenset(offline),
         frozenset(online),
-        frozenset(global_route - cpu_coords),
-        (6, 17, 6),
+        frozenset(global_route),
+        profile,
     )
 
 
-_ROUTE_SCOPES: dict[TargetBoard, RouteScope] = {
-    "single": _single_scope(),
-    "array_2x2": _array_2x2_scope(),
-}
+def _cpu_endpoint(profile: BoardProfile, address: BoardCoreAddr) -> CpuEndpoint:
+    """Convert one profile CPU port into its global NoC route coordinate."""
+    return CpuEndpoint(
+        profile.chips.index(address.chip),
+        address.chip.x,
+        address.chip.y,
+        CoordXY(
+            address.chip.x * profile.core_grid_width + address.core.x,
+            address.chip.y * profile.core_grid_height + address.core.y,
+        ),
+    )
+
+
+def _local_core_sets(
+    profile: BoardProfile,
+) -> tuple[frozenset[CoordXY], frozenset[CoordXY], frozenset[CoordXY]]:
+    """Build local offline, online, and route coordinates from board geometry."""
+    width, height = profile.core_grid_size
+    offline = frozenset(
+        CoordXY(x, y)
+        for x in range(width)
+        for y in range(profile.online_row_count, height)
+    )
+    global_route = frozenset(
+        CoordXY(x, y) for x in range(width) for y in range(height)
+    )
+    online = frozenset(
+        CoordXY(x, y)
+        for x in range(width)
+        for y in range(profile.online_row_count)
+    )
+    return offline, online, global_route
+
+
+def _find_control_cpu(
+    profile: BoardProfile, cpus: tuple[CpuEndpoint, ...]
+) -> CpuEndpoint:
+    control = _cpu_endpoint(profile, profile.control_cpu)
+    return next(cpu for cpu in cpus if cpu.coord == control.coord)
