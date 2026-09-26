@@ -49,7 +49,12 @@ runtime/compile_artifacts.fbs
 ## Protobuf Path
 
 `compile_artifacts.proto` 面向 x86 / Python 上位机和调试工具。顶层 message 是
-`CompileArtifacts`，包含 `schema_version`、`io_mapping` 和 `config_frames`。
+`CompileArtifacts`，包含 `schema_version`、`target_board`、`io_mapping` 和全局唯一的
+`config_frames`。每个 `ThreadIOMapping` 还可声明 `occupied_chip_count`；缺省值 `0`
+表示旧产物未声明该信息。
+
+本次字段扩展保持 `schema_version=1` 和旧字段语义不变。旧 reader 会忽略新增字段；
+配置帧仍由根消息的 `config_frames` 统一保存和发送，不拆分到线程或芯片。
 
 `proto/config.pb` 是机器接口；`proto/config.json` 只供人工检查。Python 调试程序可直接
 复制导出的 `compile_artifacts_pb2.py/.pyi` 后读取 `config.pb`。
@@ -60,14 +65,8 @@ runtime/compile_artifacts.fbs
 `file_identifier` 是 `PBCA`。导出的 `runtime/compile_artifacts.bin` 是同一份
 compile artifacts metadata 的 FlatBuffers 编码。
 
-板端只读路径：
-
-1. 从 flash 或其他只读存储拿到连续 `uint8_t*` 和长度。
-2. 调用 generated verifier，例如 `VerifyCompileArtifactsBuffer(...)`。
-3. 调用 generated accessor，例如 `GetCompileArtifacts(...)`。
-
-FlatBuffers runtime 不要求文件系统，也不要求在 MCU 上构建 buffer；v0 只要求 MCU 端
-zero-copy 读取和校验。
+FlatBuffers runtime 不要求文件系统，也不要求在 MCU 上构建 buffer；只读路径直接解析
+`runtime/compile_artifacts.bin` 并按现有全局配置帧流发送。
 
 ## Data Flow
 
@@ -79,4 +78,7 @@ Mapper state
   -> CompileArtifactsData
     -> protobuf emitter -> proto/config.pb
     -> FlatBuffers emitter -> runtime/compile_artifacts.bin
+
+Multiple subnets
+  -> existing compile/artifact flow, with one global configuration-frame stream
 ```

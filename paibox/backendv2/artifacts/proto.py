@@ -127,6 +127,8 @@ def _copy_thread_mapping(src: ThreadIOMappingData, dst: pb.ThreadIOMapping) -> N
     _copy_output_mappings(src.output_mappings, dst.output_mappings)
     for item in src.core_ticks:
         _copy_core_tick(item, dst.core_ticks.add())
+    if src.occupied_chip_count:
+        dst.occupied_chip_count = src.occupied_chip_count
 
 
 def _copy_io_mapping(src: IOMappingData, dst: pb.IOMapping) -> None:
@@ -142,6 +144,7 @@ def _copy_config_frames(src: ConfigFramesData, dst: pb.ConfigFrames) -> None:
 def compile_artifacts_to_proto(data: CompileArtifactsData) -> pb.CompileArtifacts:
     artifacts = pb.CompileArtifacts()
     artifacts.schema_version = data.schema_version
+    artifacts.target_board = data.target_board
     _copy_io_mapping(data.io_mapping, artifacts.io_mapping)
     _copy_config_frames(data.config_frames, artifacts.config_frames)
     return artifacts

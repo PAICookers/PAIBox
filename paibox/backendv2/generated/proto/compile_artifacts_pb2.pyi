@@ -177,20 +177,22 @@ class CoreTick(_message.Message):
     def __init__(self, core_offset: _Optional[_Union[CoreOffset, _Mapping]] = ..., tick: _Optional[_Union[TickParams, _Mapping]] = ..., nodes: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class ThreadIOMapping(_message.Message):
-    __slots__ = ("thread_id", "root_core_offset", "runtime", "input_mappings", "output_mappings", "core_ticks")
+    __slots__ = ("thread_id", "root_core_offset", "runtime", "input_mappings", "output_mappings", "core_ticks", "occupied_chip_count")
     THREAD_ID_FIELD_NUMBER: _ClassVar[int]
     ROOT_CORE_OFFSET_FIELD_NUMBER: _ClassVar[int]
     RUNTIME_FIELD_NUMBER: _ClassVar[int]
     INPUT_MAPPINGS_FIELD_NUMBER: _ClassVar[int]
     OUTPUT_MAPPINGS_FIELD_NUMBER: _ClassVar[int]
     CORE_TICKS_FIELD_NUMBER: _ClassVar[int]
+    OCCUPIED_CHIP_COUNT_FIELD_NUMBER: _ClassVar[int]
     thread_id: int
     root_core_offset: CoreOffset
     runtime: RuntimeParams
     input_mappings: InputTensorMappings
     output_mappings: OutputTensorMappings
     core_ticks: _containers.RepeatedCompositeFieldContainer[CoreTick]
-    def __init__(self, thread_id: _Optional[int] = ..., root_core_offset: _Optional[_Union[CoreOffset, _Mapping]] = ..., runtime: _Optional[_Union[RuntimeParams, _Mapping]] = ..., input_mappings: _Optional[_Union[InputTensorMappings, _Mapping]] = ..., output_mappings: _Optional[_Union[OutputTensorMappings, _Mapping]] = ..., core_ticks: _Optional[_Iterable[_Union[CoreTick, _Mapping]]] = ...) -> None: ...
+    occupied_chip_count: int
+    def __init__(self, thread_id: _Optional[int] = ..., root_core_offset: _Optional[_Union[CoreOffset, _Mapping]] = ..., runtime: _Optional[_Union[RuntimeParams, _Mapping]] = ..., input_mappings: _Optional[_Union[InputTensorMappings, _Mapping]] = ..., output_mappings: _Optional[_Union[OutputTensorMappings, _Mapping]] = ..., core_ticks: _Optional[_Iterable[_Union[CoreTick, _Mapping]]] = ..., occupied_chip_count: _Optional[int] = ...) -> None: ...
 
 class IOMapping(_message.Message):
     __slots__ = ("threads",)
@@ -213,11 +215,13 @@ class ConfigFrames(_message.Message):
     def __init__(self, words: _Optional[_Iterable[int]] = ..., word_order: _Optional[_Union[ConfigFrames.WordOrder, str]] = ...) -> None: ...
 
 class CompileArtifacts(_message.Message):
-    __slots__ = ("schema_version", "io_mapping", "config_frames")
+    __slots__ = ("schema_version", "io_mapping", "config_frames", "target_board")
     SCHEMA_VERSION_FIELD_NUMBER: _ClassVar[int]
     IO_MAPPING_FIELD_NUMBER: _ClassVar[int]
     CONFIG_FRAMES_FIELD_NUMBER: _ClassVar[int]
+    TARGET_BOARD_FIELD_NUMBER: _ClassVar[int]
     schema_version: int
     io_mapping: IOMapping
     config_frames: ConfigFrames
-    def __init__(self, schema_version: _Optional[int] = ..., io_mapping: _Optional[_Union[IOMapping, _Mapping]] = ..., config_frames: _Optional[_Union[ConfigFrames, _Mapping]] = ...) -> None: ...
+    target_board: str
+    def __init__(self, schema_version: _Optional[int] = ..., io_mapping: _Optional[_Union[IOMapping, _Mapping]] = ..., config_frames: _Optional[_Union[ConfigFrames, _Mapping]] = ..., target_board: _Optional[str] = ...) -> None: ...

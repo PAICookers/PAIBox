@@ -104,8 +104,15 @@ class ThreadIOMapping(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
         return o == 0
 
+    # ThreadIOMapping
+    def OccupiedChipCount(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(16))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
 def ThreadIOMappingStart(builder):
-    builder.StartObject(6)
+    builder.StartObject(7)
 
 def Start(builder):
     ThreadIOMappingStart(builder)
@@ -157,6 +164,12 @@ def ThreadIOMappingCreateCoreTicksVector(builder, data):
 
 def CreateCoreTicksVector(builder, data):
     ThreadIOMappingCreateCoreTicksVector(builder, data)
+
+def ThreadIOMappingAddOccupiedChipCount(builder, occupiedChipCount):
+    builder.PrependUint32Slot(6, occupiedChipCount, 0)
+
+def AddOccupiedChipCount(builder, occupiedChipCount):
+    ThreadIOMappingAddOccupiedChipCount(builder, occupiedChipCount)
 
 def ThreadIOMappingEnd(builder):
     return builder.EndObject()

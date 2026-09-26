@@ -113,6 +113,7 @@ table ThreadIOMapping {
   input_mappings:InputTensorMappings;
   output_mappings:OutputTensorMappings;
   core_ticks:[CoreTick];
+  occupied_chip_count:uint;
 }
 
 table IOMapping {
@@ -128,6 +129,7 @@ table CompileArtifacts {
   schema_version:uint;
   io_mapping:IOMapping;
   config_frames:ConfigFrames;
+  target_board:string;
 }
 
 root_type CompileArtifacts;
