@@ -6,6 +6,7 @@ import pytest
 from paicorelib import (
     CoordXY,
     CoordXYOffset,
+    CoordZXYOffset,
     aer_packet_copy_offsets,
     find_coordxy_shortest_path,
 )
@@ -13,7 +14,11 @@ from paicorelib import (
 from paibox.backendv2 import route_solver as route_solver_module
 from paibox.backendv2.coreplacement import OfflineCorePlacementV2
 from paibox.backendv2.route_scope import get_route_scope
-from paibox.backendv2.route_solver import RouteSolver
+from paibox.backendv2.route_solver import (
+    RouteSolver,
+    _shape_valid_bases,
+    _smallest_shapes_for_area,
+)
 from paibox.backendv2.routing import InputGroup, OutputGroup, RemapGroup, RoutingGroup
 
 RUN_ROUTE_SOLVER_PERF = "PAIBOX_RUN_ROUTE_SOLVER_PERF"
@@ -194,6 +199,39 @@ def test_route_solve_input_placements_have_exact_packet_targets():
     audit = SINGLE_SCOPE.audit_aer_packet(CoordXY(0, 0), offset, copy_configs[0])
     assert audit.valid
     assert set(audit.actual_local) == set(coords[0])
+
+
+@pytest.mark.parametrize("board_name", ["single", "array_2x2"])
+def test_shape_base_prefilter_matches_reference_audit(board_name):
+    scope = get_route_scope(board_name)
+    shape = _smallest_shapes_for_area(board_name, 3)[0]
+    expected = set()
+    for base in sorted(scope.offline_core_coords, key=lambda coord: (coord.x, coord.y)):
+        coords = tuple(base + offset for offset in shape.offsets)
+        if all(coord in scope.offline_core_coords for coord in coords):
+            if scope.audit_aer_packet_valid(
+                base, CoordZXYOffset(), shape.copy_config
+            ):
+                expected.add(base)
+
+    actual = set(
+        _shape_valid_bases(board_name, shape.copy_config.to_tuple())
+    )
+    assert actual == expected
+
+
+def test_route_solver_records_bounded_shape_filter_stats():
+    solver = RouteSolver(areas=[3], feasibility_only=True, max_time_in_seconds=30.0)
+    solver.solve()
+
+    assert solver.stats["shape_candidates"] >= solver.stats["shape_retained"]
+    assert solver.stats["placement_count"] > 0
+    assert (
+        solver.stats["shape_base_cache_hits"]
+        + solver.stats["shape_base_cache_misses"]
+        >= 1
+    )
+    assert solver.stats["route_solver_seconds"] > 0
 
 
 def test_route_solve_derives_io_area_ids(monkeypatch):
