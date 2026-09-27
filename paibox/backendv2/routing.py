@@ -32,6 +32,7 @@ from .coreplacement import (
     EmptyOfflineCorePlacementV2,
     OfflineCorePlacementV2,
 )
+from .diagnostics import debug_print as print
 from .fold_neu import get_fold_info
 from .get_weight import (
     WeightInfo,

@@ -12,12 +12,10 @@ from functools import lru_cache
 from typing import Literal
 
 from paicorelib import (
-    AERPacket,
     AERPacketZXYCopy,
     CoordXY,
     CoordXYLike,
     CoordZXYOffset,
-    aer_packet_walk,
     route_coord_path,
     to_coordxy,
 )
@@ -55,6 +53,75 @@ FailureCode = Literal[
     "local_target_set_mismatch",
 ]
 FailureStage = Literal["path", "expected_local", "actual_local", "target_set"]
+
+
+@lru_cache(maxsize=131072)
+def _aer_packet_target_offsets(
+    offset_z: int, offset_x: int, offset_y: int, copy_z: int, copy_x: int, copy_y: int
+) -> tuple[tuple[int, int], ...]:
+    """Return local delivery coordinates without constructing CoordXY objects."""
+    queue = [(0, 0, offset_z, offset_x, offset_y, copy_z, copy_x, copy_y)]
+    targets: list[tuple[int, int]] = []
+    visited: set[tuple[int, int]] = set()
+
+    def append_target(x: int, y: int) -> None:
+        coord = (x, y)
+        if coord not in visited:
+            visited.add(coord)
+            targets.append(coord)
+
+    index = 0
+    while index < len(queue):
+        x, y, z_offset, x_offset, y_offset, z_copy, x_copy, y_copy = queue[index]
+        index += 1
+        while True:
+            if z_offset:
+                step = 1 if z_offset > 0 else -1
+                z_offset -= step
+                x += step
+                y += step
+            elif z_copy:
+                step = 1 if z_copy > 0 else -1
+                z_copy -= step
+                append_target(x, y)
+                queue.append(
+                    (
+                        x + step,
+                        y + step,
+                        z_offset,
+                        x_offset,
+                        y_offset,
+                        z_copy,
+                        x_copy,
+                        y_copy,
+                    )
+                )
+            elif x_offset:
+                step = 1 if x_offset > 0 else -1
+                x_offset -= step
+                x += step
+            elif x_copy:
+                step = 1 if x_copy > 0 else -1
+                x_copy -= step
+                append_target(x, y)
+                queue.append(
+                    (x + step, y, z_offset, x_offset, y_offset, z_copy, x_copy, y_copy)
+                )
+            elif y_offset:
+                step = 1 if y_offset > 0 else -1
+                y_offset -= step
+                y += step
+            elif y_copy:
+                step = 1 if y_copy > 0 else -1
+                y_copy -= step
+                append_target(x, y)
+                queue.append(
+                    (x, y + step, z_offset, x_offset, y_offset, z_copy, x_copy, y_copy)
+                )
+            else:
+                append_target(x, y)
+                break
+    return tuple(targets)
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,7 +237,7 @@ def expand_packet_targets(
     )
 
 
-@lru_cache(maxsize=8192)
+@lru_cache(maxsize=131072)
 def _audit_packet_cached(key: PacketAuditKey) -> RouteAuditResult:
     """Evaluate a normalized packet once and reuse its immutable result."""
     (
@@ -189,6 +256,56 @@ def _audit_packet_cached(key: PacketAuditKey) -> RouteAuditResult:
         CoordXY(source_x, source_y),
         CoordZXYOffset(offset_z, offset_x, offset_y),
         AERPacketZXYCopy(copy_z, copy_x, copy_y),
+    )
+
+
+@lru_cache(maxsize=131072)
+def _audit_packet_valid_cached(key: PacketAuditKey) -> bool:
+    (
+        scope_name,
+        source_x,
+        source_y,
+        offset_z,
+        offset_x,
+        offset_y,
+        copy_z,
+        copy_x,
+        copy_y,
+    ) = key
+    scope = get_route_scope(scope_name)
+    return scope._audit_aer_packet_valid(
+        CoordXY(source_x, source_y),
+        CoordZXYOffset(offset_z, offset_x, offset_y),
+        AERPacketZXYCopy(copy_z, copy_x, copy_y),
+    )
+
+
+@lru_cache(maxsize=131072)
+def _packet_path_valid_cached(
+    scope_name: str,
+    source_x: int,
+    source_y: int,
+    offset_z: int,
+    offset_x: int,
+    offset_y: int,
+) -> bool:
+    scope = get_route_scope(scope_name)
+    source = CoordXY(source_x, source_y)
+    offset = CoordZXYOffset(offset_z, offset_x, offset_y)
+    path = route_coord_path(source, offset)
+    return scope._packet_path_failure(path, path[-1]) is None
+
+
+@lru_cache(maxsize=131072)
+def _copy_path_valid_cached(
+    scope_name: str, target_x: int, target_y: int, copy_z: int, copy_x: int, copy_y: int
+) -> bool:
+    scope = get_route_scope(scope_name)
+    return (
+        scope._copy_path_failure(
+            CoordXY(target_x, target_y), AERPacketZXYCopy(copy_z, copy_x, copy_y)
+        )
+        is None
     )
 
 
@@ -333,11 +450,26 @@ class RouteScope:
         )
         return _audit_packet_cached(key)
 
+    def audit_aer_packet_valid(
+        self, source: CoordXYLike, offset: CoordZXYOffset, copy_config: AERPacketZXYCopy
+    ) -> bool:
+        """Return packet legality without materializing an audit trace."""
+        source = to_coordxy(source)
+        key: PacketAuditKey = (
+            self.name,
+            source.x,
+            source.y,
+            offset.z,
+            offset.x,
+            offset.y,
+            copy_config.z,
+            copy_config.x,
+            copy_config.y,
+        )
+        return _audit_packet_valid_cached(key)
+
     def data_edge_claims(
-        self,
-        source: CoordXYLike,
-        offset: CoordZXYOffset,
-        copy_config: AERPacketZXYCopy,
+        self, source: CoordXYLike, offset: CoordZXYOffset, copy_config: AERPacketZXYCopy
     ) -> frozenset[tuple[ChipCoord, ChipCoord]]:
         """Return directed physical DATA edges traversed by one packet."""
         source = to_coordxy(source)
@@ -368,7 +500,6 @@ class RouteScope:
         path = route_coord_path(source, offset)
         target = path[-1]
         expected = expand_packet_targets(target, copy_config)
-        actual_local = tuple(aer_packet_walk(AERPacket(source, offset, copy_config)))
 
         failure = self._packet_path_failure(path, target)
         if failure is None:
@@ -387,6 +518,25 @@ class RouteScope:
                     "expected local targets leave offline cores: "
                     f"{invalid_expected[0]}",
                 )
+
+        # Invalid route geometry and out-of-scope copy targets are common
+        # during CP-SAT candidate pruning.  Avoid the expensive hardware walk
+        # until those cheap checks have passed.
+        actual_local = (
+            tuple(
+                CoordXY(source.x + x, source.y + y)
+                for x, y in _aer_packet_target_offsets(
+                    offset.z,
+                    offset.x,
+                    offset.y,
+                    copy_config.z,
+                    copy_config.x,
+                    copy_config.y,
+                )
+            )
+            if failure is None
+            else ()
+        )
 
         if failure is None:
             unexpected_online = [
@@ -418,6 +568,31 @@ class RouteScope:
             )
 
         return RouteAuditResult(path, actual_local, expected, failure)
+
+    def _audit_aer_packet_valid(
+        self, source: CoordXY, offset: CoordZXYOffset, copy_config: AERPacketZXYCopy
+    ) -> bool:
+        path = route_coord_path(source, offset)
+        target = path[-1]
+        if not _packet_path_valid_cached(
+            self.name, source.x, source.y, offset.z, offset.x, offset.y
+        ) or not _copy_path_valid_cached(
+            self.name, target.x, target.y, copy_config.z, copy_config.x, copy_config.y
+        ):
+            return False
+        expected = expand_packet_targets(target, copy_config)
+        if any(
+            coord not in self.offline_core_coords and coord != target
+            for coord in expected
+        ):
+            return False
+        actual = _aer_packet_target_offsets(
+            offset.z, offset.x, offset.y, copy_config.z, copy_config.x, copy_config.y
+        )
+        actual_absolute = frozenset((source.x + x, source.y + y) for x, y in actual)
+        if any(CoordXY(x, y) in self.online_core_coords for x, y in actual_absolute):
+            return False
+        return actual_absolute == frozenset((coord.x, coord.y) for coord in expected)
 
     def _copy_path_failure(
         self, base: CoordXY, copy_config: AERPacketZXYCopy
@@ -493,8 +668,10 @@ class RouteScope:
         return None
 
     def chip_for_coord(self, coord: CoordXY) -> ChipCoord:
-        min_x, max_x, min_y, max_y = self.global_bounds
-        if not min_x <= coord.x <= max_x or not min_y <= coord.y <= max_y:
+        # Derive the chip directly from the profile grid.  Recomputing
+        # ``global_bounds`` scans every route coordinate and this method is on
+        # the hot path of every successor-pair audit.
+        if coord.x < 0 or coord.y < 0:
             raise ValueError(f"coordinate {coord} is outside board bounds")
         chip = ChipCoord(
             coord.x // self.board.core_grid_width,

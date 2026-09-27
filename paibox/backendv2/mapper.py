@@ -33,6 +33,7 @@ from .coreplacement import (
     EmptyOfflineCorePlacementV2,
     EmptyOnlineCorePlacementV2,
 )
+from .diagnostics import debug_print as print
 from .global_signal import set_global_signal
 from .group_tile import tile_groups
 from .op_node import AllNode, InputElem, Neuron, RemapElem, SourceElem, build_nodes

@@ -28,6 +28,7 @@ from ..paiir.ir.op_node import (
     TransformOp,
 )
 from .core_config import Frontend_Core_Config
+from .diagnostics import debug_print as print
 
 
 class CustomIndex:
