@@ -786,13 +786,9 @@ def _local_core_sets(
         for x in range(width)
         for y in range(profile.online_row_count, height)
     )
-    global_route = frozenset(
-        CoordXY(x, y) for x in range(width) for y in range(height)
-    )
+    global_route = frozenset(CoordXY(x, y) for x in range(width) for y in range(height))
     online = frozenset(
-        CoordXY(x, y)
-        for x in range(width)
-        for y in range(profile.online_row_count)
+        CoordXY(x, y) for x in range(width) for y in range(profile.online_row_count)
     )
     return offline, online, global_route
 

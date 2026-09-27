@@ -209,14 +209,10 @@ def test_shape_base_prefilter_matches_reference_audit(board_name):
     for base in sorted(scope.offline_core_coords, key=lambda coord: (coord.x, coord.y)):
         coords = tuple(base + offset for offset in shape.offsets)
         if all(coord in scope.offline_core_coords for coord in coords):
-            if scope.audit_aer_packet_valid(
-                base, CoordZXYOffset(), shape.copy_config
-            ):
+            if scope.audit_aer_packet_valid(base, CoordZXYOffset(), shape.copy_config):
                 expected.add(base)
 
-    actual = set(
-        _shape_valid_bases(board_name, shape.copy_config.to_tuple())
-    )
+    actual = set(_shape_valid_bases(board_name, shape.copy_config.to_tuple()))
     assert actual == expected
 
 
@@ -227,8 +223,7 @@ def test_route_solver_records_bounded_shape_filter_stats():
     assert solver.stats["shape_candidates"] >= solver.stats["shape_retained"]
     assert solver.stats["placement_count"] > 0
     assert (
-        solver.stats["shape_base_cache_hits"]
-        + solver.stats["shape_base_cache_misses"]
+        solver.stats["shape_base_cache_hits"] + solver.stats["shape_base_cache_misses"]
         >= 1
     )
     assert solver.stats["route_solver_seconds"] > 0

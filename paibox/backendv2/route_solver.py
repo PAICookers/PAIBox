@@ -139,7 +139,7 @@ class _Placement:
 
 @lru_cache(maxsize=256)
 def _copy_candidates(
-    scope_name: TargetBoard
+    scope_name: TargetBoard,
 ) -> tuple[tuple[int, tuple[int, int, int]], ...]:
     """Enumerate legal AER copy tuples within the board's hardware limits."""
     scope = get_route_scope(scope_name)

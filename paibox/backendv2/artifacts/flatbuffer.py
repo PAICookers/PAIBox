@@ -199,9 +199,7 @@ def _thread_mapping(builder: flatbuffers.Builder, value) -> int:
     FbsThreadIOMapping.AddOutputMappings(builder, output_mappings)
     FbsThreadIOMapping.AddCoreTicks(builder, core_ticks)
     if value.occupied_chip_count:
-        FbsThreadIOMapping.AddOccupiedChipCount(
-            builder, int(value.occupied_chip_count)
-        )
+        FbsThreadIOMapping.AddOccupiedChipCount(builder, int(value.occupied_chip_count))
     return FbsThreadIOMapping.End(builder)
 
 

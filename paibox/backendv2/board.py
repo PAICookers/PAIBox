@@ -113,6 +113,7 @@ class BoardProfile:
     def has_edge(self, src: ChipCoord, dst: ChipCoord) -> bool:
         return any(edge.src == src and edge.dst == dst for edge in self.data_edges)
 
+
 def _edges(chips: tuple[ChipCoord, ...]) -> tuple[BoardEdge, ...]:
     result: list[BoardEdge] = []
     for chip in chips:
