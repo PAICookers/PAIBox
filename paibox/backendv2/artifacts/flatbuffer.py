@@ -198,6 +198,8 @@ def _thread_mapping(builder: flatbuffers.Builder, value) -> int:
     FbsThreadIOMapping.AddInputMappings(builder, input_mappings)
     FbsThreadIOMapping.AddOutputMappings(builder, output_mappings)
     FbsThreadIOMapping.AddCoreTicks(builder, core_ticks)
+    if value.occupied_chip_count:
+        FbsThreadIOMapping.AddOccupiedChipCount(builder, int(value.occupied_chip_count))
     return FbsThreadIOMapping.End(builder)
 
 
@@ -222,10 +224,12 @@ def compile_artifacts_to_flatbuffer(artifacts: CompileArtifactsData) -> bytes:
     builder = flatbuffers.Builder(1024)
     io_mapping = _io_mapping(builder, artifacts.io_mapping)
     config_frames = _config_frames(builder, artifacts.config_frames)
+    target_board = builder.CreateString(artifacts.target_board)
     FbsCompileArtifacts.Start(builder)
     FbsCompileArtifacts.AddSchemaVersion(builder, int(artifacts.schema_version))
     FbsCompileArtifacts.AddIoMapping(builder, io_mapping)
     FbsCompileArtifacts.AddConfigFrames(builder, config_frames)
+    FbsCompileArtifacts.AddTargetBoard(builder, target_board)
     root = FbsCompileArtifacts.End(builder)
     builder.Finish(root, file_identifier=COMPILE_ARTIFACTS_FILE_IDENTIFIER)
     return bytes(builder.Output())

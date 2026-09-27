@@ -9,6 +9,7 @@ from torch import nn
 
 from paibox.backendv2.artifacts.compile_artifacts import SCHEMA_VERSION
 from paibox.backendv2.artifacts.utils import export_framearray_to_int32
+from paibox.backendv2.board import TargetBoard
 from paibox.backendv2.generated.fbs.CompileArtifacts import (
     CompileArtifacts as FbsCompileArtifacts,
 )
@@ -75,6 +76,7 @@ def _export_simple_cnn(
     debug: bool,
     word_order: str = "high_first",
     export_merged_frames: bool = True,
+    target_board: TargetBoard = "single",
 ) -> tuple[Path, Mapper]:
     export_dir = export_root / case_name
     export_dir.mkdir(parents=True, exist_ok=False)
@@ -86,6 +88,7 @@ def _export_simple_cnn(
         export_dir,
         target_platform=target_platform,  # type: ignore[arg-type]
         word_order=word_order,  # type: ignore[arg-type]
+        target_board=target_board,
         debug=debug,
         export_merged_frames=export_merged_frames,
     )
@@ -143,6 +146,7 @@ def _assert_compile_artifacts_matches_proto(
     bundle: FbsCompileArtifacts, artifacts: CompileArtifacts
 ) -> None:
     assert bundle.SchemaVersion() == artifacts.schema_version
+    assert bundle.TargetBoard().decode() == artifacts.target_board
     config_frames = bundle.ConfigFrames()
     assert config_frames is not None
     assert config_frames.WordOrder() == artifacts.config_frames.word_order
@@ -157,6 +161,7 @@ def _assert_compile_artifacts_matches_proto(
     assert thread is not None
     proto_thread = artifacts.io_mapping.threads[0]
     assert thread.ThreadId() == proto_thread.thread_id
+    assert thread.OccupiedChipCount() == proto_thread.occupied_chip_count
     assert thread.InputMappings().ItemsLength() == len(
         proto_thread.input_mappings.items
     )
@@ -374,6 +379,25 @@ def test_export_compile_artifacts_flatbuffer_matches_proto(export_root):
     _assert_compile_artifacts_matches_proto(bundle, artifacts)
 
 
+def test_export_array_board_metadata(export_root):
+    export_dir, _ = _export_simple_cnn(
+        export_root,
+        "compile_artifacts_array2x2_alias",
+        target_platform="all",
+        target_board="array2x2",
+        debug=False,
+    )
+    artifacts = _load_compile_artifacts_proto(export_dir / "proto" / "config.pb")
+    bundle = _load_compile_artifacts_flatbuffer(
+        export_dir / "runtime" / "compile_artifacts.bin"
+    )
+
+    assert artifacts.target_board == "array_2x2"
+    assert artifacts.io_mapping.threads[0].occupied_chip_count == 1
+    assert bundle.TargetBoard() == b"array_2x2"
+    assert bundle.IoMapping().Threads(0).OccupiedChipCount() == 1
+
+
 @pytest.mark.parametrize(
     ("word_order", "expected_enum", "expected_json_value"),
     [
@@ -395,6 +419,7 @@ def test_export_proto_real_workflow_keeps_pb_and_json(
     artifacts = _load_compile_artifacts_proto(proto_dir / "config.pb")
 
     assert artifacts.schema_version == SCHEMA_VERSION
+    assert artifacts.target_board == "single"
     assert len(artifacts.io_mapping.threads) == 1
     assert len(artifacts.config_frames.words) > 0
     assert artifacts.config_frames.word_order == expected_enum
@@ -405,6 +430,7 @@ def test_export_proto_real_workflow_keeps_pb_and_json(
     assert len(payload["configFrames"]["words"]) > 0
     threads = payload["ioMapping"]["threads"]
     assert len(threads) == 1
+    assert threads[0]["occupiedChipCount"] >= 1
     for mapping in threads[0]["inputMappings"]["items"]:
         _assert_json_field_order(mapping)
     for mapping in threads[0]["outputMappings"]["items"]:

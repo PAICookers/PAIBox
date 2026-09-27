@@ -1,3 +1,4 @@
+from .diagnostics import debug_print as print
 from .op_node import (
     AllNode,
     CoreOpNode,

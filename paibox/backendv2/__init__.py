@@ -7,6 +7,8 @@ would eagerly load the compile-only PyTorch/Numba dependency graph.
 
 from typing import TYPE_CHECKING, Any
 
+from .board import BoardName
+
 if TYPE_CHECKING:
     from .mapper import Mapper
 
@@ -20,4 +22,4 @@ def __getattr__(name: str) -> Any:
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-__all__ = ["Mapper"]
+__all__ = ["BoardName", "Mapper"]

@@ -10,6 +10,7 @@ from paibox.paiir.nn.pool import SumPool1d, SumPool2d
 
 from ..paiir.ir.add_ops import PotentialAddOp
 from ..paiir.ir.op_node import AccumulateOp, StandaloneActOp
+from .diagnostics import debug_print as print
 from .op_node import (
     CoreOpNode,
     CustomIndex,

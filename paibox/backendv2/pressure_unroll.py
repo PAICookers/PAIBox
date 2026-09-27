@@ -10,6 +10,7 @@ import numpy as np
 from paicorelib import CSCAccelerateMode, NeuronType
 
 from .coreplacement import CorePlacement, OfflineCorePlacementV2
+from .diagnostics import debug_print as print
 from .neuron import OfflineNeuronPlacement
 from .route_scope import RouteScope, get_route_scope
 from .routing import RoutingGroup

@@ -57,8 +57,15 @@ class CompileArtifacts(object):
             return obj
         return None
 
+    # CompileArtifacts
+    def TargetBoard(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
 def CompileArtifactsStart(builder):
-    builder.StartObject(3)
+    builder.StartObject(4)
 
 def Start(builder):
     CompileArtifactsStart(builder)
@@ -80,6 +87,12 @@ def CompileArtifactsAddConfigFrames(builder, configFrames):
 
 def AddConfigFrames(builder, configFrames):
     CompileArtifactsAddConfigFrames(builder, configFrames)
+
+def CompileArtifactsAddTargetBoard(builder, targetBoard):
+    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(targetBoard), 0)
+
+def AddTargetBoard(builder, targetBoard):
+    CompileArtifactsAddTargetBoard(builder, targetBoard)
 
 def CompileArtifactsEnd(builder):
     return builder.EndObject()

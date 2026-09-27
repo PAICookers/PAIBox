@@ -127,6 +127,8 @@ message ThreadIOMapping {
     InputTensorMappings input_mappings = 4;
     OutputTensorMappings output_mappings = 5;
     repeated CoreTick core_ticks = 6;
+    /* Number of physical chips occupied by this thread; 0 means unspecified. */
+    optional uint32 occupied_chip_count = 7;
 }
 
 message IOMapping {
@@ -149,4 +151,6 @@ message CompileArtifacts {
     uint32 schema_version = 1;
     IOMapping io_mapping = 2;
     ConfigFrames config_frames = 3;
+    /* Target board profile, for example "single" or "array_2x2". */
+    string target_board = 4;
 }

@@ -2,6 +2,8 @@
 
 import itertools
 import os
+import sys
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
@@ -16,18 +18,97 @@ from paicorelib import (
     aer_packet_area,
     aer_packet_copy_offsets,
     find_coordxy_shortest_path,
+    route_coord_path,
     to_coordxy,
 )
 
-from .route_scope import RouteAuditResult, RouteScope, TargetBoard, get_route_scope
+from .board import TargetBoard
+from .route_scope import (
+    RouteScope,
+    expand_packet_targets,
+    get_route_scope,
+)
 from .routing import InputGroup, OutputGroup, RoutingGroup
+
+try:
+    import resource
+except ImportError:  # pragma: no cover - Windows has no resource module.
+    resource = None
 
 __all__ = ["RouteSolver", "route_solve"]
 
+_LOCAL_CACHE_LIMIT = 65_536
 
-@lru_cache(maxsize=8192)
-def _shortest_offset(source: CoordXY, target: CoordXY) -> CoordZXYOffset:
-    """Cache the deterministic shortest Z/X/Y route between two coordinates."""
+
+@lru_cache(maxsize=4096)
+def _shape_valid_bases(
+    scope_name: TargetBoard, copy_tuple: tuple[int, int, int]
+) -> tuple[CoordXY, ...]:
+    """Return all bases that can host one complete AER copy shape.
+
+    This is a conservative candidate filter: it applies exactly the same
+    offline-core and packet audit checks as placement generation, then caches
+    the immutable result for all RoutingGroups sharing the shape.
+    """
+    scope = get_route_scope(scope_name)
+    copy_config = AERPacketZXYCopy(*copy_tuple)
+    offsets = tuple(
+        CoordXYOffset(offset.x, offset.y)
+        for offset in aer_packet_copy_offsets(copy_config)
+    )
+    min_dx = min(offset.x for offset in offsets)
+    max_dx = max(offset.x for offset in offsets)
+    min_dy = min(offset.y for offset in offsets)
+    max_dy = max(offset.y for offset in offsets)
+    x_min, x_max, y_min, y_max = scope.offline_bounds
+    valid_bases: list[CoordXY] = []
+    for base in sorted(scope.offline_core_coords, key=lambda coord: (coord.x, coord.y)):
+        if not (
+            x_min <= base.x + min_dx
+            and base.x + max_dx <= x_max
+            and y_min <= base.y + min_dy
+            and base.y + max_dy <= y_max
+        ):
+            continue
+        try:
+            coords = tuple(base + offset for offset in offsets)
+        except (TypeError, ValueError):
+            continue
+        if not all(coord in scope.offline_core_coords for coord in coords):
+            continue
+        if scope.audit_aer_packet_valid(base, CoordZXYOffset(), copy_config):
+            valid_bases.append(base)
+    return tuple(valid_bases)
+
+
+def _peak_rss_mb() -> float | None:
+    """Return process peak RSS in MiB when the platform exposes it."""
+    if resource is None:
+        return None
+    try:
+        peak_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    except (AttributeError, OSError):
+        return None
+    scale = 1024 * 1024 if sys.platform == "darwin" else 1024
+    return peak_rss / scale
+
+
+@lru_cache(maxsize=65536)
+def _shortest_offset(
+    source: CoordXY, target: CoordXY, scope_name: TargetBoard = "single"
+) -> CoordZXYOffset:
+    """Cache a board-legal deterministic route offset.
+
+    PAICORE's Z/X/Y primitive emits diagonal Z steps before cardinal steps.
+    Across chips that would jump over a corner, so cross-chip routes use the
+    cardinal X/Y form and are checked by the board audit.
+    """
+    scope = get_route_scope(scope_name)
+    if scope.chip_for_coord(source) != scope.chip_for_coord(target):
+        offset = CoordZXYOffset(0, target.x - source.x, target.y - source.y)
+        if scope.route_path_valid(route_coord_path(source, offset), target):
+            return offset
+        raise RuntimeError(f"No board-legal DATA route from {source} to {target}.")
     offset, _ = find_coordxy_shortest_path(target, start=source)
     return offset
 
@@ -60,6 +141,7 @@ class _Placement:
 def _copy_candidates(
     scope_name: TargetBoard,
 ) -> tuple[tuple[int, tuple[int, int, int]], ...]:
+    """Enumerate legal AER copy tuples within the board's hardware limits."""
     scope = get_route_scope(scope_name)
     z_limit, x_limit, y_limit = scope.copy_limits
     offline_capacity = len(scope.offline_core_coords)
@@ -79,7 +161,6 @@ def _copy_candidates(
 def _smallest_shapes_for_area(
     scope_name: TargetBoard, min_area: int
 ) -> tuple[RouteShape, ...]:
-    scope = get_route_scope(scope_name)
     selected_area = None
     shapes: list[RouteShape] = []
 
@@ -92,7 +173,7 @@ def _smallest_shapes_for_area(
         offsets = tuple(
             CoordXYOffset(off.x, off.y) for off in aer_packet_copy_offsets(copy_tuple)
         )
-        if area != len(offsets) or not _shape_has_placement(scope, offsets):
+        if area != len(offsets) or not _shape_valid_bases(scope_name, copy_tuple):
             continue
 
         selected_area = area
@@ -107,12 +188,6 @@ def _smallest_shapes_for_area(
 
 def _shape_key(shape: RouteShape) -> tuple[int, tuple[int, int, int]]:
     return shape.area, shape.copy_config.to_tuple()
-
-
-def _shape_has_placement(scope: RouteScope, offsets: tuple[CoordXYOffset, ...]) -> bool:
-    """Return whether one AER shape can live wholly on offline compute cores."""
-    offline = scope.offline_core_coords
-    return any(all(base + off in offline for off in offsets) for base in offline)
 
 
 class RouteSolver:
@@ -136,6 +211,7 @@ class RouteSolver:
         feasibility_only: bool = False,
         max_time_in_seconds: float = 120.0,
         max_memory_in_mb: int = 4096,
+        debug: bool = False,
     ) -> None:
         """Initialize the route placement solver.
 
@@ -156,6 +232,8 @@ class RouteSolver:
                 and skip soft objective construction.
             max_time_in_seconds: CP-SAT solve time limit. Defaults to ``120.0``.
             max_memory_in_mb: CP-SAT memory limit. Defaults to ``4096``.
+            debug: Emit route statistics when true. ``PAIBOX_DEBUG=1`` enables
+                the same output globally.
 
         Raises:
             ValueError: If area sizes, area ids, or IO bias coordinate are
@@ -174,6 +252,13 @@ class RouteSolver:
         self.feasibility_only = feasibility_only
         self.max_time_in_seconds = max_time_in_seconds
         self.max_memory_in_mb = max_memory_in_mb
+        self.debug = debug or os.environ.get("PAIBOX_DEBUG") == "1"
+        self.stats: dict[str, int | float] = {
+            "shape_candidates": 0,
+            "shape_retained": 0,
+            "placement_count": 0,
+            "successor_candidate_pairs": 0,
+        }
 
         self.offline_coords = tuple(
             sorted(self.scope.offline_core_coords, key=lambda coord: (coord.x, coord.y))
@@ -183,10 +268,21 @@ class RouteSolver:
         }
         self.model = cp_model.CpModel()
         self.placements: list[_Placement] = []
+        self._placement_masks: list[int] = []
         self.x: list[cp_model.IntVar] = []
         self.area_to_placements: list[list[int]] = []
         self.cx: list[cp_model.IntVar] = []
         self.cy: list[cp_model.IntVar] = []
+        self._successor_audit_cache: dict[
+            tuple[int, int, int, int, tuple[int, int, int]], bool
+        ] = {}
+        self._interior_successor_cache: dict[
+            tuple[int, int, int, int, int, int, int, tuple[int, int, int]], bool
+        ] = {}
+        # Large candidate products are validated lazily in _run_solver.  The
+        # cuts are exact no-goods, so this changes construction cost only.
+        self._lazy_successor_edges: tuple[tuple[int, int], ...] = ()
+        self._lazy_successor_cuts: set[tuple[int, int]] = set()
         self._validate_inputs()
 
     def solve(self) -> tuple[list[AERPacketZXYCopy], list[list[CoordXY]]]:
@@ -203,22 +299,37 @@ class RouteSolver:
         if self.num_areas == 0:
             return [], []
 
-        self._generate_placements()
-        self._build_variables()
-        self._add_cell_constraints()
-        self._add_uniqueness_constraints()
-        if any(self.next_area_id.values()):
-            self._add_successor_route_constraints()
-        if self.input_area_ids:
-            self._add_input_route_constraints()
-        if not self.feasibility_only:
-            # Feasibility mode needs only hard hardware legality. Centers and
-            # distances are soft placement-quality terms, so building them would
-            # enlarge the CP-SAT model without changing feasible/invalid routes.
-            self._build_center_variables()
-            self._add_placement_binding_constraints()
-            self._set_objective()
-        return self._run_solver()
+        started = time.perf_counter()
+        cache_before = _shape_valid_bases.cache_info()
+        try:
+            self._generate_placements()
+            self._build_variables()
+            self._add_cell_constraints()
+            self._add_uniqueness_constraints()
+            if any(self.next_area_id.values()):
+                self._add_successor_route_constraints()
+            if self.input_area_ids:
+                self._add_input_route_constraints()
+            if not self.feasibility_only:
+                # Feasibility mode needs only hard hardware legality. Centers and
+                # distances are soft placement-quality terms, so building them would
+                # enlarge the CP-SAT model without changing feasible/invalid routes.
+                self._build_center_variables()
+                self._add_placement_binding_constraints()
+                self._set_objective()
+            return self._run_solver()
+        finally:
+            cache_after = _shape_valid_bases.cache_info()
+            self.stats["shape_base_cache_hits"] = cache_after.hits - cache_before.hits
+            self.stats["shape_base_cache_misses"] = (
+                cache_after.misses - cache_before.misses
+            )
+            self.stats["route_solver_seconds"] = time.perf_counter() - started
+            peak_rss = _peak_rss_mb()
+            if peak_rss is not None:
+                self.stats["peak_rss_mb"] = peak_rss
+            if self.debug:
+                print(f"[backendv2 route stats] {self.stats}")
 
     def _resolve_io_bias_coord(self, io_bias_coord: CoordXYLike | None) -> CoordXY:
         if io_bias_coord is None:
@@ -258,6 +369,13 @@ class RouteSolver:
     def _generate_placements(self) -> None:
         for area_id, area in enumerate(self.areas):
             shapes = self._find_shapes_for_area(area_id, area)
+            self.stats["shape_retained"] += len(shapes)
+            selected_area = shapes[0].area if shapes else area
+            self.stats["shape_candidates"] += sum(
+                1
+                for candidate_area, _ in _copy_candidates(self.scope.name)
+                if area <= candidate_area <= selected_area
+            )
             for shape in shapes:
                 self._try_place_shape(area_id, shape)
 
@@ -271,11 +389,9 @@ class RouteSolver:
 
     def _try_place_shape(self, area_id: int, shape: RouteShape) -> None:
         """Create only placements whose copied cores fit in offline silicon."""
-        for base in self.offline_coords:
+        bases = _shape_valid_bases(self.scope.name, shape.copy_config.to_tuple())
+        for base in bases:
             coords = tuple(base + offset for offset in shape.offsets)
-            if not all(coord in self.scope.offline_core_coords for coord in coords):
-                continue
-
             center_x = round(sum(coord.x for coord in coords) / len(coords))
             center_y = round(sum(coord.y for coord in coords) / len(coords))
             placement = _Placement(area_id, shape, coords, center_x, center_y)
@@ -288,6 +404,10 @@ class RouteSolver:
         ]
         self.area_to_placements = [[] for _ in range(self.num_areas)]
         for i, placement in enumerate(self.placements):
+            mask = 0
+            for coord in placement.coords:
+                mask |= 1 << self.offline_index[coord]
+            self._placement_masks.append(mask)
             self.area_to_placements[placement.area_id].append(i)
 
         empty_area_ids = [
@@ -299,6 +419,7 @@ class RouteSolver:
             raise RuntimeError(
                 f"No placement candidates for area ids {empty_area_ids}."
             )
+        self.stats["placement_count"] = len(self.placements)
 
     def _build_center_variables(self) -> None:
         """Create selected-area center coordinates for soft distance costs."""
@@ -368,12 +489,24 @@ class RouteSolver:
 
         For edge i -> j, each source core of i may emit an AER packet using j's
         copy shape. Every expanded coordinate must stay inside the selected
-        board's global route grid; CPU tiles are endpoints, not pass-through
-        route cells.
+        board's global route grid; CPU coordinates may be NoC transit cells but
+        are not configurable local targets.
         """
-        for src_id, next_ids in self.next_area_id.items():
-            for dst_id in next_ids:
-                self._ban_invalid_successor_pairs(src_id, dst_id)
+        edges = tuple(
+            (src_id, dst_id)
+            for src_id, next_ids in self.next_area_id.items()
+            for dst_id in next_ids
+        )
+        candidate_pairs = sum(
+            len(self.area_to_placements[src_id]) * len(self.area_to_placements[dst_id])
+            for src_id, dst_id in edges
+        )
+        self.stats["successor_candidate_pairs"] = candidate_pairs
+        if candidate_pairs > 50_000:
+            self._lazy_successor_edges = edges
+            return
+        for src_id, dst_id in edges:
+            self._ban_invalid_successor_pairs(src_id, dst_id)
 
     def _ban_invalid_successor_pairs(self, src_id: int, dst_id: int) -> None:
         """Forbid source/destination placement pairs with illegal DATA paths.
@@ -383,11 +516,20 @@ class RouteSolver:
         which each copy dimension is consumed. Pairwise Boolean exclusions keep
         that hardware dependency explicit without expanding a CP-SAT table.
         """
+        valid_source_masks: dict[int, int] = {}
         for dst_i in self.area_to_placements[dst_id]:
             dst_placement = self.placements[dst_i]
+            dst_base = dst_placement.coords[0]
+            copy_config = dst_placement.shape.copy_config
+            valid_source_masks[dst_i] = sum(
+                1 << self.offline_index[source]
+                for source in self.offline_coords
+                if self._successor_route_valid(source, dst_base, copy_config)
+            )
+
+        for dst_i, valid_mask in valid_source_masks.items():
             for src_i in self.area_to_placements[src_id]:
-                src_placement = self.placements[src_i]
-                if self._successor_pair_valid(src_placement, dst_placement):
+                if self._placement_masks[src_i] & ~valid_mask == 0:
                     continue
                 self.model.add_at_most_one([self.x[src_i], self.x[dst_i]])
 
@@ -402,26 +544,83 @@ class RouteSolver:
 
     def _input_placement_valid(self, source: CoordXY, placement: _Placement) -> bool:
         """Return whether CPU input reaches exactly one offline placement."""
-        offset = _shortest_offset(source, placement.coords[0])
-        return self._audit_packet(source, offset, placement.shape.copy_config).valid
-
-    def _audit_packet(
-        self, source: CoordXY, offset: CoordZXYOffset, copy_config: AERPacketZXYCopy
-    ) -> RouteAuditResult:
-        """Return the shared cached audit for one immutable route tuple."""
-        return self.scope.audit_aer_packet(source, offset, copy_config)
+        offset = _shortest_offset(source, placement.coords[0], self.scope.name)
+        return self.scope.audit_aer_packet_valid(
+            source, offset, placement.shape.copy_config
+        )
 
     def _successor_pair_valid(
         self, src_placement: _Placement, dst_placement: _Placement
     ) -> bool:
         """Check every source core against one destination placement."""
         dst_base = dst_placement.coords[0]
-        copy_config = dst_placement.shape.copy_config
         for src_coord in src_placement.coords:
-            offset = _shortest_offset(src_coord, dst_base)
-            if not self._audit_packet(src_coord, offset, copy_config).valid:
+            if not self._successor_route_valid(
+                src_coord, dst_base, dst_placement.shape.copy_config
+            ):
                 return False
         return True
+
+    def _successor_route_valid(
+        self,
+        source: CoordXY,
+        destination: CoordXY,
+        copy_config: AERPacketZXYCopy,
+    ) -> bool:
+        """Audit one DATA expansion with translation-invariant memoization."""
+        exact_key = (
+            source.x,
+            source.y,
+            destination.x,
+            destination.y,
+            copy_config.to_tuple(),
+        )
+        valid = self._successor_audit_cache.get(exact_key)
+        if valid is not None:
+            return valid
+
+        offset = _shortest_offset(source, destination, self.scope.name)
+        path = route_coord_path(source, offset)
+        expected = expand_packet_targets(destination, copy_config)
+        x_max, y_max = self.scope.global_bounds[1], self.scope.global_bounds[3]
+        packet_coords = (*path, *expected)
+        if all(
+            0 <= coord.x <= x_max and 0 <= coord.y <= y_max for coord in packet_coords
+        ):
+            boundary_mask = 0
+            for coord in packet_coords:
+                boundary_mask |= (coord.x == 0) | ((coord.x == x_max) << 1)
+                boundary_mask |= (coord.y == 0) << 2
+                boundary_mask |= (coord.y == y_max) << 3
+            width = self.scope.board.core_grid_width
+            height = self.scope.board.core_grid_height
+            source_chip = self.scope.chip_for_coord(source)
+            destination_chip = self.scope.chip_for_coord(destination)
+            key = (
+                source.x % width,
+                source.y % height,
+                destination.x % width,
+                destination.y % height,
+                destination_chip.x - source_chip.x,
+                destination_chip.y - source_chip.y,
+                boundary_mask,
+                copy_config.to_tuple(),
+            )
+            valid = self._interior_successor_cache.get(key)
+            if valid is None:
+                valid = self.scope.audit_aer_packet_valid(source, offset, copy_config)
+                if len(self._interior_successor_cache) >= _LOCAL_CACHE_LIMIT:
+                    self._interior_successor_cache.clear()
+                self._interior_successor_cache[key] = valid
+        else:
+            try:
+                valid = self.scope.audit_aer_packet_valid(source, offset, copy_config)
+            except ValueError:
+                valid = False
+            if len(self._successor_audit_cache) > _LOCAL_CACHE_LIMIT:
+                self._successor_audit_cache.clear()
+            self._successor_audit_cache[exact_key] = valid
+        return valid
 
     def _set_objective(self) -> None:
         """Soft objective: prefer shorter logical edges and CPU-adjacent IO."""
@@ -462,29 +661,53 @@ class RouteSolver:
         solver = cp_model.CpSolver()
         num_cpu_threads = os.cpu_count() or 2
         solver.parameters.num_workers = min(8, max(1, num_cpu_threads // 2))
-        solver.parameters.max_time_in_seconds = self.max_time_in_seconds
         solver.parameters.max_memory_in_mb = self.max_memory_in_mb
         if self.feasibility_only:
             solver.parameters.stop_after_first_solution = True
 
-        status = solver.solve(self.model)
-        if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-            raise RuntimeError(
-                f"No solution found. Solver status: {solver.StatusName(status)}."
-            )
+        started = time.monotonic()
+        while True:
+            remaining = self.max_time_in_seconds - (time.monotonic() - started)
+            if remaining <= 0:
+                raise RuntimeError("Route solver exceeded its total time limit.")
+            solver.parameters.max_time_in_seconds = remaining
+            status = solver.solve(self.model)
+            if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+                raise RuntimeError(
+                    f"No solution found. Solver status: {solver.StatusName(status)}."
+                )
 
-        copy_configs: list[AERPacketZXYCopy] = []
-        coords: list[list[CoordXY]] = []
-        for area_placements in self.area_to_placements:
-            for placement_id in area_placements:
-                if solver.value(self.x[placement_id]) != 1:
+            selected = [
+                next(
+                    placement_id
+                    for placement_id in area_placements
+                    if solver.value(self.x[placement_id]) == 1
+                )
+                for area_placements in self.area_to_placements
+            ]
+            invalid_pairs = []
+            for src_id, dst_id in self._lazy_successor_edges:
+                pair = (selected[src_id], selected[dst_id])
+                if pair in self._lazy_successor_cuts:
                     continue
-                placement = self.placements[placement_id]
-                copy_configs.append(placement.shape.copy_config.copy())
-                coords.append(list(placement.coords))
-                break
+                if not self._successor_pair_valid(
+                    self.placements[pair[0]], self.placements[pair[1]]
+                ):
+                    invalid_pairs.append(pair)
+            if invalid_pairs:
+                for src_id, dst_id in invalid_pairs:
+                    self.model.add_at_most_one([self.x[src_id], self.x[dst_id]])
+                    self._lazy_successor_cuts.add((src_id, dst_id))
+                continue
 
-        return copy_configs, coords
+            copy_configs = [
+                self.placements[placement_id].shape.copy_config.copy()
+                for placement_id in selected
+            ]
+            coords = [
+                list(self.placements[placement_id].coords) for placement_id in selected
+            ]
+            return copy_configs, coords
 
 
 def _route_io_area_ids(
@@ -520,6 +743,7 @@ def route_solve(
     feasibility_only: bool = False,
     max_time_in_seconds: float = 120.0,
     max_memory_in_mb: int = 4096,
+    debug: bool = False,
 ) -> tuple[list[AERPacketZXYCopy], list[list[CoordXY]]]:
     """Solve route placement for backendv2 routing groups.
 
@@ -538,6 +762,8 @@ def route_solve(
             skip soft objective construction.
         max_time_in_seconds: CP-SAT solve time limit. Defaults to ``120.0``.
         max_memory_in_mb: CP-SAT memory limit. Defaults to ``4096``.
+        debug: Emit route-solver statistics when true. ``PAIBOX_DEBUG=1``
+            enables the same output globally.
 
     Returns:
         Pair of multicast copy configs and absolute offline-core coordinates,
@@ -567,5 +793,6 @@ def route_solve(
         feasibility_only=feasibility_only,
         max_time_in_seconds=max_time_in_seconds,
         max_memory_in_mb=max_memory_in_mb,
+        debug=debug,
     )
     return solver.solve()

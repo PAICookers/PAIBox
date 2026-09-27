@@ -19,6 +19,7 @@ from .coreplacement import (
     EmptyOfflineCorePlacementV2,
     EmptyOnlineCorePlacementV2,
 )
+from .diagnostics import debug_print as print
 
 T = TypeVar("T", int, CoordXY)
 EmptyRelayCoreKind = Literal["offline", "online"]
