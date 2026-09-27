@@ -52,8 +52,17 @@ IF 神经元实现了经典的“积分-发射”模型，其调用方式及参�
 ```python
 import paibox as pb
 
-n1 = pb.IF(shape=10, threshold=127, reset_v=0, neg_threshold=-100, delay=1,
-           tick_wait_start=1, tick_wait_end=0, keep_shape=True, name='n1')
+n1 = pb.IF(
+    shape=10,
+    threshold=127,
+    reset_v=0,
+    neg_threshold=-100,
+    delay=1,
+    tick_wait_start=1,
+    tick_wait_end=0,
+    keep_shape=True,
+    name="n1",
+)
 ```
 
 其中：
@@ -104,8 +113,8 @@ n1 = pb.IF(shape=10, threshold=127, reset_v=0, neg_threshold=-100, delay=1,
 LIF 神经元实现了“泄露-积分-发射”神经元模型，其调用方式及参数如下：
 
 ```python
-n1 = pb.LIF(shape=128, threshold=127, reset_v=0, leak_v=-1, neg_threshold=0, name='n1')
-n2 = pb.LIF(shape=128, threshold=10, reset_v=1, bias=-1, name='n2')
+n1 = pb.LIF(shape=128, threshold=127, reset_v=0, leak_v=-1, neg_threshold=0, name="n1")
+n2 = pb.LIF(shape=128, threshold=10, reset_v=1, bias=-1, name="n2")
 ```
 
 - `leak_v`：泄露，有符号数。
@@ -117,7 +126,7 @@ n2 = pb.LIF(shape=128, threshold=10, reset_v=1, bias=-1, name='n2')
 Tonic Spiking 神经元可以实现对持续脉冲刺激的周期性反应。
 
 ```python
-n1 = pb.TonicSpiking(shape=128, fire_step=3, name='n1')
+n1 = pb.TonicSpiking(shape=128, fire_step=3, name="n1")
 ```
 
 - `fire_step`：发放时间，每接收到 `N` 次刺激后发放脉冲。
@@ -127,7 +136,7 @@ n1 = pb.TonicSpiking(shape=128, fire_step=3, name='n1')
 Phasic Spiking 神经元可以实现，在接受一定数量脉冲后发放，然后保持静息状态，不再发放。
 
 ```python
-n1 = pb.PhasicSpiking(shape=128, fire_step=3, neg_floor=-10, name='n1')
+n1 = pb.PhasicSpiking(shape=128, fire_step=3, neg_floor=-10, name="n1")
 ```
 
 - `fire_step`：发放时间，每接收到 `N` 次刺激后发放脉冲。
@@ -138,7 +147,7 @@ n1 = pb.PhasicSpiking(shape=128, fire_step=3, neg_floor=-10, name='n1')
 正阈值为1，负阈值、复位电平、泄露均为0的神经元。它的输出等于输入。
 
 ```python
-n1 = pb.BypassNeuron(shape=128, name='n1')
+n1 = pb.BypassNeuron(shape=128, name="n1")
 ```
 
 #### Store Voltage Neuron
@@ -146,7 +155,7 @@ n1 = pb.BypassNeuron(shape=128, name='n1')
 该神经元被设置为不进行膜电平重置操作，因此将持续存储膜电位平（可能溢出）。仅用于需要读取膜电平的层，该层神经元的设置。其参数含义同 LIF 神经元。
 
 ```python
-n1 = pb.StoreVoltageNeuron(shape=(10,), leak_v=-100, bias=0, name='n1')
+n1 = pb.StoreVoltageNeuron(shape=(10,), leak_v=-100, bias=0, name="n1")
 ```
 
 #### ANN Neuron
@@ -154,7 +163,7 @@ n1 = pb.StoreVoltageNeuron(shape=(10,), leak_v=-100, bias=0, name='n1')
 `LIF` 的子类，在 ANN 模式下调用。`bit_trunc=8`，且预设 `input_width=8`，`spike_width=8` 以及 `snn_en=False`。
 
 ```python
-n1 = pb.ANNNeuron(shape=128, bias=1, bit_trunc=9, name='n1')
+n1 = pb.ANNNeuron(shape=128, bias=1, bit_trunc=9, name="n1")
 ```
 
 `bias` 与 `bit_trunc` 的含义见前述。
@@ -164,7 +173,7 @@ n1 = pb.ANNNeuron(shape=128, bias=1, bit_trunc=9, name='n1')
 `ANNNeuron` 的子类，仅在 ANN 模式下使用，可作为直通神经元使用。`bias=0`，`bit_trunc=8`。
 
 ```python
-n1 = pb.ANNBypassNeuron(shape=128, name='n1')
+n1 = pb.ANNBypassNeuron(shape=128, name="n1")
 ```
 
 #### STDPLIF
@@ -185,7 +194,9 @@ n1 = pb.ANNBypassNeuron(shape=128, name='n1')
 PAIBox 中，突触用于连接不同神经元组，并包含了连接关系以及权重信息。以全连接类型的突触为实例：
 
 ```python
-s1= pb.FullConn(source=n1, dest=n2, weights=weight1, conn_type=pb.SynConnType.All2All, name='s1')
+s1 = pb.FullConn(
+    source=n1, dest=n2, weights=weight1, conn_type=pb.SynConnType.All2All, name="s1"
+)
 ```
 
 其中：
@@ -295,11 +306,13 @@ $$
 - 神经元维度顺序仅支持 `CL`。
 
 ```python
-n1 = pb.IF(shape=(8, 28), threshold=1)      # Input feature map: (8, 28)
-n2 = pb.IF(shape=(16, 26), threshold=1)     # Output feature map: (16, 26)
-kernel = np.random.randint(-128, 128, size=(16, 8, 3), dtype=np.int8) # OIL
+n1 = pb.IF(shape=(8, 28), threshold=1)  # Input feature map: (8, 28)
+n2 = pb.IF(shape=(16, 26), threshold=1)  # Output feature map: (16, 26)
+kernel = np.random.randint(-128, 128, size=(16, 8, 3), dtype=np.int8)  # OIL
 
-conv1d = pb.Conv1d(n1, n2, kernel=kernel, stride=1, padding=0, kernel_order="OIL", name="conv1d_1")
+conv1d = pb.Conv1d(
+    n1, n2, kernel=kernel, stride=1, padding=0, kernel_order="OIL", name="conv1d_1"
+)
 ```
 
 #### 2D卷积
@@ -313,11 +326,19 @@ conv1d = pb.Conv1d(n1, n2, kernel=kernel, stride=1, padding=0, kernel_order="OIL
 - 神经元维度顺序仅支持 `CHW`。
 
 ```python
-n1 = pb.IF(shape=(8, 28, 28), threshold=1)      # Input feature map: (8, 28, 28)
-n2 = pb.IF(shape=(16, 26, 26), threshold=1)     # Output feature map: (16, 26, 26)
-kernel = np.random.randint(-128, 128, size=(16, 8, 3, 3), dtype=np.int8) # OIHW
+n1 = pb.IF(shape=(8, 28, 28), threshold=1)  # Input feature map: (8, 28, 28)
+n2 = pb.IF(shape=(16, 26, 26), threshold=1)  # Output feature map: (16, 26, 26)
+kernel = np.random.randint(-128, 128, size=(16, 8, 3, 3), dtype=np.int8)  # OIHW
 
-conv2d = pb.Conv2d(n1, n2, kernel=kernel, stride=(1, 2), padding=1, kernel_order="OIHW", name="conv2d_1")
+conv2d = pb.Conv2d(
+    n1,
+    n2,
+    kernel=kernel,
+    stride=(1, 2),
+    padding=1,
+    kernel_order="OIHW",
+    name="conv2d_1",
+)
 ```
 
 #### 1D转置卷积
@@ -335,11 +356,20 @@ conv2d = pb.Conv2d(n1, n2, kernel=kernel, stride=(1, 2), padding=1, kernel_order
 - 参数详细含义参见：[pytorch/ConvTranspose1d](https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose1d.html#torch.nn.ConvTranspose1d)
 
 ```python
-n1 = pb.IF(shape=(8, 28), threshold=1)      # Input feature map: (8, 28)
-n2 = pb.IF(shape=(16, 29), threshold=1)     # Output feature map: (16, 29)
-kernel = np.random.randint(-128, 128, size=(16, 8, 3), dtype=np.int8) # OIL
+n1 = pb.IF(shape=(8, 28), threshold=1)  # Input feature map: (8, 28)
+n2 = pb.IF(shape=(16, 29), threshold=1)  # Output feature map: (16, 29)
+kernel = np.random.randint(-128, 128, size=(16, 8, 3), dtype=np.int8)  # OIL
 
-convt1d = pb.ConvTranspose1d(n1, n2, kernel=kernel, stride=1, padding=0, output_padding=1, kernel_order="OIL", name="convt1d_1")
+convt1d = pb.ConvTranspose1d(
+    n1,
+    n2,
+    kernel=kernel,
+    stride=1,
+    padding=0,
+    output_padding=1,
+    kernel_order="OIL",
+    name="convt1d_1",
+)
 ```
 
 #### 2D转置卷积
@@ -355,11 +385,20 @@ convt1d = pb.ConvTranspose1d(n1, n2, kernel=kernel, stride=1, padding=0, output_
 - 参数详细含义参见：[pytorch/ConvTranspose2d](https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose2d.html#torch.nn.ConvTranspose2d)
 
 ```python
-n1 = pb.IF(shape=(8, 28, 28), threshold=1)      # Input feature map: (8, 28, 28)
-n2 = pb.IF(shape=(16, 55, 55), threshold=1)     # Output feature map: (16, 55, 55)
-kernel = np.random.randint(-128, 128, size=(16, 8, 3, 3), dtype=np.int8) # OIHW
+n1 = pb.IF(shape=(8, 28, 28), threshold=1)  # Input feature map: (8, 28, 28)
+n2 = pb.IF(shape=(16, 55, 55), threshold=1)  # Output feature map: (16, 55, 55)
+kernel = np.random.randint(-128, 128, size=(16, 8, 3, 3), dtype=np.int8)  # OIHW
 
-convt2d = pb.ConvTranspose2d(n1, n2, kernel=kernel, stride=2, padding=1, output_padding=0, kernel_order="OIHW", name="convt2d_1")
+convt2d = pb.ConvTranspose2d(
+    n1,
+    n2,
+    kernel=kernel,
+    stride=2,
+    padding=1,
+    output_padding=0,
+    kernel_order="OIHW",
+    name="convt2d_1",
+)
 ```
 
 #### STDP FullConn
@@ -379,8 +418,12 @@ convt2d = pb.ConvTranspose2d(n1, n2, kernel=kernel, stride=2, padding=1, output_
 对于具备 STDP 学习能力的算子，提供 `.learn`、`.eval` 函数以切换其学习/推理模式。当处于推理模式时，权重无法更新。
 
 ```python
-n1 = pb.STDPLIF((3,), 10, reset_v=0, leak_v=-1, bias=0, neg_threshold=-3, lateral_inhi_value=-1)
-n2 = pb.STDPLIF((3,), 10, reset_v=0, leak_v=-1, bias=0, neg_threshold=-3, lateral_inhi_value=-1)
+n1 = pb.STDPLIF(
+    (3,), 10, reset_v=0, leak_v=-1, bias=0, neg_threshold=-3, lateral_inhi_value=-1
+)
+n2 = pb.STDPLIF(
+    (3,), 10, reset_v=0, leak_v=-1, bias=0, neg_threshold=-3, lateral_inhi_value=-1
+)
 
 shape = (n1.num_out, n2.num_in)
 w = np.zeros(shape, dtype=WEIGHT_DTYPE)
@@ -391,7 +434,7 @@ s1 = pb.STDPFullConn(n1, n2, w, weight_decay=-2, lut=lut)
 # Switch to learning mode
 s1.learn()
 # Switch to inference mode
-s1.eval() # or s1.learn(False)
+s1.eval()  # or s1.learn(False)
 ```
 
 也可以在网络模型层次（参见[网络模型](#网络模型)）切换模型中所包含具备 STDP 学习能力的算子的模式，可用于仿真：
@@ -416,11 +459,12 @@ class STDPLinearNet(pb.Network):
         lut2[30:] = 2
         self.s2 = pb.STDPFullConn(self.n1, self.n2, weight2, lut=lut2)
 
+
 net = STDPLinearNet(...)
 # Switch the network to learning mode
 net.learn()
 # Switch the network to inference mode
-net.eval() # or net.learn(False)
+net.eval()  # or net.learn(False)
 ```
 
 ### 输入节点
@@ -430,7 +474,7 @@ net.eval() # or net.learn(False)
 输入节点可以使用以下方法定义：
 
 ```python
-inp = pb.InputProj(input=1, shape_out=(4, 4), keep_shape=True, name='inp1')
+inp = pb.InputProj(input=1, shape_out=(4, 4), keep_shape=True, name="inp1")
 ```
 
 其中，
@@ -570,13 +614,20 @@ print(output)
 ```python
 import paibox as pb
 
+
 class Net(pb.DynSysGroup):
     def __init__(self):
         super().__init__()
         self.n1 = pb.IF((10,), 1, 0, delay=1, tick_wait_start=1)
         self.n2 = pb.IF((10,), 1, 0, delay=1, tick_wait_start=1)
         self.and1 = pb.BitwiseAND(self.n1, self.n2, delay=1, tick_wait_start=2)
-        self.n3 = pb.IF((10,), 1, 0, delay=1, tick_wait_start=self.and1.tick_wait_start + self.and1.external_delay + 1)
+        self.n3 = pb.IF(
+            (10,),
+            1,
+            0,
+            delay=1,
+            tick_wait_start=self.and1.tick_wait_start + self.and1.external_delay + 1,
+        )
         self.s3 = pb.FullConn(self.and1, self.n3, conn_type=pb.SynConnType.All2All)
 ```
 
@@ -598,9 +649,9 @@ class Net(pb.DynSysGroup):
 
 ```python
 ksize = (3, 3)
-stride = None # default is ksize
+stride = None  # default is ksize
 n1 = pb.BypassNeuron(shape, tick_wait_start=1)
-p2d = pb.SpikingMaxPool2d(n1, ksize, stride=None, padding=(1,1), tick_wait_start=2)
+p2d = pb.SpikingMaxPool2d(n1, ksize, stride=None, padding=(1, 1), tick_wait_start=2)
 n2 = pb.BypassNeuron(p2d.shape_out, delay=1, tick_wait_start=3)
 s3 = pb.FullConn(p2d, n2, conn_type=pb.SynConnType.One2One)
 ```
@@ -654,8 +705,12 @@ $$
 ```python
 n1 = pb.IF((10,), 1, 0, delay=1, tick_wait_start=1)
 n2 = pb.IF((10,), 1, 0, delay=1, tick_wait_start=1)
-add1 = pb.SpikingAdd(n1, n2, overflow_strict=False, delay=1, tick_wait_start=2) # n1 + n2
-sub1 = pb.SpikingSub(n1, n2, overflow_strict=False, delay=1, tick_wait_start=2) # n1 - n2
+add1 = pb.SpikingAdd(
+    n1, n2, overflow_strict=False, delay=1, tick_wait_start=2
+)  # n1 + n2
+sub1 = pb.SpikingSub(
+    n1, n2, overflow_strict=False, delay=1, tick_wait_start=2
+)  # n1 - n2
 ```
 
 其中：
@@ -745,6 +800,7 @@ l1 = pb.Linear(n1, 10, w, bias=10, bit_trunc=8)
 ```python
 import paibox as pb
 
+
 class fcnet(pb.Network):
     def __init__(self, weight1, weight2):
         super().__init__()
@@ -753,8 +809,12 @@ class fcnet(pb.Network):
         self.i1 = pb.InputProj(input=pe, shape_out=(784,))
         self.n1 = pb.IF(128, threshold=128, reset_v=0, tick_wait_start=1)
         self.n2 = pb.IF(10, threshold=128, reset_v=0, tick_wait_start=2)
-        self.fc1 = pb.FullConn(self.i1, self.n1, weights=weight1, conn_type=pb.SynConnType.All2All)
-        self.fc2 = pb.FullConn(self.n1, self.n2, weights=weight2, conn_type=pb.SynConnType.All2All)
+        self.fc1 = pb.FullConn(
+            self.i1, self.n1, weights=weight1, conn_type=pb.SynConnType.All2All
+        )
+        self.fc2 = pb.FullConn(
+            self.n1, self.n2, weights=weight2, conn_type=pb.SynConnType.All2All
+        )
 ```
 
 ### 容器类型
@@ -763,6 +823,7 @@ PAIBox 提供 `NodeList`、`NodeDict` 容器类型，可批量化操作网络基
 
 ```python
 import paibox as pb
+
 l1 = pb.NodeList()
 
 for i in range(5):
@@ -781,15 +842,17 @@ for i in range(5):
 ```python
 import paibox as pb
 
+
 class ReusedStructure(pb.Network):
     def __init__(self, weight, tws, name: str | None = None):
         super().__init__(name=name)
 
         self.pre_n = pb.LIF((10,), 10, tick_wait_start=tws)
-        self.post_n = pb.LIF((10,), 10, tick_wait_start=tws+1)
+        self.post_n = pb.LIF((10,), 10, tick_wait_start=tws + 1)
         self.fc = pb.FullConn(
             self.pre_n, self.post_n, conn_type=pb.SynConnType.All2All, weights=weight
         )
+
 
 class Net(pb.Network):
     def __init__(self, w1, w2):
@@ -808,6 +871,7 @@ class Net(pb.Network):
             self.subnet2.pre_n,
             conn_type=pb.SynConnType.One2One,
         )
+
 
 w1 = ...
 w2 = ...
@@ -856,6 +920,7 @@ class fcnet(pb.Network):
         ...
         # 内部探针，记录神经元n1的输出脉冲
         self.probe1 = pb.simulator.Probe(target=self.n1, attr="spike")
+
 
 fcnet = fcnet(w1, w2)
 sim = pb.Simulator(fcnet)

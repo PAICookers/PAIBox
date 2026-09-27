@@ -53,17 +53,19 @@ UV_CACHE_DIR=/tmp/uv-cache CI_ENV=true uv run pytest -q tests/visualizer/backend
 import pytest
 from pathlib import Path
 
+
 @pytest.fixture(scope="module")
 def ensure_dump_dir():
     p = Path(__file__).parent / "debug"
 
     if not p.is_dir():
         p.mkdir(parents=True, exist_ok=True)
-    else: # Optional if you want to clean up the directory
+    else:  # Optional if you want to clean up the directory
         for f in p.iterdir():
             f.unlink()
 
     yield p
+
 
 @pytest.fixture(scope="module")
 def ensure_dump_dir_and_clean():
@@ -74,9 +76,9 @@ def ensure_dump_dir_and_clean():
     for f in p.iterdir():
         f.unlink()
 
+
 # In your test function at `test_items.py`, use it as follows:
-def test_foo(ensure_dump_dir):
-    ...
+def test_foo(ensure_dump_dir): ...
 ```
 
 2. 清除全局 `PAIBoxObject` 对象名字字典。该夹具在每次测试后，清除全局名字字典，从而避免命名冲突。需要注意的是，`autouse=True` 表示该夹具在每个测试函数执行前自动执行，无论测试函数是否需要。
@@ -84,6 +86,7 @@ def test_foo(ensure_dump_dir):
 ```python
 import pytest
 from paibox.generic import clear_name_cache
+
 
 @pytest.fixture(autouse=True)
 def clean_name_dict():
@@ -98,6 +101,7 @@ import pytest
 import os
 import tempfile
 
+
 @pytest.fixture
 def cleandir():
     with tempfile.TemporaryDirectory() as newpath:
@@ -106,10 +110,10 @@ def cleandir():
         yield
         os.chdir(old_cwd)
 
+
 # In your test function at `test_items.py`, use it as follows:
 @pytest.mark.usefixtures("cleandir")
-def test_foo():
-    ...
+def test_foo(): ...
 ```
 
 4. 测试后需要将某些全局配置恢复至默认值。该夹具在每次测试后，重置 `BACKEND_CONFIG` 与 `SynSys.CFLAG_ENABLE_WP_OPTIMIZATION` 为默认值。该夹具将自动执行。
@@ -122,6 +126,7 @@ def _reset_context() -> None:
     # To avoid overlapping with multi-chip coordinates
     pb.BACKEND_CONFIG.output_chip_addr = (9, 9)
     SynSys.CFLAG_ENABLE_WP_OPTIMIZATION = True
+
 
 @pytest.fixture(autouse=True)
 def context_reset():
@@ -139,6 +144,7 @@ def perf_fixture(request):
     with measure_time(f"{request.node.name}"):
         yield
 
+
 def test_case1(perf_fixture):
     func1(...)
     func2(...)
@@ -148,6 +154,7 @@ def test_case1(perf_fixture):
 
 ```python
 from .utils import measure_time
+
 
 def test_case2():
     with measure_time("test case2"):
@@ -162,6 +169,7 @@ def test_case2():
 def fixed_rng() -> np.random.Generator:
     return np.random.default_rng(42)
 
+
 def test_foo(fixed_rng):
     fixed_rng.random(...)
 ```
@@ -171,9 +179,9 @@ def test_foo(fixed_rng):
 ```python
 from tests.utils import skip_if_in_ci_env
 
+
 @skip_if_in_ci_env
-def test_foo():
-    ...
+def test_foo(): ...
 ```
 
 ## 日志系统
@@ -197,10 +205,13 @@ register_artifact("build_core_blocks")
 ```python
 # In backend/mapper.py
 from paibox import _logging
+
 log = _logging.get_artifact_logger(__name__, "build_core_blocks")
+
 
 class Mapper:
     ...
+
     def build_core_blocks(self):
         log.info("hi")
 ```
