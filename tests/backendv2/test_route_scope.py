@@ -1,13 +1,14 @@
 import pytest
 from paicorelib import AERPacketZXYCopy, CoordXY, CoordZXYOffset
 
-from paibox.backendv2 import BoardName
 from paibox.backendv2.board import (
+    BoardName,
     ChipCoord,
     LocalCoreCoord,
+    TargetBoard,
     get_board_profile,
 )
-from paibox.backendv2.route_scope import TargetBoard, get_route_scope
+from paibox.backendv2.route_scope import get_route_scope
 
 
 @pytest.mark.parametrize(

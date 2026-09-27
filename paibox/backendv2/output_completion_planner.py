@@ -8,9 +8,10 @@ from typing import Literal
 
 from paicorelib import CoordXY, CoordZXYOffset, route_coord_path, to_coordxys
 
+from .board import TargetBoard
 from .global_signal import EmptyRelayCoreKind as EmptyThreadCoreKind
 from .global_signal import solve_global_signal_tree
-from .route_scope import RouteScope, TargetBoard, get_route_scope
+from .route_scope import RouteScope, get_route_scope
 
 __all__ = [
     "OutputCompletionPlan",

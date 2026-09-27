@@ -5,7 +5,7 @@ from paicorelib import CoordZXYOffset, DataSign, DataWidth, find_coordxy_shortes
 
 from paibox.paiir.ir.signal_domain import SignalDomain
 
-from ..board import BoardTarget, get_board_profile
+from ..board import TargetBoard, get_board_profile
 from ..coreplacement import CorePlacement, Frontend_Core_Config
 from ..op_node import Neuron, RemapElem
 from ..routing import InputGroup, OutputGroup, RemapGroup, RoutingGroup, SourceElem
@@ -423,7 +423,7 @@ def build_compile_artifacts(
     coreplacements: Sequence[CorePlacement],
     global_starts: Mapping[int, CoordZXYOffset],
     frame_records: FrameRecords,
-    target_board: BoardTarget = "single",
+    target_board: TargetBoard = "single",
 ) -> CompileArtifactsData:
     """Build backendv2 compile metadata shared by protobuf and FlatBuffers."""
     profile = get_board_profile(target_board)

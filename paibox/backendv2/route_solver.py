@@ -20,7 +20,8 @@ from paicorelib import (
     to_coordxy,
 )
 
-from .route_scope import RouteAuditResult, RouteScope, TargetBoard, get_route_scope
+from .board import TargetBoard
+from .route_scope import RouteAuditResult, RouteScope, get_route_scope
 from .routing import InputGroup, OutputGroup, RoutingGroup
 
 __all__ = ["RouteSolver", "route_solve"]

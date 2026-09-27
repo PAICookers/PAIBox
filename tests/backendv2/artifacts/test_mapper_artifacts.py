@@ -9,7 +9,7 @@ from torch import nn
 
 from paibox.backendv2.artifacts.compile_artifacts import SCHEMA_VERSION
 from paibox.backendv2.artifacts.utils import export_framearray_to_int32
-from paibox.backendv2.board import BoardTarget
+from paibox.backendv2.board import TargetBoard
 from paibox.backendv2.generated.fbs.CompileArtifacts import (
     CompileArtifacts as FbsCompileArtifacts,
 )
@@ -76,7 +76,7 @@ def _export_simple_cnn(
     debug: bool,
     word_order: str = "high_first",
     export_merged_frames: bool = True,
-    target_board: BoardTarget = "single",
+    target_board: TargetBoard = "single",
 ) -> tuple[Path, Mapper]:
     export_dir = export_root / case_name
     export_dir.mkdir(parents=True, exist_ok=False)

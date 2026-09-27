@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Literal
 
 
 class BoardName(StrEnum):
@@ -9,7 +10,7 @@ class BoardName(StrEnum):
     ARRAY_2X2 = "array_2x2"
 
 
-BoardTarget = BoardName | str
+TargetBoard = BoardName | Literal["single", "array2x2", "array_2x2"]
 PAICORE_2p5_CORE_GRID_SIZE = (9, 9)
 
 
@@ -151,11 +152,11 @@ BOARD_PROFILES: dict[BoardName, BoardProfile] = {
 }
 
 
-def get_board_profile(name: BoardTarget) -> BoardProfile:
+def get_board_profile(name: TargetBoard) -> BoardProfile:
     """Resolve a board enum or accepted string alias to its canonical profile."""
     if name == "array2x2":
         name = BoardName.ARRAY_2X2
     try:
         return BOARD_PROFILES[BoardName(name)]
-    except (TypeError, ValueError) as exc:
+    except (KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"unsupported board profile {name!r}") from exc

@@ -26,6 +26,7 @@ from .artifacts.utils import (
     make_frame_records,
     resolve_platform_exports,
 )
+from .board import TargetBoard
 from .compile_plan import build_subgraph_compile_plan
 from .coreplacement import (
     CorePlacement,
@@ -42,7 +43,7 @@ from .output_completion_planner import (
 )
 from .pressure_unroll import PressureUnrollConfig, PressureUnroller
 from .rg_build import build_groups
-from .route_scope import RouteScope, TargetBoard, get_route_scope
+from .route_scope import RouteScope, get_route_scope
 from .route_solver import route_solve
 from .routing import InputGroup, OutputGroup, RemapGroup, RoutingGroup, toposort_for_rg
 

@@ -26,8 +26,8 @@ from .board import (
     BoardCoreAddr,
     BoardName,
     BoardProfile,
-    BoardTarget,
     ChipCoord,
+    TargetBoard,
     get_board_profile,
 )
 
@@ -41,7 +41,6 @@ __all__ = [
     "get_route_scope",
 ]
 
-TargetBoard = BoardTarget
 RoutePath = tuple[CoordXY, ...]
 LocalCoords = tuple[CoordXY, ...]
 PacketAuditKey = tuple[str, int, int, int, int, int, int, int, int]
