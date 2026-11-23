@@ -21,7 +21,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, ClassVar
 
 import torch
-from paicorelib import RM, OutputType, PoolingMode, ThresholdNegMode, ThresholdPosMode
+from paicorelib import OutputType, PoolingMode
 from torch import Tensor, nn
 from torch.nn import functional as F
 
@@ -134,10 +134,11 @@ def _get_pooling_mode(comp: nn.Module) -> PoolingMode:
     return PoolingMode.AVERAGE
 
 
-def _tensor_value_range(tensor: Tensor) -> tuple[int, int]:
+def _tensor_value_range(tensor: Tensor, sign: int = 1) -> tuple[int, int]:
     """Return integer min/max after applying the same int8 cast used by export paths."""
     qt = tensor.detach().to(torch.int8)
-    return int(qt.min().item()), int(qt.max().item())
+    lo, hi = int(qt.min().item()), int(qt.max().item())
+    return (lo, hi) if sign == 1 else (-hi, -lo)
 
 
 @dataclass(frozen=True, slots=True)
@@ -494,11 +495,11 @@ class AccumulateOp(OfflineCoreOp):
 
     def get_weight_value_range(self) -> tuple[int, int] | None:
         ranges: list[tuple[int, int]] = []
-        for comp in self.comps:
+        for comp, sign in zip(self.comps, self.signs):
             w = _get_weight_tensor(comp)
             if not torch.is_tensor(w):
                 return None
-            ranges.append(_tensor_value_range(w))
+            ranges.append(_tensor_value_range(w, sign))
 
         if not ranges:
             return None
@@ -519,7 +520,7 @@ class AccumulateOp(OfflineCoreOp):
                 fused_bias = term if fused_bias is None else fused_bias + term
 
         if self.act is None:
-            return NeuronParams(output_type=OutputType.POTENTIAL), fused_bias
+            return NeuronParams.stateless_potential(), fused_bias
 
         return self.act.to_neuron_params(), fused_bias
 
@@ -644,6 +645,7 @@ class StandaloneCompOp(OfflineCoreOp):
 
     Args:
         comp: The compute operation.
+        op_sign: Polarity folded into the exported MAC weights and bias.
 
     The public constructor derives semantic core parameters from ``comp``.
     Advanced callers that need to preserve prepared compile-time state should
@@ -653,15 +655,23 @@ class StandaloneCompOp(OfflineCoreOp):
 
     comp: nn.Module
 
-    def __init__(self, comp: nn.Module) -> None:
+    def __init__(self, comp: nn.Module, *, op_sign: int = 1) -> None:
+        if op_sign not in (-1, 1):
+            raise ValueError(f"'op_sign' must be +1 or -1, got {op_sign}")
+        if op_sign == -1 and not isinstance(comp, (nn.Linear, nn.Conv1d, nn.Conv2d)):
+            raise ValueError(
+                "Negative compute polarity requires a Linear or Conv producer"
+            )
         core_params = OfflineCoreParams()
         core_params.pooling_mode = _get_pooling_mode(comp)
 
         super().__init__(core_params)
         self.comp = comp
+        self.sign = op_sign
 
     def forward(self, x: Tensor) -> Tensor:
-        return _run_comp(self.comp, x)
+        result = _run_comp(self.comp, x)
+        return result if self.sign == 1 else -result
 
     @property
     def weights(self) -> list[Tensor] | None:
@@ -673,7 +683,7 @@ class StandaloneCompOp(OfflineCoreOp):
     def get_weight_value_range(self) -> tuple[int, int] | None:
         w = _get_weight_tensor(self.comp)
         if torch.is_tensor(w):
-            return _tensor_value_range(w)
+            return _tensor_value_range(w, self.sign)
         return None
 
     def _src_params(self) -> tuple[NeuronParams, Tensor | None]:
@@ -700,17 +710,10 @@ class StandaloneCompOp(OfflineCoreOp):
                     None,
                 )
 
-        return (
-            NeuronParams(
-                reset_mode=RM.MODE_NONRESET,
-                thres_neg_mode=ThresholdNegMode.FIRE,
-                thres_pos_mode=ThresholdPosMode.FIRE,
-                thres_neg=0,
-                thres_pos=0,
-                output_type=OutputType.POTENTIAL,
-            ),
-            _get_bias(self.comp),
-        )
+        bias = _get_bias(self.comp)
+        if bias is not None and self.sign == -1:
+            bias = -bias
+        return NeuronParams.stateless_potential(), bias
 
     @property
     def hw_lut_data(self) -> LutData | None:

@@ -1,5 +1,5 @@
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 import torch
@@ -18,6 +18,7 @@ from ..paiir.ir import (
     StandaloneCompOp,
 )
 from ..paiir.nn.pool import SumPool1d, SumPool2d
+from ..paiir.pipeline.data_format import infer_weight_format
 from .op_node import CoreOpNode, Neuron, SourceElem, SourceNode
 from .weight import Weight
 
@@ -77,6 +78,9 @@ def path_signs(target: CoreOpNode) -> list[int]:
     raw_node = target.raw_node
     if isinstance(raw_node, (AccumulateOp, PotentialAddOp)):
         return list(raw_node.signs)
+
+    if isinstance(raw_node, StandaloneCompOp):
+        return [raw_node.sign]
 
     return [1] * len(target.predecessors)
 
@@ -875,6 +879,23 @@ def get_raw_weights(raw_neus: list[Neuron], input_neus: list[SourceElem]) -> np.
                 path_matrices[predecessor] = path_matrices[predecessor] + matrix
             else:
                 path_matrices[predecessor] = matrix
+
+        if (
+            isinstance(target.raw_node, AccumulateOp)
+            and -1 in signs
+            and len(path_matrices) < len(target.predecessors)
+        ):
+            # Equal sources share axons, so the exported coefficient is the
+            # sum of their signed coefficients and may need a wider format.
+            weight_sign, weight_width = infer_weight_format(
+                min(int(matrix.min()) for matrix in path_matrices.values()),
+                max(int(matrix.max()) for matrix in path_matrices.values()),
+            )
+            target.frontend_core_config = replace(
+                target.frontend_core_config,
+                weight_sign=weight_sign,
+                weight_width=weight_width,
+            )
 
         target_cache[target] = path_matrices
 

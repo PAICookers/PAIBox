@@ -15,7 +15,7 @@ import torch
 from paicorelib import AddPotentialMode
 from torch import Tensor
 
-from .calc_params import OfflineCoreParams
+from .calc_params import NeuronParams, OfflineCoreParams
 from .op_node import OfflineCoreOp, OpNode
 
 __all__ = ["AddOperandKind", "AddOperandSpec", "GeneralAddOp", "PotentialAddOp"]
@@ -213,10 +213,9 @@ class GeneralAddOp(OpNode):
 
 
 class PotentialAddOp(OfflineCoreOp):
-    """Deployable element-wise potential add / subtract.
+    """Element-wise potential add / subtract.
 
-    This IR node intentionally models only the narrow add form that the
-    current chip/backend path can deploy:
+    Negative paths must be fused into MAC weights before direct-add export.
 
     - each operand must come from a real tensor-path predecessor
     - all operands must be aligned element-wise in the same shape/layout
@@ -260,6 +259,9 @@ class PotentialAddOp(OfflineCoreOp):
             acc += sign * x
 
         return acc
+
+    def _src_params(self) -> tuple[NeuronParams, None]:
+        return NeuronParams.stateless_potential(), None
 
     @property
     def weights(self) -> list[Tensor] | None:

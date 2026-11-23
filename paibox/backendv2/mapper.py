@@ -1,5 +1,6 @@
 import os
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
@@ -11,7 +12,12 @@ from paicorelib import (
 )
 
 from paibox.paiir import PAIIRGraph
-from paibox.paiir.ir import OfflineCoreOp, StandaloneCompOp
+from paibox.paiir.ir import (
+    AccumulateOp,
+    OfflineCoreOp,
+    PotentialAddOp,
+    StandaloneCompOp,
+)
 
 from .artifacts.cheader import export_cheader_files, export_cheader_merged
 from .artifacts.compile_artifacts import build_compile_artifacts
@@ -36,7 +42,15 @@ from .coreplacement import (
 from .diagnostics import debug_print as print
 from .global_signal import set_global_signal
 from .group_tile import tile_groups
-from .op_node import AllNode, InputElem, Neuron, RemapElem, SourceElem, build_nodes
+from .op_node import (
+    AllNode,
+    CoreOpNode,
+    InputElem,
+    Neuron,
+    RemapElem,
+    SourceElem,
+    build_nodes,
+)
 from .output_completion_planner import (
     OutputCompletionPlan,
     OutputProducer,
@@ -135,6 +149,19 @@ class Mapper:
 
     def generate_routing_groups(self, pai_graph: PAIIRGraph) -> None:
         self.nodes = build_nodes(pai_graph)
+        for node in self.nodes:
+            if not isinstance(node, CoreOpNode):
+                continue
+            op = node.raw_node
+            if (
+                isinstance(op, (StandaloneCompOp, PotentialAddOp, AccumulateOp))
+                and op.neu_params.output_type == OutputType.POTENTIAL
+                and not (isinstance(op, AccumulateOp) and op.act is not None)
+            ):
+                # Preserve the graph's runtime length for subsequent compilations.
+                node.frontend_core_config = replace(
+                    node.frontend_core_config, tick_initial=1
+                )
         self.groups, self.input_groups, self.output_groups = build_groups(self.nodes)
 
     def set_rough_dest(self) -> None:
@@ -476,14 +503,6 @@ class Mapper:
 
             if auto_reset is not None:
                 node.core_params.tick_duration = 0 if auto_reset else self.timesteps
-
-            if (
-                isinstance(node, StandaloneCompOp)
-                and node.neu_params.output_type == OutputType.POTENTIAL
-            ):
-                # Preserve current VJT, then reinitialise before the next tick.
-                node.core_params.tick_initial = 1
-            elif auto_reset is not None:
                 node.core_params.tick_initial = self.timesteps if auto_reset else 0
 
             node.core_params.validate_tick_params()
