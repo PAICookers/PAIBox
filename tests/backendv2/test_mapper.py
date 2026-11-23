@@ -7,6 +7,7 @@ import torch
 from paicorelib import (
     LCN_EX,
     RM,
+    AddPotentialMode,
     CoordXY,
     CoordZXYOffset,
     CSCAccelerateMode,
@@ -30,7 +31,7 @@ from paibox.backendv2.coreplacement import (
     OfflineCorePlacementV2,
 )
 from paibox.backendv2.mapper import Mapper
-from paibox.backendv2.op_node import SourceElem
+from paibox.backendv2.op_node import CoreOpNode, SourceElem
 from paibox.backendv2.output_completion_planner import (
     EmptyThreadCore,
     OutputCompletionPlan,
@@ -48,12 +49,18 @@ from paibox.paiir import (
     LUT_TABLE_SIZE,
     ANNNodeV25,
     CoreNeuronV25,
+    IFNodeV25,
     LutCustom,
     LutReLU,
     compile_to_paiir,
     register_neuron,
 )
-from paibox.paiir.ir import AccumulateOp
+from paibox.paiir.ir import (
+    AccumulateOp,
+    PotentialAddOp,
+    StandaloneActOp,
+    StandaloneCompOp,
+)
 from tests.paiir.conftest import ANNClassifier, make_img_3ch_8x8
 
 DEBUG_EXPORT_ROOT = Path(__file__).with_name("debug") / "mapper_proto_export"
@@ -466,6 +473,88 @@ def test_mapper_resets_pure_accumulation_on_every_tick(tmp_path, auto_reset):
         assert core.frontend_core_config.tick_duration == (0 if auto_reset else 8)
         assert attrs is not None
         assert attrs.threshold_neg_mode == ThresholdNegMode.FIRE.value
+
+
+@pytest.mark.parametrize("with_activation", [False, True])
+def test_mapper_lowers_signed_reduction_to_mac_weights(tmp_path, with_activation):
+    class SubtractBranches(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.a, self.b, self.c = [nn.Linear(1, 1) for _ in range(3)]
+            self.act = IFNodeV25(v_threshold=8)
+            with torch.no_grad():
+                for layer in (self.a, self.b, self.c):
+                    layer.weight.fill_(2)
+                    layer.bias.fill_(3)
+
+        def forward(self, x, y, z):
+            a = self.a(x)
+            result = (a + self.b(y)) - (a + self.c(z))
+            return self.act(result) if with_activation else result
+
+    model = SubtractBranches().eval()
+    inputs = tuple(torch.tensor([[i]], dtype=torch.float32) for i in (2, 3, 4))
+    graph = compile_to_paiir(model, *inputs, timesteps=8)
+    if not with_activation:
+        actual = graph.run(*(x.expand(3, -1, -1) for x in inputs), T=3)
+        torch.testing.assert_close(actual[-1], model(*inputs))
+    mapper = Mapper()
+    mapper.compile(graph, tmp_path, target_platform="x86")
+
+    cores = [node for node in mapper.nodes if isinstance(node, CoreOpNode)]
+    reducers = [node for node in cores if isinstance(node.raw_node, PotentialAddOp)]
+    activations = [node for node in cores if isinstance(node.raw_node, StandaloneActOp)]
+    assert len(reducers) == 3
+    assert len(activations) == int(with_activation)
+    for node in reducers:
+        assert node.raw_node.signs == (1, 1)
+        assert node.core_config().add_potential == AddPotentialMode.DIRECT_ADD
+        assert node.core_config().tick_initial == 1
+    assert all(node.core_config().tick_initial == 8 for node in activations)
+    for sign in (1, -1):
+        producers = [
+            node
+            for node in cores
+            if isinstance(node.raw_node, StandaloneCompOp)
+            and node.raw_node.sign == sign
+        ]
+        assert len(producers) == 2
+        for node in producers:
+            assert node.raw_node.neu_params.leak_v.item() == sign * 3
+            assert node.core_config().weight_sign == (
+                DataSign.SIGNED if sign == -1 else DataSign.UNSIGNED
+            )
+            placements = [
+                core
+                for core in mapper.coreplacements
+                if isinstance(core, OfflineCorePlacementV2)
+                and any(raw.target is node for p in core.neus for raw in p.raw_neus)
+            ]
+            assert len(placements) == 1
+            assert any(sign * 2 in w.processed_weights for w in placements[0].weights)
+
+
+def test_mapper_uses_actual_weight_of_signed_paths_sharing_an_input(tmp_path):
+    class SubtractOnSharedInput(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.a = nn.Linear(1, 1, bias=False)
+            self.b = nn.Linear(1, 1, bias=False)
+            with torch.no_grad():
+                self.a.weight.fill_(12)
+                self.b.weight.fill_(-11)
+
+        def forward(self, x):
+            return self.a(x) - self.b(x)
+
+    graph = compile_to_paiir(SubtractOnSharedInput(), torch.ones(1, 1))
+    mapper = Mapper()
+    mapper.compile(graph, tmp_path, target_platform="x86")
+
+    core = mapper.coreplacements[0]
+    assert core.frontend_core_config.weight_sign == DataSign.UNSIGNED
+    assert core.frontend_core_config.weight_width == DataWidth.WIDTH_8BIT
+    assert core.weights[0].processed_weights.tolist() == [23]
 
 
 def test_mapper_vector_mode_controls_part2_and_half_reuse(tmp_path):

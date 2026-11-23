@@ -17,14 +17,20 @@ Two validation stages live in this module:
 
 import math
 import warnings
+from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
 import torch
 from paicorelib import AddPotentialMode, DataSign, DataWidth, OutputType, SNNMode
+from torch import nn
 
-from ..exceptions import GraphCleanupWarning, GraphValidationError
+from ..exceptions import (
+    GraphCleanupWarning,
+    GraphValidationError,
+    UnsupportedFusionError,
+)
 from ..ir.add_ops import AddOperandKind, AddOperandSpec, GeneralAddOp, PotentialAddOp
 from ..ir.core_neuron import CoreNeuronV25
 from ..ir.graph import Edge, PAIIRGraph
@@ -622,6 +628,14 @@ def _materialize_accumulate_from_potential_add(
 
     comps = [graph.nodes[p].comp for p in comp_preds]  # type: ignore[union-attr]
     fused = AccumulateOp(comps, act, add_node.signs)
+    if -1 in add_node.signs:
+        weight_range = fused.get_weight_value_range()
+        if weight_range is not None:
+            try:
+                infer_weight_format(*weight_range)
+            except ValueError:
+                # Separate producers may use different signedness (e.g. +128).
+                return None
     fused_input_layouts = []
     for p in comp_preds:
         fused_input_layouts.extend(graph.nodes[p].input_layouts)  # type: ignore[union-attr]
@@ -635,6 +649,92 @@ def _materialize_accumulate_from_potential_add(
         port_remap[p] = i
 
     return fused, comp_preds
+
+
+def lower_potential_subtractions(graph: PAIIRGraph) -> PAIIRGraph:
+    """Push direct-add edge signs to MACs, sharing each required polarity."""
+    if not any(
+        isinstance(node, PotentialAddOp) and -1 in node.signs
+        for node in graph.nodes.values()
+    ):
+        return graph
+
+    order = graph.topo_sort()
+    paths: dict[tuple[str, int], list[tuple[Edge, int]]] = {}
+    wanted: dict[str, set[int]] = defaultdict(set)
+    for name in reversed(order):
+        node = graph.nodes[name]
+        edges = graph.incoming_edges(name)
+        if not graph.successors(name):
+            wanted[name].add(1)
+        for polarity in wanted[name]:
+            if isinstance(node, PotentialAddOp):
+                signs = tuple(polarity * sign for sign in node.signs)
+            elif isinstance(node, (TransformOp, ConcatOp, PadOp, SplitOp)):
+                signs = (polarity,) * len(edges)
+            else:
+                signs = (1,) * len(edges)
+            paths[name, polarity] = list(zip(edges, signs, strict=True))
+            for edge, sign in paths[name, polarity]:
+                wanted[edge.src].add(sign)
+
+    lowered = PAIIRGraph(graph.name)
+    variants: dict[tuple[str, int], str] = {}
+    for name in order:
+        original = graph.nodes[name]
+        for polarity in sorted(wanted[name], reverse=True):
+            node = _potential_polarity_variant(original, polarity)
+            variants[name, polarity] = node.name
+            lowered.add_node(node)
+            for edge, sign in paths[name, polarity]:
+                lowered.add_edge(
+                    variants[edge.src, sign],
+                    node.name,
+                    src_port=edge.src_port,
+                    dst_port=edge.dst_port,
+                )
+    return lowered
+
+
+def _potential_polarity_variant(original: PAIIRNode, polarity: int) -> PAIIRNode:
+    if isinstance(original, PotentialAddOp):
+        if polarity == 1 and -1 not in original.signs:
+            return original
+        node = PotentialAddOp((1,) * len(original.signs))
+    elif polarity == 1:
+        return original
+    elif isinstance(original, TransformOp):
+        node = TransformOp(original.stages)
+    elif isinstance(original, ConcatOp):
+        node = ConcatOp(original.dim)
+    elif isinstance(original, PadOp):
+        node = PadOp(original.padding)
+    elif isinstance(original, SplitOp):
+        node = SplitOp(original.sections, original.dim)
+    elif isinstance(original, StandaloneCompOp) and isinstance(
+        original.comp, (nn.Linear, nn.Conv1d, nn.Conv2d)
+    ):
+        node = StandaloneCompOp(original.comp, op_sign=-original.sign)
+    elif (
+        isinstance(original, AccumulateOp)
+        and original.act is None
+        and all(
+            isinstance(comp, (nn.Linear, nn.Conv1d, nn.Conv2d))
+            for comp in original.comps
+        )
+    ):
+        node = AccumulateOp(
+            original.comps, None, tuple(-sign for sign in original.signs)
+        )
+    else:
+        raise UnsupportedFusionError(
+            f"Cannot negate '{original.name}' for DIRECT_ADD. "
+            "A negative potential path requires an affine MAC producer."
+        )
+
+    node.input_layouts = original.input_layouts
+    node.output_layouts = original.output_layouts
+    return node
 
 
 def _rebuild_edges(
@@ -1487,6 +1587,11 @@ def validate_deployable_graph(graph: PAIIRGraph) -> None:
                 errors.append(str(exc))
 
         if isinstance(node, PotentialAddOp):
+            if -1 in node.signs:
+                errors.append(
+                    f"PotentialAddOp '{name}' has a negative DIRECT_ADD path. "
+                    "Lower subtraction into MAC weights before deployment."
+                )
             pred_domains = [
                 graph.nodes[p].signal_semantics.output_domain
                 for p in graph.predecessors(name)

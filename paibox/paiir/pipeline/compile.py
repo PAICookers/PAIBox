@@ -10,8 +10,8 @@ conversion pipeline:
    into n-ary add nodes
 4. :func:`specialize_general_adds` -- narrow expression-layer add nodes into
    deployable add IR where possible
-5. :func:`fuse_to_offline_cores` -- choose topology, rewrite nodes, and apply
-   AvgPool deployment params
+5. :func:`fuse_to_offline_cores` -- choose topology, apply AvgPool deployment
+   params, then lower remaining potential subtraction into producer weights
 6. post-fusion fixed-point rewrites with analysis refresh
 7. :func:`assign_tick_params` -- assign timing parameters
 8. :func:`calibrate_avgpool_thresholds` -- optional AvgPool threshold refinement
@@ -47,6 +47,7 @@ from .passes import (
     calibrate_avgpool_thresholds,
     flatten_general_add_chains,
     fuse_to_offline_cores,
+    lower_potential_subtractions,
     specialize_general_adds,
     validate_compiled_graph,
     validate_deployable_graph,
@@ -139,6 +140,7 @@ def _compile_paiir_graph(
     graph = fuse_to_offline_cores(
         graph, enable_split_avgpool_lif, enable_avgpool_calibration
     )
+    graph = lower_potential_subtractions(graph)
     graph = _run_post_fusion_rewrite_phase(
         graph,
         input_formats,
@@ -235,8 +237,8 @@ def compile_to_paiir(
        chains into n-ary add nodes
     4. :func:`specialize_general_adds` -- narrow expression-layer add nodes
        into deployable add IR where possible
-    5. :func:`fuse_to_offline_cores` -- choose topology, rewrite nodes, and
-       apply AvgPool deployment params
+    5. :func:`fuse_to_offline_cores` -- choose topology, apply AvgPool deployment
+       params, then lower remaining potential subtraction into producer weights
     6. analysis phase -- validate graph, infer signal semantics, infer data formats
     7. delayed AvgPool division rewrite when an exact-sum single-consumer chain
        can materialize the divisor safely at a later endpoint

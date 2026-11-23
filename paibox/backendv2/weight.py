@@ -31,7 +31,8 @@ class Weight:
         raw_weights = np.asarray(data, dtype=np.int16).ravel()
 
         if AddPotential == AddPotentialMode.DIRECT_ADD:
-            # in direct add mode, weight width should be at least 4 bit to avoid overflow
+            if np.any((raw_weights != 0) & (raw_weights != 1)):
+                raise ValueError("DIRECT_ADD weights must be binary connection masks")
             weight_width = DataWidth.WIDTH_1BIT
             input_width = DataWidth.WIDTH_1BIT
             # each one in original weight repeat 32 times to form mask for direct add mode

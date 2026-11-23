@@ -383,6 +383,18 @@ def test_group_shift_weights_random_int8_matches_reference():
         np.testing.assert_array_equal(base_weights[info.index], expected_base)
 
 
+@pytest.mark.parametrize("invalid_weight", [-1, 2])
+def test_direct_add_rejects_nonbinary_masks(invalid_weight):
+    with pytest.raises(ValueError, match="DIRECT_ADD weights must be binary"):
+        Weight(
+            [1, invalid_weight],
+            WeightCompressType.DENSE,
+            DataWidth.WIDTH_1BIT,
+            DataWidth.WIDTH_1BIT,
+            AddPotentialMode.DIRECT_ADD,
+        )
+
+
 def test_choose_weight_strategy_sparse_keeps_original_row():
     weight = np.zeros(192, dtype=np.int16)
     weight[[17, 18, 31]] = [3, 4, 5]

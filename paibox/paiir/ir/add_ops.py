@@ -213,10 +213,9 @@ class GeneralAddOp(OpNode):
 
 
 class PotentialAddOp(OfflineCoreOp):
-    """Deployable element-wise potential add / subtract.
+    """Element-wise potential add / subtract.
 
-    This IR node intentionally models only the narrow add form that the
-    current chip/backend path can deploy:
+    Negative paths must be fused into MAC weights before direct-add export.
 
     - each operand must come from a real tensor-path predecessor
     - all operands must be aligned element-wise in the same shape/layout
