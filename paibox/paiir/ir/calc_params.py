@@ -241,6 +241,16 @@ class NeuronParams:
     init_v: float | Tensor = 0.0
     output_type: OutputType = OutputType.VALUE
 
+    @classmethod
+    def stateless_potential(cls) -> "NeuronParams":
+        # Preserve the signed output until the core's next-tick initialization.
+        return cls(
+            reset_mode=RM.MODE_NONRESET,
+            thres_neg_mode=ThresholdNegMode.FIRE,
+            thres_neg=0,
+            output_type=OutputType.POTENTIAL,
+        )
+
 
 @dataclass
 class OnlineCoreParams:

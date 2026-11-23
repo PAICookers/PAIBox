@@ -21,7 +21,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, ClassVar
 
 import torch
-from paicorelib import RM, OutputType, PoolingMode, ThresholdNegMode, ThresholdPosMode
+from paicorelib import OutputType, PoolingMode
 from torch import Tensor, nn
 from torch.nn import functional as F
 
@@ -519,7 +519,7 @@ class AccumulateOp(OfflineCoreOp):
                 fused_bias = term if fused_bias is None else fused_bias + term
 
         if self.act is None:
-            return NeuronParams(output_type=OutputType.POTENTIAL), fused_bias
+            return NeuronParams.stateless_potential(), fused_bias
 
         return self.act.to_neuron_params(), fused_bias
 
@@ -700,17 +700,7 @@ class StandaloneCompOp(OfflineCoreOp):
                     None,
                 )
 
-        return (
-            NeuronParams(
-                reset_mode=RM.MODE_NONRESET,
-                thres_neg_mode=ThresholdNegMode.FIRE,
-                thres_pos_mode=ThresholdPosMode.FIRE,
-                thres_neg=0,
-                thres_pos=0,
-                output_type=OutputType.POTENTIAL,
-            ),
-            _get_bias(self.comp),
-        )
+        return NeuronParams.stateless_potential(), _get_bias(self.comp)
 
     @property
     def hw_lut_data(self) -> LutData | None:

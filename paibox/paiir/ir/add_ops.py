@@ -15,7 +15,7 @@ import torch
 from paicorelib import AddPotentialMode
 from torch import Tensor
 
-from .calc_params import OfflineCoreParams
+from .calc_params import NeuronParams, OfflineCoreParams
 from .op_node import OfflineCoreOp, OpNode
 
 __all__ = ["AddOperandKind", "AddOperandSpec", "GeneralAddOp", "PotentialAddOp"]
@@ -260,6 +260,9 @@ class PotentialAddOp(OfflineCoreOp):
             acc += sign * x
 
         return acc
+
+    def _src_params(self) -> tuple[NeuronParams, None]:
+        return NeuronParams.stateless_potential(), None
 
     @property
     def weights(self) -> list[Tensor] | None:

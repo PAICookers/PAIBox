@@ -53,6 +53,7 @@ from paibox.paiir import (
     compile_to_paiir,
     register_neuron,
 )
+from paibox.paiir.ir import AccumulateOp
 from tests.paiir.conftest import ANNClassifier, make_img_3ch_8x8
 
 DEBUG_EXPORT_ROOT = Path(__file__).with_name("debug") / "mapper_proto_export"
@@ -438,6 +439,33 @@ def test_mapper_preserves_standalone_potential_semantics(
     assert attrs.threshold_pos_mode == ThresholdPosMode.FIRE.value
     assert attrs.threshold_neg == 0
     assert attrs.threshold_pos == 0
+
+
+@pytest.mark.parametrize("auto_reset", [False, True])
+def test_mapper_resets_pure_accumulation_on_every_tick(tmp_path, auto_reset):
+    class AddBranches(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.a = nn.Linear(1, 1, bias=False)
+            self.b = nn.Linear(1, 1, bias=False)
+
+        def forward(self, x, y):
+            return self.a(x) + self.b(y)
+
+    graph = compile_to_paiir(
+        AddBranches(), *[torch.zeros(1, 1)] * 2, timesteps=8, auto_reset=auto_reset
+    )
+    for export in ("first", "second"):
+        mapper = Mapper()
+        mapper.compile(graph, tmp_path / export, target_platform="x86")
+        core = mapper.coreplacements[0]
+        attrs = core.neus[0].neu_attrs_part2
+        assert isinstance(core.neus[0].raw_neus[0].target.raw_node, AccumulateOp)
+        assert mapper.timesteps == 8
+        assert core.frontend_core_config.tick_initial == 1
+        assert core.frontend_core_config.tick_duration == (0 if auto_reset else 8)
+        assert attrs is not None
+        assert attrs.threshold_neg_mode == ThresholdNegMode.FIRE.value
 
 
 def test_mapper_vector_mode_controls_part2_and_half_reuse(tmp_path):
